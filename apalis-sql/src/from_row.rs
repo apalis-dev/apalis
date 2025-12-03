@@ -3,7 +3,7 @@ use std::str::FromStr;
 use apalis_core::{
     backend::codec::Codec,
     error::BoxDynError,
-    task::{Task, attempt::Attempt, builder::TaskBuilder, status::Status, task_id::TaskId},
+    task::{attempt::Attempt, builder::TaskBuilder, status::Status, task_id::TaskId, Task},
 };
 
 #[cfg(feature = "chrono")]
@@ -29,7 +29,8 @@ pub type SqlDateTime = DateTime<Utc>;
 pub type SqlDateTime = OffsetDateTime;
 
 /// Helper trait for getting unix timestamp from datetime types
-trait ToUnixTimestamp {
+pub trait ToUnixTimestamp {
+    /// Returns the Unix timestamp
     fn to_unix_timestamp(&self) -> i64;
 }
 
