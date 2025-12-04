@@ -367,7 +367,7 @@ impl Drop for WorkerContext {
             // There are still other references to this context, so we shouldn't log a warning.
             return;
         }
-        if self.is_running() {
+        if self.is_running() && self.has_pending_tasks() {
             error!(
                 "Worker '{}' is being dropped while running with `{}` tasks. Consider calling stop() before dropping.",
                 self.name(),
