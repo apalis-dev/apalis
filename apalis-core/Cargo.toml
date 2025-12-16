@@ -1,13 +1,13 @@
 [package]
 name = "apalis-core"
-version = "1.0.0-beta.2"
+version = "1.0.0-rc.1"
 authors = ["Njuguna Mureithi <mureithinjuguna@gmail.com>"]
 edition.workspace = true
 repository.workspace = true
 license = "MIT"
 description = "Core for apalis: simple, extensible multithreaded background processing for Rust"
 categories = ["concurrency"]
-readme = "../README.md"
+readme = "README.md"
 publish = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -33,9 +33,6 @@ pin-project = "1"
 thiserror = "2.0.0"
 futures-timer = { version = "3.0.3", optional = true }
 tracing = { version = "0.1.41", default-features = false, optional = true }
-# Needed for the codec
-serde_json = { version = "1", optional = true }
-
 
 [dependencies.document-features]
 version = "0.2"
@@ -49,8 +46,6 @@ docsrs = ["dep:document-features"]
 sleep = ["dep:futures-timer"]
 ## Enable serde support
 serde = ["dep:serde"]
-## Enable serde_json support
-json = ["serde", "dep:serde_json"]
 ## Enable tracing support
 tracing = ["dep:tracing"]
 ## Enable test utilities
@@ -71,7 +66,6 @@ tokio = { version = "1.37.0", features = [
     "signal",
 ] }
 tower = { version = "0.5", features = ["full"] }
-apalis-workflow = { path = "../apalis-workflow", version = "0.1.0-alpha.6" } # For json backend tests
 
 [lints]
 workspace = true

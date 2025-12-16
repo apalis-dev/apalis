@@ -298,7 +298,7 @@ impl<Args, DB, Fetch, Sink, IdType, Config> BackendBuilder<Args, DB, Fetch, Sink
     #[allow(clippy::type_complexity)]
     /// Build the `CustomBackend` instance
     pub fn build(self) -> Result<CustomBackend<Args, DB, Fetch, Sink, IdType, Config>, BuildError> {
-        let mut db = self.database.ok_or(BuildError::MissingPool)?;
+        let mut db = self.database.ok_or(BuildError::MissingDb)?;
         let config = self.config.ok_or(BuildError::MissingConfig)?;
         let sink_fn = self.sink.ok_or(BuildError::MissingSink)?;
         let sink = sink_fn(&mut db, &config);
@@ -322,7 +322,7 @@ impl<Args, DB, Fetch, Sink, IdType, Config> BackendBuilder<Args, DB, Fetch, Sink
 pub enum BuildError {
     /// Missing database db
     #[error("Database db is required")]
-    MissingPool,
+    MissingDb,
     /// Missing fetcher function
     #[error("Fetcher is required")]
     MissingFetcher,
@@ -332,6 +332,14 @@ pub enum BuildError {
     /// Missing configuration
     #[error("Config is required")]
     MissingConfig,
+}
+
+/// Errors encountered while using the `CustomBackend`
+#[derive(Debug, Error)]
+pub enum CustomBackendError {
+    /// Inner error
+    #[error("Inner error: {0}")]
+    Inner(#[from] BoxDynError),
 }
 
 impl<Args, DB, Fetch, Sink, IdType: Clone, E, Ctx: Default, Config> Backend
@@ -345,9 +353,9 @@ where
 
     type Context = Ctx;
 
-    type Error = BoxDynError;
+    type Error = CustomBackendError;
 
-    type Stream = TaskStream<Task<Args, Ctx, IdType>, BoxDynError>;
+    type Stream = TaskStream<Task<Args, Ctx, IdType>, CustomBackendError>;
 
     type Beat = BoxStream<'static, Result<(), Self::Error>>;
 
@@ -366,7 +374,7 @@ where
             .map(|task| match task {
                 Ok(Some(t)) => Ok(Some(t)),
                 Ok(None) => Ok(None),
-                Err(e) => Err(e.into()),
+                Err(e) => Err(e.into().into()),
             })
             .boxed()
     }
@@ -376,23 +384,36 @@ impl<Args, Ctx, IdType, DB, Fetch, S, Config> Sink<Task<Args, Ctx, IdType>>
     for CustomBackend<Args, DB, Fetch, S, IdType, Config>
 where
     S: Sink<Task<Args, Ctx, IdType>>,
+    S::Error: Into<BoxDynError>,
 {
-    type Error = S::Error;
+    type Error = CustomBackendError;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project().current_sink.poll_ready_unpin(cx)
+        self.project()
+            .current_sink
+            .poll_ready_unpin(cx)
+            .map_err(|e| CustomBackendError::Inner(e.into()))
     }
 
     fn start_send(self: Pin<&mut Self>, item: Task<Args, Ctx, IdType>) -> Result<(), Self::Error> {
-        self.project().current_sink.start_send_unpin(item)
+        self.project()
+            .current_sink
+            .start_send_unpin(item)
+            .map_err(|e| CustomBackendError::Inner(e.into()))
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project().current_sink.poll_flush_unpin(cx)
+        self.project()
+            .current_sink
+            .poll_flush_unpin(cx)
+            .map_err(|e| CustomBackendError::Inner(e.into()))
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project().current_sink.poll_close_unpin(cx)
+        self.project()
+            .current_sink
+            .poll_close_unpin(cx)
+            .map_err(|e| CustomBackendError::Inner(e.into()))
     }
 }
 
@@ -426,8 +447,8 @@ mod tests {
                     let item = db.pop_front();
                     drop(db);
                     match item {
-                        Some(item) => Some((Ok::<_, BoxDynError>(Some(item)), p)),
-                        None => Some((Ok::<_, BoxDynError>(None), p)),
+                        Some(item) => Some((Ok::<_, CustomBackendError>(Some(item)), p)),
+                        None => Some((Ok::<_, CustomBackendError>(None), p)),
                     }
                 })
                 .boxed()
@@ -438,7 +459,7 @@ mod tests {
                         let mut db = p.lock().await;
                         db.push_back(item);
                         drop(db);
-                        Ok::<_, BoxDynError>(p)
+                        Ok::<_, CustomBackendError>(p)
                     }
                     .boxed()
                 })

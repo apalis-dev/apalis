@@ -280,8 +280,7 @@ mod tests {
     };
 
     use apalis_core::{
-        backend::json::JsonStorage, error::BoxDynError, task::Task, task_fn::task_fn,
-        worker::context::WorkerContext,
+        error::BoxDynError, task::Task, task_fn::task_fn, worker::context::WorkerContext,
     };
     use petgraph::graph::NodeIndex;
     use serde_json::Value;

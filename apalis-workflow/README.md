@@ -22,7 +22,7 @@ Workflows are built by composing steps, and can be executed using supported back
 ```rust,ignore
 use apalis::prelude::*;
 use apalis_workflow::*;
-use apalis_core::backend::json::JsonStorage;
+use apalis_file_storage::JsonStorage;;
 
 #[tokio::main]
 async fn main() {
@@ -55,7 +55,7 @@ You can track your workflows using [apalis-board](https://github.com/apalis-dev/
 
 ## Backend Support
 
-- [x] [JSONStorage](https://docs.rs/apalis-core/1.0.0-beta.2/apalis_core/backend/json/struct.JsonStorage.html)
+- [x] [JSONStorage](https://docs.rs/apalis-core/1.0.0-rc.1/apalis_core/backend/json/struct.JsonStorage.html)
 - [x] [SqliteStorage](https://docs.rs/apalis-sqlite#workflow-example)
 - [x] [RedisStorage](https://docs.rs/apalis-redis#workflow-example)
 - [x] [PostgresStorage](https://docs.rs/apalis-postgres#workflow-example)

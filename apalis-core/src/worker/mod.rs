@@ -605,7 +605,6 @@ where
 }
 
 #[cfg(test)]
-#[cfg(feature = "json")]
 mod tests {
     use std::{
         future::ready,
@@ -618,7 +617,7 @@ mod tests {
     use futures_core::future::BoxFuture;
 
     use crate::{
-        backend::{TaskSink, json::JsonStorage, memory::MemoryStorage},
+        backend::{TaskSink, memory::MemoryStorage},
         task::Parts,
         worker::{
             builder::WorkerBuilder,
@@ -637,9 +636,9 @@ mod tests {
 
     #[tokio::test]
     async fn basic_worker_run() {
-        let mut json_store = JsonStorage::new_temp().unwrap();
+        let mut in_memory = MemoryStorage::new();
         for i in 0..ITEMS {
-            json_store.push(i.into()).await.unwrap();
+            in_memory.push(i.into()).await.unwrap();
         }
 
         #[derive(Clone, Debug, Default)]
@@ -684,7 +683,7 @@ mod tests {
         }
 
         let worker = WorkerBuilder::new("rango-tango")
-            .backend(json_store)
+            .backend(in_memory)
             .data(Count::default())
             .break_circuit()
             .long_running()

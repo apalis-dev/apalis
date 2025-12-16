@@ -117,69 +117,12 @@ mod tests {
 
     const ITEMS: u32 = 10;
 
-    type InMemoryQueue<T> = Arc<Mutex<VecDeque<Task<T, (), RandomId>>>>;
-
     #[tokio::test]
     #[cfg(feature = "sleep")]
     async fn basic_strategy_backend() {
-        use crate::backend::custom::BackendBuilder;
+        use crate::backend::impls::dequeue::backend;
 
-        let memory: InMemoryQueue<u32> = Arc::new(Mutex::new(VecDeque::new()));
-
-        #[derive(Clone)]
-        struct Config {
-            strategy: MultiStrategy,
-            prev_count: Arc<AtomicUsize>,
-        }
-        let strategy = StrategyBuilder::new()
-            .apply(IntervalStrategy::new(Duration::from_millis(100)))
-            .build();
-
-        let config = Config {
-            strategy,
-            prev_count: Arc::new(AtomicUsize::new(1)),
-        };
-
-        let mut backend = BackendBuilder::new_with_cfg(config)
-            .database(memory)
-            .fetcher(|db, config, worker| {
-                let poll_strategy = config.strategy.clone();
-                let poll_ctx = PollContext::new(worker.clone(), config.prev_count.clone());
-                let poller = poll_strategy.build_stream(&poll_ctx);
-                stream::unfold(
-                    (db.clone(), config.clone(), poller, worker.clone()),
-                    |(p, config, mut poller, ctx)| async move {
-                        let _ = poller.next().await;
-                        let mut db = p.lock().await;
-                        let item = db.pop_front();
-                        drop(db);
-                        if let Some(item) = item {
-                            config.prev_count.store(1, Ordering::Relaxed);
-                            Some((Ok::<_, BoxDynError>(Some(item)), (p, config, poller, ctx)))
-                        } else {
-                            config.prev_count.store(0, Ordering::Relaxed);
-                            Some((
-                                Ok::<Option<Task<u32, (), RandomId>>, BoxDynError>(None),
-                                (p, config, poller, ctx),
-                            ))
-                        }
-                    },
-                )
-                .boxed()
-            })
-            .sink(|db, _| {
-                sink::unfold(db.clone(), move |p, item| {
-                    async move {
-                        let mut db = p.lock().await;
-                        db.push_back(item);
-                        drop(db);
-                        Ok::<_, BoxDynError>(p)
-                    }
-                    .boxed()
-                })
-            })
-            .build()
-            .unwrap();
+        let mut backend = backend(Duration::from_secs(1));
 
         for i in 0..ITEMS {
             backend.send(Task::new(i)).await.unwrap();
@@ -209,7 +152,7 @@ mod tests {
     async fn custom_strategy_backend() {
         use crate::backend::custom::BackendBuilder;
 
-        let memory: InMemoryQueue<u32> = Arc::new(Mutex::new(VecDeque::new()));
+        let memory = Arc::new(Mutex::new(VecDeque::new()));
 
         #[derive(Clone)]
         struct Config {

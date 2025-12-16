@@ -80,9 +80,8 @@ impl<S> CircuitBreakerService<S> {
     }
 
     fn should_allow_request(&self) -> bool {
-        let mut stats = match self.stats.write() {
-            Ok(stats) => stats,
-            Err(_) => return false, // If poisoned, reject request
+        let Ok(mut stats) = self.stats.write() else {
+            return false; // If poisoned, reject request
         };
 
         match stats.state {
@@ -113,11 +112,9 @@ impl<S> CircuitBreakerService<S> {
 
     /// Record a successful request
     pub fn record_success(&self) {
-        let mut stats = match self.stats.write() {
-            Ok(stats) => stats,
-            Err(_) => return, // If poisoned, skip recording
+        let Ok(mut stats) = self.stats.write() else {
+            return; // If poisoned, skip recording
         };
-
         stats.success_count += 1;
 
         if stats.state == CircuitState::HalfOpen {
@@ -135,9 +132,8 @@ impl<S> CircuitBreakerService<S> {
 
     /// Record a failure and potentially open the circuit
     pub fn record_failure(&self) {
-        let mut stats = match self.stats.write() {
-            Ok(stats) => stats,
-            Err(_) => return, // If poisoned, skip recording
+        let Ok(mut stats) = self.stats.write() else {
+            return; // If poisoned, skip recording
         };
 
         stats.failure_count += 1;
@@ -158,9 +154,8 @@ impl<S> CircuitBreakerService<S> {
     }
 
     fn can_make_request(&self) -> bool {
-        let stats = match self.stats.read() {
-            Ok(stats) => stats,
-            Err(_) => return false, // If poisoned, reject request
+        let Ok(stats) = self.stats.read() else {
+            return false; // If poisoned, reject request
         };
 
         match stats.state {

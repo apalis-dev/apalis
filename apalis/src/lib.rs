@@ -42,7 +42,10 @@ pub mod prelude {
         task::data::{AddExtension, Data},
         task::extensions::Extensions,
         task::metadata::MetadataExt,
+        task::status::Status,
+        task::task_id::RandomId,
         task::task_id::TaskId,
+        task::task_id::TaskIdError,
         task_fn::{FromRequest, IntoResponse, TaskFn, task_fn},
         worker::builder::*,
         worker::ext::{

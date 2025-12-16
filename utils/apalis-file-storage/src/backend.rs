@@ -3,30 +3,27 @@ use std::{
     task::{Context, Poll},
 };
 
+use apalis_codec::json::JsonCodec;
 use futures_channel::mpsc::SendError;
 use futures_core::{Stream, stream::BoxStream};
 use futures_util::{StreamExt, TryStreamExt, stream};
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{Serialize, de::Deserialize};
 use serde_json::Value;
 
-use crate::{
-    backend::{
-        Backend, BackendExt, ConfigExt, TaskStream,
-        codec::json::JsonCodec,
-        impls::json::{
-            JsonStorage,
-            meta::JsonMapMetadata,
-            util::{FindFirstWith, JsonAck},
-        },
-        queue::Queue,
-    },
+use apalis_core::{
+    backend::{Backend, BackendExt, TaskStream, queue::Queue},
     task::{Task, status::Status, task_id::RandomId},
     worker::{context::WorkerContext, ext::ack::AcknowledgeLayer},
 };
 
+use crate::{
+    JsonMapMetadata, JsonStorage,
+    util::{FindFirstWith, JsonAck},
+};
+
 impl<Args> Backend for JsonStorage<Args>
 where
-    Args: 'static + Send + Serialize + DeserializeOwned + Unpin,
+    Args: 'static + Send + Serialize + for<'de> Deserialize<'de> + Unpin,
 {
     type Args = Args;
     type IdType = RandomId;
@@ -49,11 +46,17 @@ where
     }
 }
 
-impl<Args: 'static + Send + Serialize + DeserializeOwned + Unpin> BackendExt for JsonStorage<Args> {
+impl<Args: 'static + Send + Serialize + for<'de> Deserialize<'de> + Unpin> BackendExt
+    for JsonStorage<Args>
+{
     type Codec = JsonCodec<Value>;
     type Compact = Value;
 
     type CompactStream = TaskStream<Task<Self::Compact, JsonMapMetadata, RandomId>, SendError>;
+
+    fn get_queue(&self) -> Queue {
+        std::any::type_name::<Args>().into()
+    }
 
     fn poll_compact(self, worker: &WorkerContext) -> Self::CompactStream {
         self.poll(worker)
@@ -64,15 +67,7 @@ impl<Args: 'static + Send + Serialize + DeserializeOwned + Unpin> BackendExt for
     }
 }
 
-impl<Args> ConfigExt for JsonStorage<Args>
-where
-    Args: 'static + Send + Serialize + DeserializeOwned + Unpin,
-{
-    fn get_queue(&self) -> Queue {
-        Queue::from(std::any::type_name::<Args>())
-    }
-}
-impl<Args: DeserializeOwned + Unpin> Stream for JsonStorage<Args> {
+impl<Args: for<'de> Deserialize<'de> + Unpin> Stream for JsonStorage<Args> {
     type Item = Task<Args, JsonMapMetadata, RandomId>;
 
     fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -80,7 +75,7 @@ impl<Args: DeserializeOwned + Unpin> Stream for JsonStorage<Args> {
         if let Some((key, task)) = map.find_first_with(|s, _| {
             s.queue == std::any::type_name::<Args>() && s.status == Status::Pending
         }) {
-            use crate::task::builder::TaskBuilder;
+            use apalis_core::task::builder::TaskBuilder;
             let key = key.clone();
             let args = Args::deserialize(&task.args).unwrap();
             let task = TaskBuilder::new(args)

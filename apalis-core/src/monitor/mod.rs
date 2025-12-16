@@ -577,11 +577,10 @@ impl std::fmt::Display for ExitError {
 }
 
 #[cfg(test)]
-#[cfg(feature = "json")]
 mod tests {
     use super::*;
     use crate::{
-        backend::{TaskSink, json::JsonStorage},
+        backend::{TaskSink, dequeue::backend},
         task::task_id::TaskId,
         worker::context::WorkerContext,
     };
@@ -595,7 +594,7 @@ mod tests {
 
     #[tokio::test]
     async fn basic_with_workers() {
-        let mut backend = JsonStorage::new_temp().unwrap();
+        let mut backend = backend(Duration::from_millis(100));
 
         for i in 0..10 {
             backend.push(i).await.unwrap();
@@ -605,7 +604,7 @@ mod tests {
         let monitor = monitor.register(move |index| {
             WorkerBuilder::new(format!("rango-tango-{index}"))
                 .backend(backend.clone())
-                .build(move |r: u32, id: TaskId, w: WorkerContext| async move {
+                .build(move |r: u32, id: TaskId<_>, w: WorkerContext| async move {
                     println!("{id:?}, {}", w.name());
                     tokio::time::sleep(Duration::from_secs(index as u64)).await;
                     Ok::<_, io::Error>(r)
@@ -620,10 +619,7 @@ mod tests {
     }
     #[tokio::test]
     async fn test_monitor_run() {
-        let mut backend = JsonStorage::new(
-            "/var/folders/h_/sd1_gb5x73bbcxz38dts7pj80000gp/T/apalis-json-store-girmm9e36pz",
-        )
-        .unwrap();
+        let mut backend = backend(Duration::from_millis(100));
 
         for i in 0..10 {
             backend.push(i).await.unwrap();
@@ -669,10 +665,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_monitor_register_multiple() {
-        let mut backend = JsonStorage::new_temp().unwrap();
+        let mut int_backend = backend(Duration::from_millis(500));
+
+        let mut str_backend = backend(Duration::from_millis(500));
 
         for i in 0..10 {
-            backend.push(i).await.unwrap();
+            int_backend.push(i).await.unwrap();
+        }
+
+        for i in 0..10 {
+            str_backend.push(i.to_string()).await.unwrap();
         }
 
         let monitor: Monitor = Monitor::new();
@@ -682,14 +684,13 @@ mod tests {
         let monitor = monitor.on_event(|wrk, e| {
             println!("{:?}, {e:?}", wrk.name());
         });
-        let b = backend.clone();
         let monitor = monitor
             .register(move |index| {
                 WorkerBuilder::new(format!("worker0-{index}"))
-                    .backend(backend.clone())
+                    .backend(int_backend.clone())
                     .layer(ConcurrencyLimitLayer::new(1))
                     .build(
-                        move |request: i32, id: TaskId, w: WorkerContext| async move {
+                        move |request: i32, id: TaskId<_>, w: WorkerContext| async move {
                             println!("{id:?}, {}", w.name());
                             tokio::time::sleep(Duration::from_secs(index as u64)).await;
                             Ok::<_, io::Error>(request)
@@ -698,10 +699,10 @@ mod tests {
             })
             .register(move |index| {
                 WorkerBuilder::new(format!("worker1-{index}"))
-                    .backend(b.clone())
+                    .backend(str_backend.clone())
                     .layer(ConcurrencyLimitLayer::new(1))
                     .build(
-                        move |request: i32, id: TaskId, w: WorkerContext| async move {
+                        move |request: String, id: TaskId<_>, w: WorkerContext| async move {
                             println!("{id:?}, {}", w.name());
                             tokio::time::sleep(Duration::from_secs(index as u64)).await;
                             Ok::<_, io::Error>(request)

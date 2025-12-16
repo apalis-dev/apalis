@@ -6,7 +6,7 @@
 use anyhow::Result;
 use apalis::layers::prometheus::PrometheusLayer;
 use apalis::prelude::*;
-use apalis_core::backend::json::JsonStorage;
+use apalis_file_storage::JsonStorage;
 use axum::{
     extract::Form,
     http::StatusCode,

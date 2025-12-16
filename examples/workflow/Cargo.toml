@@ -9,7 +9,8 @@ tower = { version = "0.5", features = ["util"] }
 tokio = { version = "1", features = ["full"] }
 apalis = { path = "../../apalis", features = ["limit", "catch-panic", "retry"] }
 apalis-workflow = { path = "../../apalis-workflow" }
-apalis-core = { path = "../../apalis-core", features = ["json"] }
+apalis-core = { path = "../../apalis-core", features = ["serde"] }
+apalis-file-storage = { path = "../../utils/apalis-file-storage" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing-subscriber = "0.3.20"

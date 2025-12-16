@@ -4,8 +4,7 @@ use futures_util::FutureExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{
-    backend::impls::json::{JsonStorage, meta::JsonMapMetadata},
+use apalis_core::{
     error::BoxDynError,
     task::{
         status::Status,
@@ -14,10 +13,11 @@ use crate::{
     worker::ext::ack::Acknowledge,
 };
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone)]
+use crate::{JsonMapMetadata, JsonStorage};
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct TaskKey {
-    pub(super) task_id: TaskId,
+    pub(super) task_id: TaskId<RandomId>,
     pub(super) queue: String,
     pub(super) status: Status,
 }
@@ -75,7 +75,7 @@ impl<Args: Send + 'static + Debug, Res: Serialize, Ctx: Sync> Acknowledge<Res, C
     fn ack(
         &mut self,
         res: &Result<Res, BoxDynError>,
-        ctx: &crate::task::Parts<Ctx, RandomId>,
+        ctx: &apalis_core::task::Parts<Ctx, RandomId>,
     ) -> Self::Future {
         let store = self.inner.clone();
         let val = serde_json::to_value(res.as_ref().map_err(|e| e.to_string())).unwrap();
@@ -97,15 +97,14 @@ impl<Args: Send + 'static + Debug, Res: Serialize, Ctx: Sync> Acknowledge<Res, C
     }
 }
 
-#[cfg(feature = "sleep")]
 impl<Res: 'static + serde::de::DeserializeOwned + Send, Args: 'static + Sync>
-    crate::backend::WaitForCompletion<Res> for JsonStorage<Args>
+    apalis_core::backend::WaitForCompletion<Res> for JsonStorage<Args>
 where
     Args: Send + serde::de::DeserializeOwned + 'static + Unpin + Serialize,
 {
     type ResultStream = futures_core::stream::BoxStream<
         'static,
-        Result<crate::backend::TaskResult<Res>, futures_channel::mpsc::SendError>,
+        Result<apalis_core::backend::TaskResult<Res, RandomId>, futures_channel::mpsc::SendError>,
     >;
     fn wait_for(
         &self,
@@ -117,7 +116,7 @@ where
         let task_ids: HashSet<_> = task_ids.into_iter().collect();
         struct PollState<T, Compact> {
             vault: JsonStorage<Compact>,
-            pending_tasks: HashSet<TaskId>,
+            pending_tasks: HashSet<TaskId<RandomId>>,
             queue: String,
             poll_interval: Duration,
             _phantom: std::marker::PhantomData<T>,
@@ -156,7 +155,7 @@ where
                         state.pending_tasks.remove(&task_id);
                         let result: Result<Res, String> = serde_json::from_value(result).unwrap();
                         return Some((
-                            Ok(crate::backend::TaskResult {
+                            Ok(apalis_core::backend::TaskResult {
                                 task_id,
                                 status: Status::Done,
                                 result,
@@ -166,7 +165,7 @@ where
                     }
 
                     // No completed tasks, wait and try again
-                    crate::timer::sleep(state.poll_interval).await;
+                    apalis_core::timer::sleep(state.poll_interval).await;
                 }
             }
         })
@@ -176,8 +175,8 @@ where
     async fn check_status(
         &self,
         task_ids: impl IntoIterator<Item = TaskId<Self::IdType>> + Send,
-    ) -> Result<Vec<crate::backend::TaskResult<Res>>, Self::Error> {
-        use crate::task::status::Status;
+    ) -> Result<Vec<apalis_core::backend::TaskResult<Res, RandomId>>, Self::Error> {
+        use apalis_core::task::status::Status;
         use std::collections::HashSet;
         let task_ids: HashSet<_> = task_ids.into_iter().collect();
         let mut results = Vec::new();
@@ -190,12 +189,12 @@ where
             if let Some(value) = self.get(&key) {
                 let result =
                     match serde_json::from_value::<Result<Res, String>>(value.result.unwrap()) {
-                        Ok(result) => crate::backend::TaskResult {
+                        Ok(result) => apalis_core::backend::TaskResult {
                             task_id: task_id.clone(),
                             status: Status::Done,
                             result,
                         },
-                        Err(e) => crate::backend::TaskResult {
+                        Err(e) => apalis_core::backend::TaskResult {
                             task_id: task_id.clone(),
                             status: Status::Failed,
                             result: Err(format!("Deserialization error: {e}")),

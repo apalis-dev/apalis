@@ -18,7 +18,7 @@ pub use random_id::RandomId;
 /// A wrapper type that defines a task id.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, Eq, Hash, PartialEq, PartialOrd, Ord)]
-pub struct TaskId<IdType = RandomId>(IdType);
+pub struct TaskId<IdType>(IdType);
 
 impl<IdType> TaskId<IdType> {
     /// Generate a new [`TaskId`]

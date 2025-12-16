@@ -296,7 +296,7 @@ impl WorkerContext {
         if let Ok(mut waker_guard) = self.waker.lock() {
             if waker_guard
                 .as_ref()
-                .map_or(true, |stored_waker| !stored_waker.will_wake(cx.waker()))
+                .is_none_or(|stored_waker| !stored_waker.will_wake(cx.waker()))
             {
                 *waker_guard = Some(cx.waker().clone());
             }

@@ -76,17 +76,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "json")]
-    impl<T: serde::de::DeserializeOwned> MetadataExt<T> for SampleStore {
-        type Error = Infallible;
-        fn extract(&self) -> Result<T, Self::Error> {
-            unimplemented!()
-        }
-        fn inject(&mut self, _: T) -> Result<(), Self::Error> {
-            unimplemented!()
-        }
-    }
-
     impl<S, Args: Send + Sync + 'static, Ctx: Send + Sync + 'static, IdType: Send + Sync + 'static>
         Service<Task<Args, Ctx, IdType>> for ExampleService<S>
     where

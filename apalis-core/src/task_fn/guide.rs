@@ -73,11 +73,11 @@
 //!
 //! Example:
 //! ```rust
-//! # use apalis_core::task::{attempt::Attempt, data::Data, task_id::TaskId};
+//! # use apalis_core::task::{attempt::Attempt, data::Data, task_id::TaskId, task_id::RandomId };
 //! #[derive(Clone)]
 //! struct State;
 //!
-//! async fn process_task(_: u32, attempt: Attempt, state: Data<State>, id: TaskId) -> String {
+//! async fn process_task(_: u32, attempt: Attempt, state: Data<State>, id: TaskId<RandomId>) -> String {
 //!     format!("Attempt {} for task {} with state", attempt.current(), id)
 //! }
 //! ```

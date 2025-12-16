@@ -5,23 +5,21 @@ use std::{
 
 use futures_channel::mpsc::SendError;
 use futures_sink::Sink;
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{Serialize, de::Deserialize};
 use serde_json::Value;
 
-use crate::{
-    backend::impls::json::{
-        JsonStorage,
-        meta::JsonMapMetadata,
-        util::{TaskKey, TaskWithMeta},
-    },
-    task::{
-        Task,
-        task_id::{RandomId, TaskId},
-    },
+use apalis_core::task::{
+    Task,
+    task_id::{RandomId, TaskId},
 };
 
-impl<Args: Unpin + Serialize + DeserializeOwned> Sink<Task<Value, JsonMapMetadata, RandomId>>
-    for JsonStorage<Args>
+use crate::{
+    JsonMapMetadata, JsonStorage,
+    util::{TaskKey, TaskWithMeta},
+};
+
+impl<Args: Unpin + Serialize + for<'de> Deserialize<'de>>
+    Sink<Task<Value, JsonMapMetadata, RandomId>> for JsonStorage<Args>
 {
     type Error = SendError;
 
@@ -43,7 +41,7 @@ impl<Args: Unpin + Serialize + DeserializeOwned> Sink<Task<Value, JsonMapMetadat
         let this = Pin::get_mut(self);
         let tasks: Vec<_> = this.buffer.drain(..).collect();
         for task in tasks {
-            use crate::task::task_id::RandomId;
+            use apalis_core::task::task_id::RandomId;
 
             let task_id = task
                 .parts
@@ -54,7 +52,7 @@ impl<Args: Unpin + Serialize + DeserializeOwned> Sink<Task<Value, JsonMapMetadat
             let key = TaskKey {
                 task_id,
                 queue: std::any::type_name::<Args>().to_owned(),
-                status: crate::task::status::Status::Pending,
+                status: apalis_core::task::status::Status::Pending,
             };
             this.insert(
                 &key,

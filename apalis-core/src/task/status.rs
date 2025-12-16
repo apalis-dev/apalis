@@ -20,9 +20,10 @@ use std::{
 #[repr(u8)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
-#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum Status {
     /// Task is pending
+    #[default]
     Pending,
     /// Task is queued for execution, but no worker has picked it up
     Queued,
@@ -34,12 +35,6 @@ pub enum Status {
     Failed,
     /// Task has been killed
     Killed,
-}
-
-impl Default for Status {
-    fn default() -> Self {
-        Self::Pending
-    }
 }
 
 /// Errors that can occur when parsing a `Status` from a string

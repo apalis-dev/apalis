@@ -7,12 +7,12 @@
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,no_run
 /// # use apalis_core::backend::shared::MakeShared;
 /// # use apalis_core::task::Task;
 /// # use apalis_core::worker::context::WorkerContext;
 /// # use apalis_core::worker::builder::WorkerBuilder;
-/// # use apalis_core::backend::json::SharedJsonStore;
+/// # use apalis_file_storage::SharedJsonStore;
 /// # use apalis_core::error::BoxDynError;
 /// # use std::time::Duration;
 /// # use apalis_core::backend::TaskSink;
@@ -52,23 +52,21 @@ use futures_channel::mpsc::SendError;
 use futures_core::{Stream, stream::BoxStream};
 use futures_sink::Sink;
 use futures_util::{SinkExt, StreamExt};
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
-use crate::{
-    backend::impls::{
-        json::{
-            JsonStorage,
-            meta::JsonMapMetadata,
-            util::{FindFirstWith, TaskKey, TaskWithMeta},
-        },
-        memory::{MemorySink, MemoryStorage},
-    },
+use apalis_core::{
+    backend::memory::{MemorySink, MemoryStorage},
     task::{
         Task,
         status::Status,
         task_id::{RandomId, TaskId},
     },
+};
+
+use crate::{
+    JsonMapMetadata, JsonStorage,
+    util::{FindFirstWith, TaskKey, TaskWithMeta},
 };
 
 #[derive(Debug)]
@@ -80,15 +78,14 @@ struct SharedJsonStream<T, Ctx> {
 impl<Args: DeserializeOwned + Unpin> Stream for SharedJsonStream<Args, JsonMapMetadata> {
     type Item = Task<Args, JsonMapMetadata, RandomId>;
     fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        use crate::task::builder::TaskBuilder;
+        use apalis_core::task::builder::TaskBuilder;
         let map = self.inner.tasks.try_read().expect("Failed to read tasks");
         if let Some((key, _)) = map.find_first_with(|k, _| {
             k.queue == std::any::type_name::<Args>() && k.status == Status::Pending
         }) {
             let task = map.get(key).unwrap();
-            let args = match Args::deserialize(&task.args) {
-                Ok(value) => value,
-                Err(_) => return Poll::Pending,
+            let Ok(args) = Args::deserialize(&task.args) else {
+                return Poll::Pending;
             };
             let task = TaskBuilder::new(args)
                 .with_task_id(key.task_id.clone())
@@ -134,8 +131,8 @@ impl SharedJsonStore {
     }
 }
 
-impl<Args: Send + Serialize + DeserializeOwned + Unpin + 'static>
-    crate::backend::shared::MakeShared<Args> for SharedJsonStore
+impl<Args: Send + Serialize + for<'de> Deserialize<'de> + Unpin + 'static>
+    apalis_core::backend::shared::MakeShared<Args> for SharedJsonStore
 {
     type Backend = MemoryStorage<Args, JsonMapMetadata>;
 
@@ -148,12 +145,8 @@ impl<Args: Send + Serialize + DeserializeOwned + Unpin + 'static>
         _: Self::Config,
     ) -> Result<Self::Backend, Self::MakeError> {
         let (sender, receiver) = self.inner.create_channel::<Args>();
-        Ok(MemoryStorage {
-            sender: MemorySink {
-                inner: Arc::new(futures_util::lock::Mutex::new(sender)),
-            },
-            receiver,
-        })
+        let sender = MemorySink::new(Arc::new(futures_util::lock::Mutex::new(sender)));
+        Ok(MemoryStorage::new_with(sender, receiver))
     }
 }
 
@@ -166,7 +159,7 @@ type BoxSink<Args> = Box<
 >;
 
 impl JsonStorage<Value> {
-    fn create_channel<Args: 'static + DeserializeOwned + Serialize + Send + Unpin>(
+    fn create_channel<Args: 'static + for<'de> Deserialize<'de> + Serialize + Send + Unpin>(
         &self,
     ) -> (
         BoxSink<Args>,
@@ -180,7 +173,7 @@ impl JsonStorage<Value> {
             let store = self.clone();
 
             sender.with_flat_map(move |task: Task<Args, JsonMapMetadata, RandomId>| {
-                use crate::task::task_id::RandomId;
+                use apalis_core::task::task_id::RandomId;
                 let task_id = task
                     .parts
                     .task_id
@@ -231,10 +224,10 @@ impl JsonStorage<Value> {
 mod tests {
     use std::time::Duration;
 
-    use crate::error::BoxDynError;
+    use apalis_core::error::BoxDynError;
 
-    use crate::worker::context::WorkerContext;
-    use crate::{
+    use apalis_core::worker::context::WorkerContext;
+    use apalis_core::{
         backend::{TaskSink, shared::MakeShared},
         worker::{builder::WorkerBuilder, ext::event_listener::EventListenerExt},
     };

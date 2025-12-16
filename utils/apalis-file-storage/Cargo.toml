@@ -1,0 +1,42 @@
+[package]
+name = "apalis-file-storage"
+version = "0.1.0-rc.1"
+rust-version.workspace = true
+edition.workspace = true
+repository.workspace = true
+authors = ["Njuguna Mureithi <mureithinjuguna@gmail.com>"]
+license = "MIT"
+description = "A test-friendly single process file-based storage backend for apalis"
+publish = true
+
+[lib]
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+apalis-core = { path = "../../apalis-core", version = "1.0.0-rc.1", default-features = false, features = [
+    "sleep",
+    "serde",
+] }
+serde_json = "1"
+futures-channel = { version = "0.3.30", features = [
+    "sink",
+    "std",
+], default-features = false }
+futures-sink = { version = "0.3.30", default-features = false }
+futures-util = { version = "0.3.30", features = [
+    "sink",
+    "async-await",
+    "async-await-macro",
+    "std",
+], default-features = false }
+futures-core = { version = "0.3.30", default-features = false }
+apalis-codec = { path = "../apalis-codec", version = "0.1.0-rc.1", default-features = false, features = [
+    "json",
+] }
+
+[dev-dependencies]
+tokio = { version = "1.37.0", features = ["full"] }
+apalis-workflow = { path = "../../apalis-workflow", version = "0.1.0-rc.1" } # For json backend tests
+
+[lints]
+workspace = true

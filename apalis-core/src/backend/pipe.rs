@@ -9,8 +9,7 @@
 //!
 //! ```rust
 //! # use futures_util::stream;
-//! # use apalis_core::backend::pipe::PipeExt;
-//! # use apalis_core::backend::json::JsonStorage;
+//! # use apalis_core::backend::{pipe::PipeExt, dequeue};
 //! # use apalis_core::worker::{builder::WorkerBuilder, context::WorkerContext};
 //! # use apalis_core::error::BoxDynError;
 //! # use std::time::Duration;
@@ -20,7 +19,7 @@
 //! async fn main() {
 //!     let stm = stream::iter(0..10).map(|s| Ok::<_, std::io::Error>(s));
 //!
-//!     let in_memory = JsonStorage::new_temp().unwrap();
+//!     let in_memory = dequeue::backend::<u32>(Duration::from_secs(1));
 //!     let backend = stm.pipe_to(in_memory);
 //!
 //!     async fn task(task: u32, ctx: WorkerContext) -> Result<(), BoxDynError> {
@@ -225,14 +224,13 @@ pub enum PipeError {
 }
 
 #[cfg(test)]
-#[cfg(feature = "json")]
 mod tests {
     use std::{io, time::Duration};
 
     use futures_util::stream;
 
     use crate::{
-        backend::json::JsonStorage,
+        backend::dequeue,
         error::BoxDynError,
         worker::{
             builder::WorkerBuilder, context::WorkerContext, ext::event_listener::EventListenerExt,
@@ -246,7 +244,7 @@ mod tests {
     #[tokio::test]
     async fn basic_worker() {
         let stm = stream::iter(0..ITEMS).map(Ok::<_, io::Error>);
-        let in_memory = JsonStorage::new_temp().unwrap();
+        let in_memory = dequeue::backend::<u32>(Duration::from_secs(1));
 
         let backend = Pipe::new(stm, in_memory);
 

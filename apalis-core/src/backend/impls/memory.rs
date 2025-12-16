@@ -63,6 +63,9 @@ use std::{
 };
 use tower_layer::Identity;
 
+/// A boxed in-memory task receiver stream
+pub type BoxedReceiver<Args, Ctx> = Pin<Box<dyn Stream<Item = Task<Args, Ctx, RandomId>> + Send>>;
+
 /// In-memory queue that is based on channels
 ///
 ///
@@ -106,7 +109,7 @@ use tower_layer::Identity;
 }]
 pub struct MemoryStorage<Args, Ctx = Extensions> {
     pub(super) sender: MemorySink<Args, Ctx>,
-    pub(super) receiver: Pin<Box<dyn Stream<Item = Task<Args, Ctx, RandomId>> + Send>>,
+    pub(super) receiver: BoxedReceiver<Args, Ctx>,
 }
 
 impl<Args: Send + 'static> Default for MemoryStorage<Args, Extensions> {
@@ -133,6 +136,14 @@ impl<Args: Send + 'static> MemoryStorage<Args, Extensions> {
     }
 }
 
+impl<Args: Send + 'static, Ctx> MemoryStorage<Args, Ctx> {
+    /// Create a storage given a sender and receiver
+    #[must_use]
+    pub fn new_with(sender: MemorySink<Args, Ctx>, receiver: BoxedReceiver<Args, Ctx>) -> Self {
+        Self { sender, receiver }
+    }
+}
+
 impl<Args, Ctx> Sink<Task<Args, Ctx, RandomId>> for MemoryStorage<Args, Ctx> {
     type Error = SendError;
 
@@ -156,7 +167,7 @@ impl<Args, Ctx> Sink<Task<Args, Ctx, RandomId>> for MemoryStorage<Args, Ctx> {
     }
 }
 
-type MemorySinkInner<Args, Ctx = Extensions> = Arc<
+type ArcMemorySink<Args, Ctx = Extensions> = Arc<
     futures_util::lock::Mutex<
         Box<dyn Sink<Task<Args, Ctx, RandomId>, Error = SendError> + Send + Sync + Unpin + 'static>,
     >,
@@ -164,7 +175,14 @@ type MemorySinkInner<Args, Ctx = Extensions> = Arc<
 
 /// Memory sink for sending tasks to the in-memory backend
 pub struct MemorySink<Args, Ctx = Extensions> {
-    pub(super) inner: MemorySinkInner<Args, Ctx>,
+    pub(super) inner: ArcMemorySink<Args, Ctx>,
+}
+
+impl<Args, Ctx> MemorySink<Args, Ctx> {
+    /// Build a new memory sink given a sink
+    pub fn new(sink: ArcMemorySink<Args, Ctx>) -> Self {
+        Self { inner: sink }
+    }
 }
 
 impl<Args, Ctx> std::fmt::Debug for MemorySink<Args, Ctx> {
@@ -259,6 +277,10 @@ impl<Args: Clone + Send + 'static, Ctx: Default + 'static> BackendExt for Memory
     type Codec = IdentityCodec;
     type Compact = Args;
     type CompactStream = TaskStream<Task<Args, Self::Context, RandomId>, Self::Error>;
+
+    fn get_queue(&self) -> crate::backend::queue::Queue {
+        std::any::type_name::<Args>().into()
+    }
 
     fn poll_compact(self, _worker: &WorkerContext) -> Self::CompactStream {
         (self.receiver.map(|task| Ok(Some(task))).boxed()) as _

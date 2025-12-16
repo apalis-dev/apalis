@@ -1,4 +1,4 @@
-msrv = "1.60.0"
+msrv = "1.85.0" # Minimum supported Rust version because of `2024` edition features
 allow-mixed-uninlined-format-args = false
 disallowed-types = [
     { path = "tower::util::BoxCloneService", reason = "Use tower::util::BoxCloneSyncService instead" },

@@ -1,6 +1,6 @@
 [package]
 name = "apalis-workflow"
-version = "0.1.0-beta.2"
+version = "0.1.0-rc.1"
 edition.workspace = true
 repository.workspace = true
 authors = ["Njuguna Mureithi <mureithinjuguna@gmail.com>"]
@@ -16,14 +16,16 @@ tracing = ["dep:tracing", "apalis-core/tracing"]
 ulid = ["dep:ulid"]
 ## Enable uuid support for task ids
 uuid = ["dep:uuid"]
+## Enable rand support for task ids using integers
+rand = ["dep:rand"]
 
 [dependencies]
 petgraph = { version = "0.8.2", features = ["serde-1"] }
 serde = { version = "1.0", features = ["derive"] }
 tower = { version = "0.5", features = ["util"], default-features = false }
-apalis-core = { path = "../apalis-core", version = "1.0.0-beta.2", default-features = false, features = [
+apalis-core = { path = "../apalis-core", version = "1.0.0-rc.1", default-features = false, features = [
     "sleep",
-    "json",
+    "serde",
 ] }
 futures = "0.3.30"
 thiserror = "2.0.0"
@@ -31,9 +33,11 @@ thiserror = "2.0.0"
 tracing = { version = "0.1.41", default-features = false, optional = true }
 ulid = { version = "1", optional = true }
 uuid = { version = "1", features = ["v4"], optional = true }
+rand = { version = "0.9", features = ["std"], optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.37.0", features = ["macros", "rt-multi-thread", "sync"] }
+apalis-file-storage = { path = "../utils/apalis-file-storage" }
 serde_json = "1"
 
 [lints]

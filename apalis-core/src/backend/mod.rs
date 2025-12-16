@@ -23,7 +23,7 @@ use std::{future::Future, time::Duration};
 use futures_util::{Stream, stream::BoxStream};
 
 use crate::{
-    backend::codec::Codec,
+    backend::{codec::Codec, queue::Queue},
     error::BoxDynError,
     task::{Task, status::Status, task_id::TaskId},
     worker::context::WorkerContext,
@@ -36,7 +36,6 @@ pub mod poll_strategy;
 pub mod queue;
 pub mod shared;
 
-mod config;
 mod expose;
 mod impls;
 mod sink;
@@ -46,17 +45,14 @@ pub use sink::*;
 
 pub use impls::guide;
 
-pub use config::ConfigExt;
-
 /// In-memory backend based on channels
 pub mod memory {
     pub use crate::backend::impls::memory::*;
 }
 
-/// File based Backend using JSON
-#[cfg(feature = "json")]
-pub mod json {
-    pub use crate::backend::impls::json::*;
+/// In-memory dequeue backend
+pub mod dequeue {
+    pub use crate::backend::impls::dequeue::*;
 }
 
 /// The `Backend` trait defines how workers get and manage tasks from a backend.
@@ -98,6 +94,9 @@ pub trait BackendExt: Backend {
     type CompactStream: Stream<
         Item = Result<Option<Task<Self::Compact, Self::Context, Self::IdType>>, Self::Error>,
     >;
+
+    /// Returns the queue associated with the backend.
+    fn get_queue(&self) -> Queue;
 
     /// Polls the backend for encoded tasks for the given worker.
     fn poll_compact(self, worker: &WorkerContext) -> Self::CompactStream;
@@ -167,15 +166,18 @@ pub trait RegisterWorker: Backend {
 /// Represents the result of a task execution
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
-pub struct TaskResult<T> {
-    task_id: TaskId,
-    status: Status,
-    result: Result<T, String>,
+pub struct TaskResult<T, IdType> {
+    /// The unique identifier of the task
+    pub task_id: TaskId<IdType>,
+    /// The status of the task
+    pub status: Status,
+    /// The result of the task execution
+    pub result: Result<T, String>,
 }
 
-impl<T> TaskResult<T> {
+impl<T, IdType> TaskResult<T, IdType> {
     /// Create a new TaskResult
-    pub fn new(task_id: TaskId, status: Status, result: Result<T, String>) -> Self {
+    pub fn new(task_id: TaskId<IdType>, status: Status, result: Result<T, String>) -> Self {
         Self {
             task_id,
             status,
@@ -183,7 +185,7 @@ impl<T> TaskResult<T> {
         }
     }
     /// Get the ID of the task
-    pub fn task_id(&self) -> &TaskId {
+    pub fn task_id(&self) -> &TaskId<IdType> {
         &self.task_id
     }
 
@@ -206,7 +208,9 @@ impl<T> TaskResult<T> {
 /// Allows waiting for tasks to complete and checking their status
 pub trait WaitForCompletion<T>: Backend {
     /// The result stream type yielding task results
-    type ResultStream: Stream<Item = Result<TaskResult<T>, Self::Error>> + Send + 'static;
+    type ResultStream: Stream<Item = Result<TaskResult<T, Self::IdType>, Self::Error>>
+        + Send
+        + 'static;
 
     /// Wait for multiple tasks to complete, yielding results as they become available
     fn wait_for(
@@ -223,5 +227,5 @@ pub trait WaitForCompletion<T>: Backend {
     fn check_status(
         &self,
         task_ids: impl IntoIterator<Item = TaskId<Self::IdType>> + Send,
-    ) -> impl Future<Output = Result<Vec<TaskResult<T>>, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<Vec<TaskResult<T, Self::IdType>>, Self::Error>> + Send;
 }

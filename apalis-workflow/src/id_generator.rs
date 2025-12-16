@@ -25,3 +25,30 @@ impl GenerateId for RandomId {
         Self::default()
     }
 }
+
+#[cfg(feature = "rand")]
+impl GenerateId for u64 {
+    fn generate() -> Self {
+        rand::random::<u64>()
+    }
+}
+#[cfg(feature = "rand")]
+impl GenerateId for i64 {
+    fn generate() -> Self {
+        rand::random::<i64>()
+    }
+}
+
+#[cfg(feature = "rand")]
+impl GenerateId for u128 {
+    fn generate() -> Self {
+        rand::random::<u128>()
+    }
+}
+
+#[cfg(feature = "rand")]
+impl GenerateId for i128 {
+    fn generate() -> Self {
+        rand::random::<i128>()
+    }
+}

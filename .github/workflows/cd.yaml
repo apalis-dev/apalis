@@ -37,21 +37,6 @@ jobs:
           echo VERSION=${VERSION} >> $GITHUB_ENV
           echo PUBLISH_OPTS=${PUBLISH_OPTS} >> $GITHUB_ENV
           echo VERSION_NUMBER=${VERSION_NUMBER} >> $GITHUB_ENV
-      - name: check version integrity
-        run: |
-          ERROR=''
-          echo VERSION: ${VERSION}, VERSION_NUMBER: ${VERSION_NUMBER}
-          for dir in "." packages/apalis-{core,sql}; do
-            PACKAGE=$(cargo get package.name --entry $dir)
-            ACTUAL=$(cargo get package.version --entry $dir)
-            if [[ $VERSION != $ACTUAL ]]; then
-              echo ${PACKAGE}: expected version ${VERSION} but found ${ACTUAL}
-              ERROR=1
-            fi
-          done
-          if [[ $ERROR ]]; then
-            exit 1
-          fi
       - name: publish apalis-core
         uses: actions-rs/cargo@v1
         with:

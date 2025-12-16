@@ -49,7 +49,6 @@ mod tests {
     use std::{collections::HashMap, time::Duration};
 
     use apalis_core::{
-        backend::json::JsonStorage,
         task::{builder::TaskBuilder, task_id::TaskId},
         task_fn::task_fn,
         worker::{
@@ -57,6 +56,7 @@ mod tests {
             ext::event_listener::EventListenerExt,
         },
     };
+    use apalis_file_storage::JsonStorage;
     use futures::SinkExt;
     use serde_json::Value;
 
@@ -75,7 +75,7 @@ mod tests {
             .add_step(AndThen::new(task_fn(async |input: usize| {
                 Ok::<_, BoxDynError>(input.to_string())
             })))
-            .and_then(async |input: String, _task_id: TaskId| input.parse::<usize>())
+            .and_then(async |input: String, _task_id: TaskId<_>| input.parse::<usize>())
             .and_then(async |res: usize| {
                 Ok::<_, BoxDynError>((0..res).enumerate().collect::<HashMap<_, _>>())
             })
@@ -99,15 +99,15 @@ mod tests {
                 println!("Completed with {res:?}");
             });
 
-        let mut in_memory: JsonStorage<Value> = JsonStorage::new_temp().unwrap();
+        let mut backend: JsonStorage<Value> = JsonStorage::new_temp().unwrap();
 
-        in_memory
+        backend
             .send(TaskBuilder::new(Value::from(17)).build())
             .await
             .unwrap();
 
         let worker = WorkerBuilder::new("rango-tango")
-            .backend(in_memory)
+            .backend(backend)
             .on_event(|ctx, ev| {
                 println!("On Event = {ev:?}");
                 if matches!(ev, Event::Error(_)) {

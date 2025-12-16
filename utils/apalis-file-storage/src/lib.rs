@@ -13,7 +13,7 @@
 //! ## Usage Example
 //!
 //! ```rust
-//! # use apalis_core::backend::json::JsonStorage;
+//! # use apalis_file_storage::JsonStorage;;
 //! # use apalis_core::worker::builder::WorkerBuilder;
 //! # use std::time::Duration;
 //! # use apalis_core::worker::context::WorkerContext;
@@ -59,11 +59,8 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use self::{
-    meta::JsonMapMetadata,
-    util::{TaskKey, TaskWithMeta},
-};
-use crate::{
+use self::util::{TaskKey, TaskWithMeta};
+use apalis_core::{
     features_table,
     task::{
         Task,
@@ -80,6 +77,7 @@ mod sink;
 mod util;
 
 pub use self::shared::SharedJsonStore;
+pub use meta::JsonMapMetadata;
 /// A backend that persists to a file using json encoding
 ///
 /// *Warning*: This backend is not optimized for high-throughput scenarios and is best suited for development, testing, or low-volume workloads.
@@ -88,7 +86,7 @@ pub use self::shared::SharedJsonStore;
 ///
 /// Creates a temporary JSON storage backend
 /// ```rust
-/// # use apalis_core::backend::json::JsonStorage;
+/// # use apalis_file_storage::JsonStorage;;
 /// # pub fn setup_json_storage() -> JsonStorage<u32> {
 /// let mut backend = JsonStorage::new_temp().unwrap();
 /// # backend
@@ -97,7 +95,7 @@ pub use self::shared::SharedJsonStore;
 #[doc = features_table! {
     setup = r#"
         # {
-        #   use apalis_core::backend::json::JsonStorage;
+        #   use apalis_file_storage::JsonStorage;;
         #   let mut backend = JsonStorage::new_temp().unwrap();
         #   backend
         # };
@@ -127,10 +125,9 @@ pub struct JsonStorage<Args> {
     _marker: std::marker::PhantomData<Args>,
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct StorageEntry {
-    task_id: TaskId,
+    task_id: TaskId<RandomId>,
     status: Status,
     task: TaskWithMeta,
 }
@@ -323,10 +320,11 @@ impl<Args> Clone for JsonStorage<Args> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::time::Duration;
 
-    use crate::{
-        backend::{TaskSink, json::JsonStorage},
+    use apalis_core::{
+        backend::TaskSink,
         error::BoxDynError,
         worker::{
             builder::WorkerBuilder, context::WorkerContext, ext::event_listener::EventListenerExt,

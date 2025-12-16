@@ -17,7 +17,7 @@ struct SimpleJob {}
 async fn simple_job(
     _: SimpleJob, // Required, must be of the type of the job/message and the first argument
     worker: WorkerContext, // The worker and its context, added by worker
-    task_id: TaskId, // The task id, added by storage
+    task_id: TaskId<RandomId>, // The task id, added by storage
     attempt: Attempt, // The current attempt
     count: Data<Count>, // Our custom data added via layer
 ) {

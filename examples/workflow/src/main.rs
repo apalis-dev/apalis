@@ -1,7 +1,7 @@
 use std::{fmt::Debug, time::Duration};
 
 use apalis::prelude::*;
-use apalis_core::backend::json::JsonStorage;
+use apalis_file_storage::JsonStorage;
 use apalis_workflow::{Workflow, WorkflowSink};
 use serde::{Deserialize, Serialize};
 use tracing::info;

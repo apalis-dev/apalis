@@ -1,11 +1,11 @@
 [workspace]
-members = ["apalis", "apalis-*", "examples/*"]
+members = ["apalis", "apalis-*", "examples/*", "utils/*"]
 # Only check / build main crates by default (check all with `--workspace`)
 default-members = ["apalis", "apalis-*"]
 resolver = "2"
 
 [workspace.package]
-rust-version = "1.75"
+rust-version = "1.85"
 edition = "2024"
 repository = "https://github.com/apalis-dev/apalis"
 

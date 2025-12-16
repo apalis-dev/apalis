@@ -46,11 +46,11 @@ let task: Task<String, ()> = TaskBuilder::new("my-task".to_string())
 Specific documentation for tasks can be found in the [`task`] and [`task::builder`] modules.
 
 ##### Relevant Guides:
-- [**Defining Task arguments**](https://docs.rs/apalis-core/1.0.0-beta.2/apalis_core/task_fn/guide/index.html) - Creating effective task arguments that are scalable and type-safe
+- [**Defining Task arguments**](https://docs.rs/apalis-core/1.0.0-rc.1/apalis_core/task_fn/guide/index.html) - Creating effective task arguments that are scalable and type-safe
 
 ### Backends
 
-The [`Backend`](https://docs.rs/apalis-core/1.0.0-beta.2/apalis_core/backend/trait.Backend.html) trait serves as the core abstraction for all task sources.
+The [`Backend`](https://docs.rs/apalis-core/1.0.0-rc.1/apalis_core/backend/trait.Backend.html) trait serves as the core abstraction for all task sources.
 It defines task polling mechanisms, streaming interfaces, and middleware integration points.
 
 <details>
