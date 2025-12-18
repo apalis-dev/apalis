@@ -584,7 +584,7 @@ where
     type Future = S::Future;
 
     fn poll_ready(&mut self, cx: &mut std::task::Context<'_>) -> Poll<Result<(), Self::Error>> {
-        if self.ctx.is_shutting_down() {
+        if self.ctx.is_shutting_down() || self.ctx.is_paused() {
             self.ctx.is_ready.store(false, Ordering::SeqCst);
             return Poll::Pending;
         }
@@ -601,6 +601,135 @@ where
 
     fn call(&mut self, req: Request) -> Self::Future {
         self.inner.call(req)
+    }
+}
+
+#[cfg(test)]
+mod readiness_service_tests {
+    use super::*;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+
+    /// A simple mock service that is always ready
+    #[derive(Clone)]
+    struct AlwaysReadyService;
+
+    impl Service<()> for AlwaysReadyService {
+        type Response = ();
+        type Error = std::convert::Infallible;
+        type Future = Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send>>;
+
+        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn call(&mut self, _req: ()) -> Self::Future {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    fn create_test_context() -> WorkerContext {
+        WorkerContext::new::<()>("test-worker")
+    }
+
+    fn noop_waker() -> std::task::Waker {
+        std::task::Waker::noop().clone()
+    }
+
+    #[test]
+    fn readiness_service_ready_when_running() {
+        let mut ctx = create_test_context();
+        ctx.start().unwrap();
+
+        let mut svc: ReadinessService<AlwaysReadyService> = ReadinessService {
+            inner: AlwaysReadyService,
+            ctx: ctx.clone(),
+        };
+
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+
+        let result = Service::<()>::poll_ready(&mut svc, &mut cx);
+        assert!(
+            matches!(result, Poll::Ready(Ok(()))),
+            "Running worker should be ready, got {result:?}"
+        );
+        assert!(ctx.is_ready.load(Ordering::SeqCst), "is_ready flag should be true");
+    }
+
+    #[test]
+    fn readiness_service_pending_when_paused() {
+        let mut ctx = create_test_context();
+        ctx.start().unwrap();
+        ctx.pause().unwrap();
+
+        let mut svc: ReadinessService<AlwaysReadyService> = ReadinessService {
+            inner: AlwaysReadyService,
+            ctx: ctx.clone(),
+        };
+
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+
+        let result = Service::<()>::poll_ready(&mut svc, &mut cx);
+        assert!(
+            matches!(result, Poll::Pending),
+            "Paused worker should return Pending, got {result:?}"
+        );
+        assert!(!ctx.is_ready.load(Ordering::SeqCst), "is_ready flag should be false when paused");
+    }
+
+    #[test]
+    fn readiness_service_pending_when_shutting_down() {
+        let mut ctx = create_test_context();
+        ctx.start().unwrap();
+        ctx.stop().unwrap();
+
+        let mut svc: ReadinessService<AlwaysReadyService> = ReadinessService {
+            inner: AlwaysReadyService,
+            ctx: ctx.clone(),
+        };
+
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+
+        let result = Service::<()>::poll_ready(&mut svc, &mut cx);
+        assert!(
+            matches!(result, Poll::Pending),
+            "Shutting down worker should return Pending, got {result:?}"
+        );
+        assert!(!ctx.is_ready.load(Ordering::SeqCst), "is_ready flag should be false when shutting down");
+    }
+
+    #[test]
+    fn readiness_service_ready_after_resume() {
+        let mut ctx = create_test_context();
+        ctx.start().unwrap();
+        ctx.pause().unwrap();
+
+        let mut svc: ReadinessService<AlwaysReadyService> = ReadinessService {
+            inner: AlwaysReadyService,
+            ctx: ctx.clone(),
+        };
+
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+
+        // Should be pending when paused
+        let result = Service::<()>::poll_ready(&mut svc, &mut cx);
+        assert!(matches!(result, Poll::Pending), "Should be Pending when paused");
+
+        // Resume the worker
+        ctx.resume().unwrap();
+
+        // Should be ready after resume
+        let result = Service::<()>::poll_ready(&mut svc, &mut cx);
+        assert!(
+            matches!(result, Poll::Ready(Ok(()))),
+            "Should be Ready after resume, got {result:?}"
+        );
+        assert!(ctx.is_ready.load(Ordering::SeqCst), "is_ready flag should be true after resume");
     }
 }
 
@@ -639,7 +768,7 @@ mod tests {
     async fn basic_worker_run() {
         let mut json_store = JsonStorage::new_temp().unwrap();
         for i in 0..ITEMS {
-            json_store.push(i.into()).await.unwrap();
+            json_store.push(i).await.unwrap();
         }
 
         #[derive(Clone, Debug, Default)]

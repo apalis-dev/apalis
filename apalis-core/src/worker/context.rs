@@ -460,7 +460,7 @@ mod tests {
 
         // This should succeed - paused workers should be resumable
         let result = ctx.resume();
-        assert!(result.is_ok(), "Paused worker should be resumable: {:?}", result);
+        assert!(result.is_ok(), "Paused worker should be resumable: {result:?}");
         assert!(ctx.is_running());
     }
 
@@ -478,7 +478,7 @@ mod tests {
         assert!(result.is_err(), "Paused worker with shutdown signal should not be resumable");
         match result {
             Err(WorkerError::StateError(WorkerStateError::ShuttingDown)) => {}
-            other => panic!("Expected ShuttingDown error, got {:?}", other),
+            other => panic!("Expected ShuttingDown error, got {other:?}"),
         }
     }
 
