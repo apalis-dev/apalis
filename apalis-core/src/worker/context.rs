@@ -263,13 +263,19 @@ impl WorkerContext {
         self.task_count.load(Ordering::Relaxed) > 0
     }
 
-    /// Is the shutdown token called
+    /// Returns true only when the worker is actually shutting down:
+    /// - State is Stopped (explicit stop() called)
+    /// - OR shutdown signal has been triggered
+    ///
+    /// Note: Paused workers are NOT considered shutting down - they can be resumed.
     #[must_use]
     pub fn is_shutting_down(&self) -> bool {
-        self.shutdown
+        let is_stopped = self.state.load(Ordering::SeqCst) == InnerWorkerState::Stopped;
+        let shutdown_signal = self.shutdown
             .as_ref()
-            .map(|s| !self.is_running() || s.is_shutting_down())
-            .unwrap_or(!self.is_running())
+            .map(|s| s.is_shutting_down())
+            .unwrap_or(false);
+        is_stopped || shutdown_signal
     }
 
     /// Allows workers to emit events
@@ -374,5 +380,118 @@ impl Drop for WorkerContext {
                 self.task_count()
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::monitor::shutdown::Shutdown;
+
+    fn create_worker_context() -> WorkerContext {
+        WorkerContext::new::<()>("test-worker")
+    }
+
+    fn create_worker_context_with_shutdown() -> WorkerContext {
+        let mut ctx = create_worker_context();
+        ctx.shutdown = Some(Shutdown::new());
+        ctx
+    }
+
+    #[test]
+    fn pending_worker_is_not_shutting_down() {
+        let ctx = create_worker_context();
+        assert!(ctx.is_pending());
+        assert!(!ctx.is_shutting_down());
+    }
+
+    #[test]
+    fn running_worker_is_not_shutting_down() {
+        let mut ctx = create_worker_context();
+        ctx.start().unwrap();
+        assert!(ctx.is_running());
+        assert!(!ctx.is_shutting_down());
+    }
+
+    #[test]
+    fn paused_worker_is_not_shutting_down() {
+        let mut ctx = create_worker_context();
+        ctx.start().unwrap();
+        ctx.pause().unwrap();
+        assert!(ctx.is_paused());
+        assert!(!ctx.is_shutting_down(), "Paused workers should NOT be considered shutting down");
+    }
+
+    #[test]
+    fn stopped_worker_is_shutting_down() {
+        let mut ctx = create_worker_context();
+        ctx.start().unwrap();
+        ctx.stop().unwrap();
+        assert!(ctx.is_shutting_down(), "Stopped workers should be considered shutting down");
+    }
+
+    #[test]
+    fn worker_with_shutdown_signal_is_shutting_down() {
+        let mut ctx = create_worker_context_with_shutdown();
+        ctx.start().unwrap();
+
+        // Trigger the shutdown signal
+        ctx.shutdown.as_ref().unwrap().start_shutdown();
+
+        assert!(ctx.is_shutting_down(), "Worker with triggered shutdown signal should be shutting down");
+    }
+
+    #[test]
+    fn paused_worker_with_shutdown_not_triggered_is_not_shutting_down() {
+        let mut ctx = create_worker_context_with_shutdown();
+        ctx.start().unwrap();
+        ctx.pause().unwrap();
+
+        assert!(ctx.is_paused());
+        assert!(!ctx.shutdown.as_ref().unwrap().is_shutting_down());
+        assert!(!ctx.is_shutting_down(), "Paused worker without shutdown signal should NOT be shutting down");
+    }
+
+    #[test]
+    fn paused_worker_can_be_resumed() {
+        let mut ctx = create_worker_context();
+        ctx.start().unwrap();
+        ctx.pause().unwrap();
+
+        // This should succeed - paused workers should be resumable
+        let result = ctx.resume();
+        assert!(result.is_ok(), "Paused worker should be resumable: {:?}", result);
+        assert!(ctx.is_running());
+    }
+
+    #[test]
+    fn paused_worker_with_shutdown_signal_cannot_be_resumed() {
+        let mut ctx = create_worker_context_with_shutdown();
+        ctx.start().unwrap();
+        ctx.pause().unwrap();
+
+        // Trigger shutdown signal while paused
+        ctx.shutdown.as_ref().unwrap().start_shutdown();
+
+        // Now resume should fail because shutdown signal is active
+        let result = ctx.resume();
+        assert!(result.is_err(), "Paused worker with shutdown signal should not be resumable");
+        match result {
+            Err(WorkerError::StateError(WorkerStateError::ShuttingDown)) => {}
+            other => panic!("Expected ShuttingDown error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn stopped_worker_cannot_be_resumed() {
+        let mut ctx = create_worker_context();
+        ctx.start().unwrap();
+        ctx.pause().unwrap();
+        ctx.state.store(InnerWorkerState::Stopped, Ordering::SeqCst);
+
+        // Resume checks is_paused() first, so it will fail with NotPaused
+        // But if we were paused and then stopped, we shouldn't be able to resume
+        let result = ctx.resume();
+        assert!(result.is_err(), "Stopped worker should not be resumable");
     }
 }
