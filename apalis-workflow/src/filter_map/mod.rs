@@ -61,10 +61,19 @@ where
 }
 
 /// The filter service that handles filtering and mapping of task inputs to outputs.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct FilterService<F, Backend, Input, Iter> {
     service: F,
     _marker: PhantomData<(Backend, Input, Iter)>,
+}
+
+impl<F: Clone, Backend, Input, Iter> Clone for FilterService<F, Backend, Input, Iter> {
+    fn clone(&self) -> Self {
+        FilterService {
+            service: self.service.clone(),
+            _marker: PhantomData,
+        }
+    }
 }
 
 /// The state of the filter operation
@@ -238,7 +247,7 @@ where
 impl<F, Input, S, B, CodecError, SinkError, I, Output: 'static, MetaErr, IdType> Step<I, B>
     for FilterMapStep<F, S, I>
 where
-    I: IntoIterator<Item = Input> + Send + 'static,
+    I: IntoIterator<Item = Input> + Send + Sync + 'static,
     B: BackendExt<Error = SinkError, IdType = IdType>
         + Send
         + Sync
@@ -248,11 +257,11 @@ where
         + WaitForCompletion<GoTo<StepResult<B::Compact, IdType>>>
         + Unpin,
     F: Service<Task<Input, B::Context, IdType>, Error = BoxDynError, Response = Option<Output>>
-        + Send
+        + Send + Sync
         + 'static
         + Clone,
     S: Step<Vec<Output>, B>,
-    Input: Send + 'static,
+    Input: Send + Sync + 'static,
     F::Future: Send + 'static,
     F::Error: Into<BoxDynError> + Send + 'static,
     B::Codec: Codec<F::Response, Error = CodecError, Compact = B::Compact>

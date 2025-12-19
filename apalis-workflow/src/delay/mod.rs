@@ -55,12 +55,12 @@ where
         + Clone
         + 'static,
     Err: std::error::Error + Send + Sync + 'static,
-    S: Clone + Send + 'static,
+    S: Clone + Send + Sync + 'static,
     S::Response: Send + 'static,
     B::Codec: Codec<Duration, Compact = B::Compact> + Codec<Input, Compact = B::Compact> + 'static,
     <B::Codec as Codec<Duration>>::Error: Into<BoxDynError>,
     B::Context: Send + 'static + MetadataExt<WorkflowContext>,
-    Input: Send + 'static,
+    Input: Send + Sync + 'static,
     <B::Codec as Codec<Input>>::Error: Into<BoxDynError>,
     B: BackendExt,
     S: Step<Input, B>,
@@ -100,16 +100,26 @@ impl<S, F: Clone, B, I> Layer<S> for DelayWith<F, B, I> {
 }
 
 /// Step that delays execution by a specified duration
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct DelayWithStep<S, F, B, Input> {
     f: F,
     inner: S,
     _marker: std::marker::PhantomData<(B, Input)>,
 }
 
+impl<S: Clone, F: Clone, B, Input> Clone for DelayWithStep<S, F, B, Input> {
+    fn clone(&self) -> Self {
+        DelayWithStep {
+            f: self.f.clone(),
+            inner: self.inner.clone(),
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
 impl<Input, F, B, S, Err> Step<Input, B> for DelayWithStep<S, F, B, Input>
 where
-    F: FnMut(Task<Input, B::Context, B::IdType>) -> Duration + Send + 'static + Clone,
+    F: FnMut(Task<Input, B::Context, B::IdType>) -> Duration + Send + Sync + 'static + Clone,
     B::IdType: GenerateId + Send + 'static,
     B::Compact: Send + 'static,
     B: Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err>
@@ -119,12 +129,12 @@ where
         + Clone
         + 'static,
     Err: std::error::Error + Send + Sync + 'static,
-    S: Clone + Send + 'static,
+    S: Clone + Send + Sync + 'static,
     S::Response: Send + 'static,
     B::Codec: Codec<Duration, Compact = B::Compact> + Codec<Input, Compact = B::Compact> + 'static,
     <B::Codec as Codec<Duration>>::Error: Into<BoxDynError>,
     B::Context: Send + 'static + MetadataExt<WorkflowContext>,
-    Input: Send + 'static,
+    Input: Send + Sync + 'static,
     <B::Codec as Codec<Input>>::Error: Into<BoxDynError>,
     B: BackendExt,
     S: Step<Input, B>,

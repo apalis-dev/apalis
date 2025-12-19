@@ -15,7 +15,7 @@ use crate::task_fn::FromRequest;
 
 /// Metadata wrapper for task contexts.
 #[derive(Debug, Clone)]
-pub struct Meta<T>(T);
+pub struct Meta<T>(pub T);
 /// Task metadata extension trait and implementations.
 /// This trait allows for injecting and extracting metadata associated with tasks.
 pub trait MetadataExt<T> {

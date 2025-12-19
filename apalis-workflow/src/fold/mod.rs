@@ -70,7 +70,7 @@ impl<S, F, Input, I: IntoIterator<Item = Input>, Init, B, MetaErr, Err, CodecErr
     for FoldStep<S, F, Init>
 where
     F: Service<Task<(Init, Input), B::Context, B::IdType>, Response = Init>
-        + Send
+        + Send + Sync
         + 'static
         + Clone,
     S: Step<Init, B>,
@@ -81,7 +81,7 @@ where
         + Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err>
         + Unpin
         + 'static,
-    I: IntoIterator<Item = Input> + Send + 'static,
+    I: IntoIterator<Item = Input> + Send + Sync + 'static,
     B::Context: MetadataExt<FoldState, Error = MetaErr>
         + MetadataExt<WorkflowContext, Error = MetaErr>
         + Send
@@ -92,7 +92,7 @@ where
         + Codec<(Init, Input), Error = CodecError, Compact = B::Compact>
         + 'static,
     B::IdType: GenerateId + Send + 'static + Clone,
-    Init: Default + Send + 'static,
+    Init: Default + Send + Sync + 'static,
     Err: std::error::Error + Send + Sync + 'static,
     CodecError: std::error::Error + Send + Sync + 'static,
     F::Error: Into<BoxDynError> + Send + 'static,
@@ -115,10 +115,19 @@ where
 }
 
 /// The fold service that handles folding over a collection of items.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct FoldService<F, Init, I, B> {
     fold: F,
     _marker: std::marker::PhantomData<(Init, I, B)>,
+}
+
+impl<F: Clone, Init, I, B> Clone for FoldService<F, Init, I, B> {
+    fn clone(&self) -> Self {
+        Self {
+            fold: self.fold.clone(),
+            _marker: std::marker::PhantomData,
+        }
+    }
 }
 
 impl<F, Init, I, B> FoldService<F, Init, I, B> {

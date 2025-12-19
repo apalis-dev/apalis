@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// The main workflow service that orchestrates the execution of workflow steps.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WorkflowService<B, Input>
 where
     B: BackendExt,

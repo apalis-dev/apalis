@@ -65,9 +65,9 @@ where
         + Clone
         + Sink<Task<B::Compact, B::Context, B::IdType>, Error = SinkError>
         + Unpin,
-    F: Service<Task<Input, B::Context, B::IdType>, Error = BoxDynError> + Send + 'static + Clone,
+    F: Service<Task<Input, B::Context, B::IdType>, Error = BoxDynError> + Send + Sync + 'static + Clone,
     S: Step<F::Response, B>,
-    Input: Send + 'static,
+    Input: Send + Sync + 'static,
     F::Future: Send + 'static,
     F::Error: Into<BoxDynError> + Send + 'static,
     B::Codec: Codec<F::Response, Error = CodecError, Compact = B::Compact>
@@ -105,6 +105,16 @@ pub struct AndThenService<Svc, Backend, Cur> {
     service: Svc,
     _marker: PhantomData<(Backend, Cur)>,
 }
+
+impl<Svc: Clone, Backend, Cur> Clone for AndThenService<Svc, Backend, Cur> {
+    fn clone(&self) -> Self {
+        Self {
+            service: self.service.clone(),
+            _marker: PhantomData,
+        }
+    }
+}
+
 
 impl<Svc, Backend, Cur> AndThenService<Svc, Backend, Cur> {
     /// Creates a new `AndThenService` with the provided service.
