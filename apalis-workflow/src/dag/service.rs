@@ -107,8 +107,8 @@ where
                 .await;
             let (response, context) = match ctx {
                 Ok(Meta(mut context)) => {
+                    #[cfg(feature = "tracing")]
                     tracing::debug!(
-                        task_id = ?req.parts.task_id,
                         node = ?context.current_node,
                         "Extracted DagflowContext for task"
                     );
@@ -136,8 +136,8 @@ where
                         _ => {
                             let dependency_task_ids =
                                 context.get_dependency_task_ids(&incoming_nodes);
+                            #[cfg(feature = "tracing")]
                             tracing::debug!(
-                                task_id = ?req.parts.task_id,
                                 prev_node = ?context.prev_node,
                                 node = ?context.current_node,
                                 deps = ?dependency_task_ids,
@@ -151,7 +151,7 @@ where
                             if (results.iter().all(|s| matches!(s.status, Status::Done))) {
                                 let sorted_results = {
                                     // Match the order of incoming_nodes by matching NodeIndex
-                                    incoming_nodes
+                                    let res =incoming_nodes
                                         .iter()
                                         .rev()
                                         .map(|node_index| {
@@ -159,12 +159,19 @@ where
                                                 .iter()
                                                 .find(|(n, _)| *n == node_index)
                                                 .map(|(_, task_id)| task_id)
-                                                .expect("TaskId for incoming node not found");
-                                                results.iter().find(|r| &r.task_id == task_id).expect(
-                                                "TaskResult for incoming node's task_id not found",
-                                            )
+                                                .ok_or(BoxDynError::from("TaskId for incoming node not found"))?;
+                                            let task_result = results.iter().find(|r| &r.task_id == task_id).ok_or(
+                                                BoxDynError::from(format!(
+                                                    "TaskResult for task_id {:?} not found",
+                                                    task_id
+                                                )))?;
+                                            Ok(task_result)
                                         })
-                                        .collect::<Vec<_>>()
+                                        .collect::<Result<Vec<_>, BoxDynError>>();
+                                    match res {
+                                        Ok(v) => v,
+                                        Err(e) => return Ok(DagExecutionResponse::WaitingForDependencies { pending_dependencies: dependency_task_ids }),
+                                    }
                                 };
                                 let encoded_input = B::Codec::encode(
                                     &sorted_results
@@ -187,11 +194,11 @@ where
                                                     DagExecutionResponse::EnqueuedNext { result } => {
                                                         return Ok(result);
                                                     }
-                                                    // DagExecutionResponse::Complete { result } => {
-                                                    //     Ok(result)
-                                                    // }
+                                                    DagExecutionResponse::Complete { result } => {
+                                                        Ok(result)
+                                                    }
                                                     _ => Err(format!(
-                                                            "Dependency task returned Complete response, which is unexpected during fan-in"
+                                                            "Dependency task returned invalid response, which is unexpected during fan-in"
                                                     ))
                                                 }
                                             }
@@ -218,14 +225,15 @@ where
                 }
 
                 Err(e) => {
+                    #[cfg(feature = "tracing")]
                     tracing::debug!(
-                        task_id = ?req.parts.task_id,
-                        "Extracted DagflowContext for task without meta"
+                        "Extracting DagflowContext for task without meta"
                     );
                     // if no metadata, we assume its an entry task
                     match start_nodes.len() {
                         1 => {
-                            tracing::debug!(task_id = ?req.parts.task_id, "Single start node detected, proceeding with execution");
+                            #[cfg(feature = "tracing")]
+                            tracing::debug!("Single start node detected, proceeding with execution");
                             let context = DagflowContext::new(req.parts.task_id.clone());
                             let task_id = req.parts.task_id.clone();
                             req.parts
@@ -233,7 +241,8 @@ where
                                 .inject(context.clone())
                                 .map_err(|e| e.into())?;
                             let response = executor.call(req).await?;
-                            tracing::debug!(node = ?context.current_node, task_id = ?task_id, "Execution complete at node");
+                            #[cfg(feature = "tracing")]
+                            tracing::debug!(node = ?context.current_node, "Execution complete at node");
                             (response, context)
                         }
                         _ => {

@@ -1,3 +1,4 @@
+#![cfg(feature = "sleep")]
 use std::{
     collections::VecDeque,
     fmt,

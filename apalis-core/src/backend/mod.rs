@@ -51,6 +51,7 @@ pub mod memory {
 }
 
 /// In-memory dequeue backend
+#[cfg(feature = "sleep")]
 pub mod dequeue {
     pub use crate::backend::impls::dequeue::*;
 }
