@@ -273,12 +273,10 @@ impl WorkerContext {
     /// Is the shutdown token called
     #[must_use]
     pub fn is_shutting_down(&self) -> bool {
-        let shutdown_signal = self
-            .shutdown
+        self.shutdown
             .as_ref()
-            .map(|s| s.is_shutting_down())
-            .unwrap_or(false);
-        self.is_stopped() || shutdown_signal
+            .map_or(false, |s| s.is_shutting_down())
+            || self.is_stopped()
     }
 
     /// Allows workers to emit events
@@ -389,16 +387,14 @@ impl Drop for WorkerContext {
 #[cfg(test)]
 mod tests {
     use crate::{
-        backend::memory::MemoryStorage,
-        error::BoxDynError,
-        worker::builder::WorkerBuilder,
+        backend::memory::MemoryStorage, error::BoxDynError, worker::builder::WorkerBuilder,
     };
     use std::time::Duration;
 
     use super::*;
 
     #[tokio::test]
-    async fn paused_worker_is_not_shutting_down() {
+    async fn test_worker_state_transitions() {
         let backend = MemoryStorage::<u32>::new();
 
         let worker = WorkerBuilder::new("test-worker")
@@ -411,6 +407,12 @@ mod tests {
         let worker_handle = tokio::spawn(async move { worker.run_with_ctx(&mut ctx).await });
         tokio::time::sleep(Duration::from_millis(50)).await;
 
+        // Initial state: worker should be running
+        assert!(ctx_handle.is_running());
+        assert!(!ctx_handle.is_shutting_down());
+        assert!(!ctx_handle.is_stopped());
+
+        // Pause the worker
         ctx_handle.pause().unwrap();
         assert!(ctx_handle.is_paused());
         assert!(
@@ -418,55 +420,22 @@ mod tests {
             "Paused worker should NOT be considered shutting down"
         );
 
-        ctx_handle.stop().unwrap();
-        worker_handle.await.unwrap().unwrap();
-    }
-
-    #[tokio::test]
-    async fn stopped_worker_is_shutting_down() {
-        let backend = MemoryStorage::<u32>::new();
-
-        let worker = WorkerBuilder::new("test-worker")
-            .backend(backend)
-            .build(|_task: u32| async { Ok::<_, BoxDynError>(()) });
-
-        let mut ctx = WorkerContext::new::<()>("test-worker");
-        let ctx_handle = ctx.clone();
-
-        let worker_handle = tokio::spawn(async move { worker.run_with_ctx(&mut ctx).await });
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        assert!(!ctx_handle.is_shutting_down());
-        assert!(!ctx_handle.is_stopped());
-
-        ctx_handle.stop().unwrap();
-        assert!(ctx_handle.is_shutting_down());
-        assert!(ctx_handle.is_stopped());
-
-        worker_handle.await.unwrap().unwrap();
-    }
-
-    #[tokio::test]
-    async fn paused_worker_can_be_resumed() {
-        let backend = MemoryStorage::<u32>::new();
-
-        let worker = WorkerBuilder::new("test-worker")
-            .backend(backend)
-            .build(|_task: u32| async { Ok::<_, BoxDynError>(()) });
-
-        let mut ctx = WorkerContext::new::<()>("test-worker");
-        let ctx_handle = ctx.clone();
-
-        let worker_handle = tokio::spawn(async move { worker.run_with_ctx(&mut ctx).await });
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        ctx_handle.pause().unwrap();
-        assert!(ctx_handle.is_paused());
-
+        // Resume the worker
         ctx_handle.resume().unwrap();
         assert!(ctx_handle.is_running());
+        assert!(!ctx_handle.is_paused());
 
+        // Stop the worker
         ctx_handle.stop().unwrap();
+        assert!(ctx_handle.is_stopped());
+        assert!(ctx_handle.is_shutting_down());
+
+        // Try to resume a stopped worker (should fail)
+        assert!(
+            ctx_handle.resume().is_err(),
+            "Resuming a stopped worker should fail"
+        );
+
         worker_handle.await.unwrap().unwrap();
     }
 }
