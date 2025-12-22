@@ -187,6 +187,14 @@ where
                 status: Status::Pending,
             };
             if let Some(value) = self.get(&key) {
+                if value.result.is_none() {
+                    results.push(apalis_core::backend::TaskResult {
+                        task_id: task_id.clone(),
+                        status: Status::Pending,
+                        result: Err(format!("Task still pending")),
+                    });
+                    continue;
+                }
                 let result =
                     match serde_json::from_value::<Result<Res, String>>(value.result.unwrap()) {
                         Ok(result) => apalis_core::backend::TaskResult {

@@ -257,7 +257,8 @@ where
         + WaitForCompletion<GoTo<StepResult<B::Compact, IdType>>>
         + Unpin,
     F: Service<Task<Input, B::Context, IdType>, Error = BoxDynError, Response = Option<Output>>
-        + Send + Sync
+        + Send
+        + Sync
         + 'static
         + Clone,
     S: Step<Vec<Output>, B>,

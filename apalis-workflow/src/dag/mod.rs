@@ -20,16 +20,34 @@ use petgraph::{
     Direction,
     algo::toposort,
     dot::Config,
-    graph::{DiGraph, EdgeIndex, NodeIndex},
+    graph::{DiGraph, EdgeIndex, Node, NodeIndex},
 };
-mod service;
+/// DAG executor implementations
+pub mod executor;
+/// DAG service implementations
+pub mod service;
+
+/// DAG error definitions
+pub mod error;
+/// DAG node implementations
+pub mod node;
+
+/// DAG context implementations
+pub mod context;
+
+/// DAG response implementations
+pub mod response;
+
+use serde::{Deserialize, Serialize};
 use tower::{Service, ServiceBuilder, util::BoxCloneSyncService};
 
 use crate::{
-    BoxedService, DagService, dag::service::DagExecutionResponse, id_generator::GenerateId,
+    BoxedService, DagService,
+    dag::{error::DagflowError, executor::DagExecutor, node::NodeService},
+    id_generator::GenerateId,
 };
 
-pub use service::DagflowContext;
+pub use context::DagflowContext;
 pub use service::RootDagService;
 
 /// Directed Acyclic Graph (DAG) workflow builder
@@ -67,7 +85,7 @@ where
     /// Add a node to the DAG
     #[must_use]
     #[allow(clippy::todo)]
-    pub fn add_node<S, Input>(
+    pub fn add_node<S, Input, CodecError>(
         &self,
         name: &str,
         service: S,
@@ -75,31 +93,23 @@ where
     where
         S: Service<Task<Input, B::Context, B::IdType>> + Send + 'static + Sync + Clone,
         S::Future: Send + 'static,
-        B::Codec:
-            Codec<Input, Compact = B::Compact> + Codec<S::Response, Compact = B::Compact> + 'static,
-        <B::Codec as Codec<Input>>::Error: Debug,
-        <B::Codec as Codec<S::Response>>::Error: Debug,
+        B::Codec: Codec<Input, Compact = B::Compact, Error = CodecError>
+            + Codec<S::Response, Compact = B::Compact, Error = CodecError>
+            + 'static,
+        CodecError: Into<BoxDynError> + Send + 'static,
         S::Error: Into<BoxDynError>,
-        B::Compact: Debug,
+        B: Send + Sync + 'static,
+        Input: Send + Sync + 'static,
     {
-        let svc = ServiceBuilder::new()
-            .map_request(|r: Task<B::Compact, B::Context, B::IdType>| {
-                r.map(|r| B::Codec::decode(&r).unwrap())
-            })
-            .map_response(|r: S::Response| B::Codec::encode(&r).unwrap())
-            .map_err(|e: S::Error| {
-                let boxed: BoxDynError = e.into();
-                boxed
-            })
-            .service(service);
+        let svc: NodeService<S, B, Input> = NodeService::new(service);
         let node = self
             .graph
             .lock()
-            .unwrap()
+            .expect("Failed to lock graph mutex")
             .add_node(BoxCloneSyncService::new(svc));
         self.node_mapping
             .lock()
-            .unwrap()
+            .expect("Failed to lock node_mapping mutex")
             .insert(name.to_owned(), node);
         NodeBuilder {
             id: node,
@@ -109,7 +119,7 @@ where
     }
 
     /// Add a task function node to the DAG
-    pub fn node<F, Input, O, FnArgs, Err>(&self, node: F) -> NodeBuilder<'_, Input, O, B>
+    pub fn node<F, Input, O, FnArgs, Err, CodecError>(&self, node: F) -> NodeBuilder<'_, Input, O, B>
     where
         TaskFn<F, Input, B::Context, FnArgs>: Service<Task<Input, B::Context, B::IdType>, Response = O, Error = Err> + Clone,
         F: Send + 'static + Sync,
@@ -118,21 +128,19 @@ where
         B::Context: Send + Sync + 'static,
         <TaskFn<F, Input, B::Context, FnArgs> as Service<Task<Input, B::Context, B::IdType>>>::Future:
             Send + 'static,
-            B::Codec: Codec<Input, Compact = B::Compact> + 'static,
-        <B::Codec as Codec<Input>>::Error: Debug,
-        B::Codec: Codec<Input, Compact = B::Compact> + 'static,
-        B::Codec: Codec<O, Compact = B::Compact> + 'static,
-        <B::Codec as Codec<Input>>::Error: Debug,
-        <B::Codec as Codec<O>>::Error: Debug,
+        B::Codec: Codec<Input, Compact = B::Compact, Error = CodecError> + 'static,
+        B::Codec: Codec<O, Compact = B::Compact, Error = CodecError> + 'static,
+        CodecError: Into<BoxDynError> + Send + 'static,
         Err: Into<BoxDynError>,
-        B::Compact: Debug
+        B: Send + Sync + 'static,
+        Input: Send + Sync + 'static,
 
     {
         self.add_node(std::any::type_name::<F>(), task_fn(node))
     }
 
     /// Add a routing node to the DAG
-    pub fn route<F, Input, O, FnArgs, Err>(
+    pub fn route<F, Input, O, FnArgs, Err, CodecError>(
         &self,
         router: F,
     ) -> NodeBuilder<'_, Input, O, B>
@@ -145,25 +153,28 @@ where
             Send + 'static,
         O: Into<NodeIndex>,
         B::Context: Send + Sync + 'static,
-        B::Codec: Codec<Input, Compact = B::Compact> + 'static,
-        B::Codec: Codec<O, Compact = B::Compact> + 'static,
-        <B::Codec as Codec<Input>>::Error: Debug,
-        <B::Codec as Codec<O>>::Error: Debug,
+        B::Codec: Codec<Input, Compact = B::Compact, Error = CodecError> + 'static,
+        B::Codec: Codec<O, Compact = B::Compact, Error = CodecError> + 'static,
+        CodecError: Into<BoxDynError> + Send + 'static,
         Err: Into<BoxDynError>,
-        B::Compact: Debug
+        B: Send + Sync + 'static,
+        Input: Send + Sync + 'static,
 
     {
-        self.add_node::<TaskFn<F, Input, B::Context, FnArgs>, Input>(
+        self.add_node::<TaskFn<F, Input, B::Context, FnArgs>, Input, CodecError>(
             std::any::type_name::<F>(),
             task_fn(router),
         )
     }
 
     /// Build the DAG executor
-    pub fn build(self) -> Result<DagExecutor<B>, String> {
+    pub fn build(self) -> Result<DagExecutor<B>, DagflowError> {
         // Validate DAG (check for cycles)
-        let sorted =
-            toposort(&*self.graph.lock().unwrap(), None).map_err(|_| "DAG contains cycles")?;
+        let sorted = toposort(
+            &*self.graph.lock().expect("Failed to lock graph mutex"),
+            None,
+        )
+        .map_err(DagflowError::CyclicDAG)?;
 
         fn find_edge_nodes<N, E>(graph: &DiGraph<N, E>, direction: Direction) -> Vec<NodeIndex> {
             graph
@@ -172,125 +183,26 @@ where
                 .collect()
         }
 
-        let graph = self.graph.into_inner().unwrap();
+        let graph = self
+            .graph
+            .into_inner()
+            .expect("Failed to unlock graph mutex");
 
         Ok(DagExecutor {
             start_nodes: find_edge_nodes(&graph, Direction::Incoming),
             end_nodes: find_edge_nodes(&graph, Direction::Outgoing),
             graph,
-            node_mapping: self.node_mapping.into_inner().unwrap(),
+            node_mapping: self
+                .node_mapping
+                .into_inner()
+                .expect("Failed to unlock node_mapping mutex"),
             topological_order: sorted,
             not_ready: VecDeque::new(),
         })
     }
 }
 
-/// Executor for DAG workflows
-
-#[derive(Debug)]
-pub struct DagExecutor<B>
-where
-    B: BackendExt,
-{
-    graph: DiGraph<DagService<B::Compact, B::Context, B::IdType>, ()>,
-    node_mapping: HashMap<String, NodeIndex>,
-    topological_order: Vec<NodeIndex>,
-    start_nodes: Vec<NodeIndex>,
-    end_nodes: Vec<NodeIndex>,
-    not_ready: VecDeque<NodeIndex>,
-}
-
-impl<B> Clone for DagExecutor<B>
-where
-    B: BackendExt,
-{
-    fn clone(&self) -> Self {
-        Self {
-            graph: self.graph.clone(),
-            node_mapping: self.node_mapping.clone(),
-            topological_order: self.topological_order.clone(),
-            start_nodes: self.start_nodes.clone(),
-            end_nodes: self.end_nodes.clone(),
-            not_ready: self.not_ready.clone(),
-        }
-    }
-}
-
-impl<B> DagExecutor<B>
-where
-    B: BackendExt,
-{
-    /// Get a node by name
-    pub fn get_node_by_name_mut(
-        &mut self,
-        name: &str,
-    ) -> Option<&mut DagService<B::Compact, B::Context, B::IdType>> {
-        self.node_mapping
-            .get(name)
-            .and_then(|&idx| self.graph.node_weight_mut(idx))
-    }
-
-    /// Export the DAG to DOT format
-    #[must_use]
-    pub fn to_dot(&self) -> String {
-        let names = self
-            .node_mapping
-            .iter()
-            .map(|(name, &idx)| (idx, name.clone()))
-            .collect::<HashMap<_, _>>();
-        let get_node_attributes = |_, (index, _)| {
-            format!(
-                "label=\"{}\"",
-                names.get(&index).cloned().unwrap_or_default()
-            )
-        };
-        let dot = petgraph::dot::Dot::with_attr_getters(
-            &self.graph,
-            &[Config::NodeNoLabel, Config::EdgeNoLabel],
-            &|_, _| String::new(),
-            &get_node_attributes,
-        );
-        format!("{dot:?}")
-    }
-}
-
-impl<B, Compact, Err, CdcErr> IntoWorkerService<B, RootDagService<B>, B::Compact, B::Context>
-    for DagExecutor<B>
-where
-    B: BackendExt<Compact = Compact>
-        + Send
-        + Sync
-        + 'static
-        + Sink<Task<Compact, B::Context, B::IdType>, Error = Err>
-        + Unpin
-        + Clone
-        + WaitForCompletion<Compact>,
-    Err: std::error::Error + Send + Sync + 'static,
-    B::Context: MetadataExt<DagflowContext<B::Context, B::IdType>> + Send + Sync + 'static,
-    B::IdType: Send + Sync + 'static + Default + GenerateId + PartialEq,
-    B: Sync + Backend<Args = Compact, Error = Err>,
-    B::Compact: Send + Sync + 'static + Clone, // Remove on compact
-    // B::Context: Clone,
-    <B::Context as MetadataExt<DagflowContext<B::Context, B::IdType>>>::Error: Into<BoxDynError>,
-    B::Codec: Codec<Vec<Compact>, Compact = Compact, Error = CdcErr> + 'static,
-    CdcErr: Into<BoxDynError>,
-    <B as BackendExt>::Codec: Codec<
-            DagExecutionResponse<Compact, <B as Backend>::Context, <B as Backend>::IdType>,
-            Compact = Compact,
-            Error = CdcErr,
-        >,
-{
-    type Backend = RawDataBackend<B>;
-    fn into_service(self, b: B) -> WorkerService<RawDataBackend<B>, RootDagService<B>> {
-        WorkerService {
-            backend: RawDataBackend::new(b.clone()),
-            service: RootDagService::new(self, b),
-        }
-    }
-}
-
 /// Builder for a node in the DAG
-#[derive(Clone)]
 pub struct NodeBuilder<'a, Input, Output, B>
 where
     B: BackendExt,
@@ -298,6 +210,30 @@ where
     pub(crate) id: NodeIndex,
     pub(crate) dag: &'a DagFlow<B>,
     _phantom: PhantomData<(Input, Output)>,
+}
+
+impl<'a, Input, Output, B> std::fmt::Debug for NodeBuilder<'a, Input, Output, B>
+where
+    B: BackendExt,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NodeBuilder")
+            .field("id", &self.id)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<'a, Input, Output, B> Clone for NodeBuilder<'a, Input, Output, B>
+where
+    B: BackendExt,
+{
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            dag: self.dag,
+            _phantom: PhantomData,
+        }
+    }
 }
 
 impl<Input, Output, B> NodeBuilder<'_, Input, Output, B>
@@ -311,7 +247,7 @@ where
         D: DepsCheck<Input>,
     {
         let mut edges = Vec::new();
-        for dep in deps.to_node_ids() {
+        for dep in deps.to_node_indices() {
             edges.push(self.dag.graph.lock().unwrap().add_edge(dep, self.id, ()));
         }
         NodeHandle {
@@ -332,12 +268,12 @@ pub struct NodeHandle<Input, Output> {
 
 /// Trait for converting dependencies into node IDs
 pub trait DepsCheck<Input> {
-    /// Convert dependencies to node IDs
-    fn to_node_ids(&self) -> Vec<NodeIndex>;
+    /// Convert dependencies to node indices
+    fn to_node_indices(&self) -> Vec<NodeIndex>;
 }
 
 impl DepsCheck<()> for () {
-    fn to_node_ids(&self) -> Vec<NodeIndex> {
+    fn to_node_indices(&self) -> Vec<NodeIndex> {
         Vec::new()
     }
 }
@@ -346,19 +282,19 @@ impl<'a, Input, Output, B> DepsCheck<Output> for &NodeBuilder<'a, Input, Output,
 where
     B: BackendExt,
 {
-    fn to_node_ids(&self) -> Vec<NodeIndex> {
+    fn to_node_indices(&self) -> Vec<NodeIndex> {
         vec![self.id]
     }
 }
 
 impl<Input, Output> DepsCheck<Output> for &NodeHandle<Input, Output> {
-    fn to_node_ids(&self) -> Vec<NodeIndex> {
+    fn to_node_indices(&self) -> Vec<NodeIndex> {
         vec![self.id]
     }
 }
 
 impl<Input, Output> DepsCheck<Output> for (&NodeHandle<Input, Output>,) {
-    fn to_node_ids(&self) -> Vec<NodeIndex> {
+    fn to_node_indices(&self) -> Vec<NodeIndex> {
         vec![self.0.id]
     }
 }
@@ -367,14 +303,16 @@ impl<'a, Input, Output, B> DepsCheck<Output> for (&NodeBuilder<'a, Input, Output
 where
     B: BackendExt,
 {
-    fn to_node_ids(&self) -> Vec<NodeIndex> {
+    fn to_node_indices(&self) -> Vec<NodeIndex> {
         vec![self.0.id]
     }
 }
 
 impl<Output, T: DepsCheck<Output>> DepsCheck<Vec<Output>> for Vec<T> {
-    fn to_node_ids(&self) -> Vec<NodeIndex> {
-        self.iter().flat_map(|item| item.to_node_ids()).collect()
+    fn to_node_indices(&self) -> Vec<NodeIndex> {
+        self.iter()
+            .flat_map(|item| item.to_node_indices())
+            .collect()
     }
 }
 
@@ -384,7 +322,7 @@ macro_rules! impl_deps_check {
             impl<'a, $( $in, )+ $( $out, )+ B> DepsCheck<( $( $out, )+ )>
                 for ( $( &NodeBuilder<'a, $in, $out, B>, )+ ) where B: BackendExt
             {
-                fn to_node_ids(&self) -> Vec<NodeIndex> {
+                fn to_node_indices(&self) -> Vec<NodeIndex> {
                     vec![ $( self.$idx.id ),+ ]
                 }
             }
@@ -392,7 +330,7 @@ macro_rules! impl_deps_check {
             impl<$( $in, )+ $( $out, )+> DepsCheck<( $( $out, )+ )>
                 for ( $( &NodeHandle<$in, $out>, )+ )
             {
-                fn to_node_ids(&self) -> Vec<NodeIndex> {
+                fn to_node_indices(&self) -> Vec<NodeIndex> {
                     vec![ $( self.$idx.id ),+ ]
                 }
             }
@@ -409,6 +347,19 @@ impl_deps_check! {
     6 => (Input1 Output1 0, Input2 Output2 1, Input3 Output3 2, Input4 Output4 3, Input5 Output5 4, Input6 Output6 5),
     7 => (Input1 Output1 0, Input2 Output2 1, Input3 Output3 2, Input4 Output4 3, Input5 Output5 4, Input6 Output6 5, Input7 Output7 6),
     8 => (Input1 Output1 0, Input2 Output2 1, Input3 Output3 2, Input4 Output4 3, Input5 Output5 4, Input6 Output6 5, Input7 Output7 6, Input8 Output8 7),
+}
+
+/// State of the node in DAG execution
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub enum DagState {
+    /// Unknown state
+    Unknown,
+    /// State for a single node
+    SingleNode,
+    /// Fan-in state to gather inputs
+    FanIn,
+    /// Fan-out state to distribute inputs
+    FanOut,
 }
 
 #[cfg(test)]
@@ -492,8 +443,19 @@ mod tests {
         let squared = dag
             .add_node("squared", task_fn(|task: usize| async move { task * task }))
             .depends_on(&source);
+
+        let collector = dag
+            .add_node(
+                "collector",
+                task_fn(|task: (usize, usize, usize), w: WorkerContext| async move {
+                    w.stop().unwrap();
+                    task.0 + task.1 + task.2
+                }),
+            )
+            .depends_on((&plus_one, &multiply, &squared));
+
         let dag_executor = dag.build().unwrap();
-        assert_eq!(dag_executor.topological_order.len(), 4);
+        assert_eq!(dag_executor.topological_order.len(), 5);
 
         println!("DAG in DOT format:\n{}", dag_executor.to_dot());
 
@@ -607,7 +569,7 @@ mod tests {
         }
 
         impl DepsCheck<usize> for EntryRoute {
-            fn to_node_ids(&self) -> Vec<NodeIndex> {
+            fn to_node_indices(&self) -> Vec<NodeIndex> {
                 vec![(*self).into()]
             }
         }
@@ -631,8 +593,12 @@ mod tests {
 
         let on_collect = dag.node(exit).depends_on((&collector, &vec_collector));
 
-        async fn check_approval(task: u32) -> Result<EntryRoute, BoxDynError> {
+        async fn check_approval(
+            task: u32,
+            worker: WorkerContext,
+        ) -> Result<EntryRoute, BoxDynError> {
             println!("Approval check for task: {}", task);
+            worker.stop().unwrap();
             match task % 3 {
                 0 => Ok(EntryRoute::Entry1(NodeIndex::new(0))),
                 1 => Ok(EntryRoute::Entry2(NodeIndex::new(1))),
@@ -658,7 +624,10 @@ mod tests {
 
         let mut backend: JsonStorage<Value> = JsonStorage::new_temp().unwrap();
 
-        backend.push_start(Value::from(vec![17, 18, 19])).await.unwrap();
+        backend
+            .push_start(Value::from(vec![17, 18, 19]))
+            .await
+            .unwrap();
 
         let worker = WorkerBuilder::new("rango-tango")
             .backend(backend)

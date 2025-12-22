@@ -65,7 +65,11 @@ where
         + Clone
         + Sink<Task<B::Compact, B::Context, B::IdType>, Error = SinkError>
         + Unpin,
-    F: Service<Task<Input, B::Context, B::IdType>, Error = BoxDynError> + Send + Sync + 'static + Clone,
+    F: Service<Task<Input, B::Context, B::IdType>, Error = BoxDynError>
+        + Send
+        + Sync
+        + 'static
+        + Clone,
     S: Step<F::Response, B>,
     Input: Send + Sync + 'static,
     F::Future: Send + 'static,
@@ -114,7 +118,6 @@ impl<Svc: Clone, Backend, Cur> Clone for AndThenService<Svc, Backend, Cur> {
         }
     }
 }
-
 
 impl<Svc, Backend, Cur> AndThenService<Svc, Backend, Cur> {
     /// Creates a new `AndThenService` with the provided service.

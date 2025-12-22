@@ -15,8 +15,7 @@ type BoxedService<Input, Output> = tower::util::BoxCloneSyncService<Input, Outpu
 type SteppedService<Compact, Ctx, IdType> =
     BoxedService<Task<Compact, Ctx, IdType>, GoTo<StepResult<Compact, IdType>>>;
 
-type DagService<Compact, Ctx, IdType> =
-    BoxedService<Task<Compact, Ctx, IdType>, Compact>;
+type DagService<Compact, Ctx, IdType> = BoxedService<Task<Compact, Ctx, IdType>, Compact>;
 
 /// combinator for sequential workflow execution.
 pub mod and_then;
@@ -45,7 +44,7 @@ pub mod step;
 /// workflow definitions.
 pub mod workflow;
 
-pub use {dag::DagExecutor, dag::DagFlow, sink::WorkflowSink, workflow::Workflow};
+pub use {dag::DagFlow, dag::executor::DagExecutor, sink::WorkflowSink, workflow::Workflow};
 
 #[cfg(test)]
 mod tests {

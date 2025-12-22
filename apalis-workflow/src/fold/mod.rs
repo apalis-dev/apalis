@@ -70,7 +70,8 @@ impl<S, F, Input, I: IntoIterator<Item = Input>, Init, B, MetaErr, Err, CodecErr
     for FoldStep<S, F, Init>
 where
     F: Service<Task<(Init, Input), B::Context, B::IdType>, Response = Init>
-        + Send + Sync
+        + Send
+        + Sync
         + 'static
         + Clone,
     S: Step<Init, B>,
