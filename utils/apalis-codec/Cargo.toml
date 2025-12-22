@@ -9,7 +9,7 @@ repository.workspace = true
 default = ["json"]
 ## Enable serde_json support
 json = ["apalis-core/serde", "dep:serde", "dep:serde_json"]
-bincode = ["dep:bincode"]
+bincode = ["dep:bincode", "dep:thiserror"]
 msgpack = ["dep:rmp-serde", "dep:serde", "apalis-core/serde", "dep:thiserror"]
 
 [dependencies]

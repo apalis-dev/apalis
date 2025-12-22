@@ -584,7 +584,7 @@ where
     type Future = S::Future;
 
     fn poll_ready(&mut self, cx: &mut std::task::Context<'_>) -> Poll<Result<(), Self::Error>> {
-        if self.ctx.is_shutting_down() {
+        if self.ctx.is_shutting_down() || self.ctx.is_paused() {
             self.ctx.is_ready.store(false, Ordering::SeqCst);
             return Poll::Pending;
         }

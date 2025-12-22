@@ -202,6 +202,7 @@ impl WorkerContext {
         }
         self.state
             .store(InnerWorkerState::Running, Ordering::SeqCst);
+        self.wake();
         info!("Worker {} resumed", self.name());
         Ok(())
     }
@@ -250,6 +251,12 @@ impl WorkerContext {
         self.state.load(Ordering::SeqCst) == InnerWorkerState::Paused
     }
 
+    /// Checks whether the worker has been stopped
+    #[must_use]
+    pub fn is_stopped(&self) -> bool {
+        self.state.load(Ordering::SeqCst) == InnerWorkerState::Stopped
+    }
+
     /// Checks the current futures in the worker domain
     /// This include futures spawned via `worker.track`
     #[must_use]
@@ -266,10 +273,11 @@ impl WorkerContext {
     /// Is the shutdown token called
     #[must_use]
     pub fn is_shutting_down(&self) -> bool {
-        self.shutdown
-            .as_ref()
-            .map(|s| !self.is_running() || s.is_shutting_down())
-            .unwrap_or(!self.is_running())
+        self.is_stopped()
+            || self
+                .shutdown
+                .as_ref()
+                .map_or(false, |s| s.is_shutting_down())
     }
 
     /// Allows workers to emit events
@@ -367,12 +375,71 @@ impl Drop for WorkerContext {
             // There are still other references to this context, so we shouldn't log a warning.
             return;
         }
-        if self.is_running() {
+        if self.is_running() && self.has_pending_tasks() {
             error!(
                 "Worker '{}' is being dropped while running with `{}` tasks. Consider calling stop() before dropping.",
                 self.name(),
                 self.task_count()
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        backend::memory::MemoryStorage, error::BoxDynError, worker::builder::WorkerBuilder,
+    };
+    use std::time::Duration;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_worker_state_transitions() {
+        let backend = MemoryStorage::<u32>::new();
+
+        let worker = WorkerBuilder::new("test-worker")
+            .backend(backend)
+            .build(|_task: u32| async { Ok::<_, BoxDynError>(()) });
+
+        let mut ctx = WorkerContext::new::<()>("test-worker");
+        let ctx_handle = ctx.clone();
+
+        let worker_handle = tokio::spawn(async move { worker.run_with_ctx(&mut ctx).await });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Initial state: worker should be running
+        assert!(ctx_handle.is_running());
+        assert!(!ctx_handle.is_shutting_down());
+        assert!(!ctx_handle.is_stopped());
+
+        // Pause the worker
+        ctx_handle.pause().unwrap();
+        assert!(ctx_handle.is_paused());
+        assert!(
+            !ctx_handle.is_shutting_down(),
+            "Paused worker should NOT be considered shutting down"
+        );
+
+        // Resume the worker
+        ctx_handle.resume().unwrap();
+        assert!(ctx_handle.is_running());
+        assert!(!ctx_handle.is_paused());
+
+        // Stop the worker
+        ctx_handle.stop().unwrap();
+        assert!(ctx_handle.is_stopped());
+        assert!(ctx_handle.is_shutting_down());
+
+        // Try to resume a stopped worker (should fail with NotPaused error since state is Stopped)
+        assert!(
+            matches!(
+                ctx_handle.resume(),
+                Err(WorkerError::StateError(WorkerStateError::NotPaused))
+            ),
+            "Resuming a stopped worker should fail with NotPaused error"
+        );
+
+        worker_handle.await.unwrap().unwrap();
     }
 }
