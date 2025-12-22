@@ -10,9 +10,9 @@ pub trait Layer<S> {
     fn layer(&self, step: S) -> Self::Step;
 }
 
-/// A workflow step
+/// A sequential step
 ///
-/// A single unit of work in a workflow pipeline.
+/// A single unit of work in a sequential workflow pipeline.
 pub trait Step<Input, B>
 where
     B: BackendExt,

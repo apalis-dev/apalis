@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /// Metadata stored in each task for workflow processing
 #[derive(Debug, Deserialize, Serialize, Default)]
-pub struct DagflowContext<IdType> {
+pub struct DagFlowContext<IdType> {
     /// Previous node executed in the DAG
     /// This is the source node that led to the current node's execution
     pub prev_node: Option<NodeIndex>,
@@ -29,7 +29,7 @@ pub struct DagflowContext<IdType> {
     pub root_task_id: Option<TaskId<IdType>>,
 }
 
-impl<IdType: Clone> Clone for DagflowContext<IdType> {
+impl<IdType: Clone> Clone for DagFlowContext<IdType> {
     fn clone(&self) -> Self {
         Self {
             prev_node: self.prev_node,
@@ -43,7 +43,7 @@ impl<IdType: Clone> Clone for DagflowContext<IdType> {
     }
 }
 
-impl<IdType: Clone> DagflowContext<IdType> {
+impl<IdType: Clone> DagFlowContext<IdType> {
     /// Create initial context for DAG execution
     pub fn new(root_task_id: Option<TaskId<IdType>>) -> Self {
         Self {

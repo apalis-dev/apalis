@@ -25,8 +25,8 @@ use petgraph::{
 use tower::Service;
 
 use crate::{
-    DagService,
-    dag::{DagflowContext, RootDagService, error::DagflowError, response::DagExecutionResponse},
+    DagFlow, DagService,
+    dag::{DagFlowContext, RootDagService, error::DagFlowError, response::DagExecutionResponse},
     id_generator::GenerateId,
 };
 
@@ -65,7 +65,7 @@ where
     B: BackendExt,
 {
     /// Get a node by name
-    pub fn get_node_by_name_mut(
+    fn get_node_by_name_mut(
         &mut self,
         name: &str,
     ) -> Option<&mut DagService<B::Compact, B::Context, B::IdType>> {
@@ -73,42 +73,19 @@ where
             .get(name)
             .and_then(|&idx| self.graph.node_weight_mut(idx))
     }
-
-    /// Export the DAG to DOT format
-    #[must_use]
-    pub fn to_dot(&self) -> String {
-        let names = self
-            .node_mapping
-            .iter()
-            .map(|(name, &idx)| (idx, name.clone()))
-            .collect::<HashMap<_, _>>();
-        let get_node_attributes = |_, (index, _)| {
-            format!(
-                "label=\"{}\"",
-                names.get(&index).cloned().unwrap_or_default()
-            )
-        };
-        let dot = petgraph::dot::Dot::with_attr_getters(
-            &self.graph,
-            &[Config::NodeNoLabel, Config::EdgeNoLabel],
-            &|_, _| String::new(),
-            &get_node_attributes,
-        );
-        format!("{dot:?}")
-    }
 }
 
 impl<B, MetaError> Service<Task<B::Compact, B::Context, B::IdType>> for DagExecutor<B>
 where
     B: BackendExt,
     B::Context:
-        Send + Sync + 'static + MetadataExt<DagflowContext<B::IdType>, Error = MetaError> + Default,
+        Send + Sync + 'static + MetadataExt<DagFlowContext<B::IdType>, Error = MetaError> + Default,
     B::IdType: Clone + Send + Sync + 'static + GenerateId + Debug,
     B::Compact: Send + Sync + 'static,
     MetaError: Into<BoxDynError>,
 {
     type Response = B::Compact;
-    type Error = DagflowError;
+    type Error = DagFlowError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -123,7 +100,7 @@ where
                     .node_weight_mut(self.not_ready[0])
                     .unwrap()
                     .poll_ready(cx)
-                    .map_err(|e| DagflowError::Service(e))?
+                    .map_err(|e| DagFlowError::Service(e))?
                     .is_pending()
                 {
                     return Poll::Pending;
@@ -139,54 +116,38 @@ where
 
         Box::pin(async move {
             let context = req
-                .extract::<Meta<DagflowContext<B::IdType>>>()
+                .extract::<Meta<DagFlowContext<B::IdType>>>()
                 .await
-                .map_err(|e| DagflowError::Metadata(e.into()))?
+                .map_err(|e| DagFlowError::Metadata(e.into()))?
                 .0;
 
             // Get the service for this node
             let service = graph
                 .node_weight_mut(context.current_node)
-                .ok_or_else(|| DagflowError::MissingService(context.current_node))?;
+                .ok_or_else(|| DagFlowError::MissingService(context.current_node))?;
 
-            let result = service.call(req).await.map_err(|e| DagflowError::Node(e))?;
+            let result = service.call(req).await.map_err(|e| DagFlowError::Node(e))?;
 
             Ok(result)
         })
     }
 }
 
-impl<B, Compact, Err, CdcErr, MetaError>
-    IntoWorkerService<B, RootDagService<B>, B::Compact, B::Context> for DagExecutor<B>
+impl<B, Compact, Err> IntoWorkerService<B, RootDagService<B>, B::Compact, B::Context> for DagFlow<B>
 where
-    B: BackendExt<Compact = Compact>
-        + Send
-        + Sync
-        + 'static
-        + Sink<Task<Compact, B::Context, B::IdType>, Error = Err>
-        + Unpin
-        + Clone
-        + WaitForCompletion<Compact>,
+    B: BackendExt<Compact = Compact, Args = Compact, Error = Err> + Clone,
     Err: std::error::Error + Send + Sync + 'static,
-    B::Context: MetadataExt<DagflowContext<B::IdType>, Error = MetaError> + Send + Sync + 'static,
+    B::Context: MetadataExt<DagFlowContext<B::IdType>> + Send + Sync + 'static,
     B::IdType: Send + Sync + 'static + Default + GenerateId + PartialEq + Debug,
-    B: Sync + Backend<Args = Compact, Error = Err>,
     B::Compact: Send + Sync + 'static + Clone,
-    <B::Context as MetadataExt<DagflowContext<B::IdType>>>::Error: Into<BoxDynError>,
-    B::Codec: Codec<Vec<Compact>, Compact = Compact, Error = CdcErr> + 'static,
-    CdcErr: Into<BoxDynError>,
-    <B as BackendExt>::Codec: Codec<
-            DagExecutionResponse<Compact, <B as Backend>::IdType>,
-            Compact = Compact,
-            Error = CdcErr,
-        >,
-    MetaError: Send + Sync + 'static + Into<BoxDynError>,
+    RootDagService<B>: Service<Task<Compact, B::Context, B::IdType>>,
 {
     type Backend = RawDataBackend<B>;
     fn into_service(self, b: B) -> WorkerService<RawDataBackend<B>, RootDagService<B>> {
+        let executor = self.build().expect("Execution should be valid");
         WorkerService {
             backend: RawDataBackend::new(b.clone()),
-            service: RootDagService::new(self, b),
+            service: RootDagService::new(executor, b),
         }
     }
 }

@@ -56,7 +56,7 @@
 | `apalis-core`      | <a href="https://docs.rs/apalis-core"><img src="https://img.shields.io/crates/v/apalis-core?style=flat-square"></a>           |                                                                                                                                                                                     |
 | `apalis-workflow`  | <a href="https://docs.rs/apalis-workflow"><img src="https://img.shields.io/crates/v/apalis-workflow?style=flat-square"></a>   |                                                                                                                                                                                     |
 | `apalis-board`     | <a href="https://docs.rs/apalis-board"><img src="https://img.shields.io/crates/v/apalis-board?style=flat-square"></a>         |                                                                                                                                                                                     |
-| `apalis-board-api` | <a href="https://docs.rs/apalis-board-api"><img src="https://img.shields.io/crates/v/apalis-board-api?style=flat-square"></a> | <a href="https://github.com/apalis-dev/apalis-board/tree/master/examples/axum-email-service"><img src="https://img.shields.io/badge/axum-blue?style=flat-square&logo=github"/></a> <a href="https://github.com/apalis-dev/apalis-board/tree/master/examples/actix-ntfy-service"><img src="https://img.shields.io/badge/actix-red?style=flat-square&logo=github"/></a> |
+| `apalis-board-api` | <a href="https://docs.rs/apalis-board-api"><img src="https://img.shields.io/crates/v/apalis-board-api?style=flat-square"></a> | <a href="https://github.com/apalis-dev/apalis-board/tree/main/examples/axum-email-service"><img src="https://img.shields.io/badge/axum-blue?style=flat-square&logo=github"/></a> <a href="https://github.com/apalis-dev/apalis-board/tree/main/examples/actix-ntfy-service"><img src="https://img.shields.io/badge/actix-red?style=flat-square&logo=github"/></a> |
 
 ## Getting Started
 
@@ -165,9 +165,9 @@ sequenceDiagram
 
 ## Observability
 
-With the [web UI](https://github.com/apalis-dev/apalis-board), you can manage your jobs through a simple interface. Check out this [working example](https://github.com/apalis-dev/apalis-board/blob/master/examples/axum-email-service) to see how it works.
+With the [web UI](https://github.com/apalis-dev/apalis-board), you can manage your jobs through a simple interface. Check out this [working example](https://github.com/apalis-dev/apalis-board/blob/main/examples/axum-email-service) to see how it works.
 
-![Workers Screenshot](https://github.com/apalis-dev/apalis-board/raw/master/screenshots/workers.png)
+![Workers Screenshot](https://github.com/apalis-dev/apalis-board/raw/main/screenshots/workers.png)
 
 ## Integrations
 

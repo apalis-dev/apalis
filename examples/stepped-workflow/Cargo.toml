@@ -1,0 +1,18 @@
+[package]
+name = "stepped-workflow"
+version = "0.1.0"
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+apalis = { path = "../../apalis", features = ["limit", "catch-panic", "retry"] }
+apalis-workflow = { path = "../../apalis-workflow" }
+apalis-file-storage = { path = "../../utils/apalis-file-storage" }
+serde = { version = "1", features = ["derive"] }
+tracing-subscriber = "0.3.20"
+futures = "0.3"
+
+[dependencies.tracing]
+default-features = false
+version = "0.1"

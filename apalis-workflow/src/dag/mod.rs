@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
-    fmt::Debug,
+    fmt::{self, Debug},
     marker::PhantomData,
     sync::Mutex,
 };
@@ -43,11 +43,11 @@ use tower::{Service, ServiceBuilder, util::BoxCloneSyncService};
 
 use crate::{
     BoxedService, DagService,
-    dag::{error::DagflowError, executor::DagExecutor, node::NodeService},
+    dag::{error::DagFlowError, executor::DagExecutor, node::NodeService},
     id_generator::GenerateId,
 };
 
-pub use context::DagflowContext;
+pub use context::DagFlowContext;
 pub use service::RootDagService;
 
 /// Directed Acyclic Graph (DAG) workflow builder
@@ -66,6 +66,15 @@ where
 {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl<B> fmt::Display for DagFlow<B>
+where
+    B: BackendExt,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.to_dot())
     }
 }
 
@@ -167,14 +176,50 @@ where
         )
     }
 
+    /// Validate the DAG for cycles
+    pub fn validate(&self) -> Result<(), DagFlowError> {
+        // Validate DAG (check for cycles)
+        toposort(
+            &*self.graph.lock().expect("Failed to lock graph mutex"),
+            None,
+        )
+        .map_err(DagFlowError::CyclicDAG)?;
+        Ok(())
+    }
+
+    /// Export the DAG to DOT format
+    pub fn to_dot(&self) -> String {
+        let names = self
+            .node_mapping
+            .lock()
+            .expect("could not lock nodes")
+            .iter()
+            .map(|(name, &idx)| (idx, name.clone()))
+            .collect::<HashMap<_, _>>();
+        let get_node_attributes = |_, (index, _)| {
+            format!(
+                "label=\"{}\"",
+                names.get(&index).cloned().unwrap_or_default()
+            )
+        };
+        let graph = self.graph.lock().expect("could not lock graph");
+        let dot = petgraph::dot::Dot::with_attr_getters(
+            &*graph,
+            &[Config::NodeNoLabel, Config::EdgeNoLabel],
+            &|_, _| String::new(),
+            &get_node_attributes,
+        );
+        format!("{dot:?}")
+    }
+
     /// Build the DAG executor
-    pub fn build(self) -> Result<DagExecutor<B>, DagflowError> {
+    pub(crate) fn build(self) -> Result<DagExecutor<B>, DagFlowError> {
         // Validate DAG (check for cycles)
         let sorted = toposort(
             &*self.graph.lock().expect("Failed to lock graph mutex"),
             None,
         )
-        .map_err(DagflowError::CyclicDAG)?;
+        .map_err(DagFlowError::CyclicDAG)?;
 
         fn find_edge_nodes<N, E>(graph: &DiGraph<N, E>, direction: Direction) -> Vec<NodeIndex> {
             graph
@@ -406,12 +451,10 @@ mod tests {
                 }),
             )
             .depends_on(&middle);
-        let dag_executor = dag.build().unwrap();
-        assert_eq!(dag_executor.topological_order.len(), 3);
 
-        println!("DAG in DOT format:\n{}", dag_executor.to_dot());
+        println!("DAG in DOT format:\n{}", dag.to_dot());
 
-        let mut backend: JsonStorage<Value> = JsonStorage::new_temp().unwrap();
+        let mut backend = JsonStorage::new_temp().unwrap();
 
         backend.push_start(Value::from(42)).await.unwrap();
 
@@ -423,9 +466,7 @@ mod tests {
                     ctx.stop().unwrap();
                 }
             })
-            .build::<DagExecutor<JsonStorage<Value>>, RootDagService<JsonStorage<Value>>>(
-                dag_executor,
-            );
+            .build(dag);
         worker.run().await.unwrap();
     }
 
@@ -454,10 +495,7 @@ mod tests {
             )
             .depends_on((&plus_one, &multiply, &squared));
 
-        let dag_executor = dag.build().unwrap();
-        assert_eq!(dag_executor.topological_order.len(), 5);
-
-        println!("DAG in DOT format:\n{}", dag_executor.to_dot());
+        println!("DAG in DOT format:\n{}", dag.to_dot());
 
         let mut backend: JsonStorage<Value> = JsonStorage::new_temp().unwrap();
 
@@ -471,9 +509,7 @@ mod tests {
                     ctx.stop().unwrap();
                 }
             })
-            .build::<DagExecutor<JsonStorage<Value>>, RootDagService<JsonStorage<Value>>>(
-                dag_executor,
-            );
+            .build(dag);
         worker.run().await.unwrap();
     }
 
@@ -517,10 +553,8 @@ mod tests {
                 }),
             )
             .depends_on((&main_collector, &side_collector));
-        let dag_executor = dag.build().unwrap();
-        assert_eq!(dag_executor.topological_order.len(), 6);
 
-        println!("DAG in DOT format:\n{}", dag_executor.to_dot());
+        println!("DAG in DOT format:\n{}", dag.to_dot());
 
         let mut backend: JsonStorage<Value> = JsonStorage::new_temp().unwrap();
 
@@ -537,9 +571,7 @@ mod tests {
                     ctx.stop().unwrap();
                 }
             })
-            .build::<DagExecutor<JsonStorage<Value>>, RootDagService<JsonStorage<Value>>>(
-                dag_executor,
-            );
+            .build(dag);
         worker.run().await.unwrap();
     }
 
@@ -609,20 +641,9 @@ mod tests {
 
         dag.route(check_approval).depends_on(&on_collect);
 
-        let dag_executor = dag.build().unwrap();
-        assert_eq!(dag_executor.topological_order.len(), 7);
+        println!("DAG in DOT format:\n{}", dag.to_dot());
 
-        println!("Start nodes: {:?}", dag_executor.start_nodes);
-        println!("End nodes: {:?}", dag_executor.end_nodes);
-
-        println!(
-            "DAG Topological Order: {:?}",
-            dag_executor.topological_order
-        );
-
-        println!("DAG in DOT format:\n{}", dag_executor.to_dot());
-
-        let mut backend: JsonStorage<Value> = JsonStorage::new_temp().unwrap();
+        let mut backend = JsonStorage::new_temp().unwrap();
 
         backend
             .push_start(Value::from(vec![17, 18, 19]))
@@ -637,44 +658,7 @@ mod tests {
                     ctx.stop().unwrap();
                 }
             })
-            .build::<DagExecutor<JsonStorage<Value>>, RootDagService<JsonStorage<Value>>>(
-                dag_executor,
-            );
+            .build(dag);
         worker.run().await.unwrap();
-
-        // let inner_basic: Workflow<u32, usize, JsonStorage<Value>, _> = Workflow::new("basic")
-        //     .and_then(async |input: u32| (input + 1) as usize)
-        //     .and_then(async |input: usize| input.to_string())
-        //     .and_then(async |input: String| input.parse::<usize>());
-
-        // let workflow = Workflow::new("example_workflow")
-        //     .and_then(async |input: u32| Ok::<Range<u32>, BoxDynError>(input..100))
-        //     .filter_map(
-        //         async |input: u32| {
-        //             if input > 50 { Some(input) } else { None }
-        //         },
-        //     )
-        //     .and_then(async |items: Vec<u32>| Ok::<_, BoxDynError>(items))
-        //     .fold(0, async |(acc, item): (u32, u32)| {
-        //         Ok::<_, BoxDynError>(item + acc)
-        //     })
-        //     // .delay_for(Duration::from_secs(2))
-        //     // .delay_with(|_| Duration::from_secs(1))
-        //     // .and_then(async |items: Range<u32>| Ok::<_, BoxDynError>(items.sum::<u32>()))
-        //     // .repeat_until(async |i: u32| {
-        //     //     if i < 20 {
-        //     //         Ok::<_, BoxDynError>(Some(i))
-        //     //     } else {
-        //     //         Ok(None)
-        //     //     }
-        //     // })
-        //     // .chain(inner_basic)
-        //     // .chain(
-        //     //     Workflow::new("sub_workflow")
-        //     //         .and_then(async |input: usize| Ok::<_, BoxDynError>(input as u32 * 2))
-        //     //         .and_then(async |input: u32| Ok::<_, BoxDynError>(input + 10)),
-        //     // )
-        //     // .chain(dag_executor)
-        //     .build();
     }
 }

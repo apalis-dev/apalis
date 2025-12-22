@@ -444,6 +444,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 
 [[package]]
+name = "dag"
+version = "0.1.0"
+dependencies = [
+ "apalis",
+ "apalis-file-storage",
+ "apalis-workflow",
+ "futures",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "debugid"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2455,6 +2470,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
+name = "stepped-workflow"
+version = "0.1.0"
+dependencies = [
+ "apalis",
+ "apalis-file-storage",
+ "apalis-workflow",
+ "futures",
+ "serde",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3323,23 +3352,6 @@ name = "wit-bindgen"
 version = "0.46.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
-
-[[package]]
-name = "workflow"
-version = "0.1.0"
-dependencies = [
- "apalis",
- "apalis-core",
- "apalis-file-storage",
- "apalis-workflow",
- "futures",
- "serde",
- "serde_json",
- "tokio",
- "tower 0.5.2",
- "tracing",
- "tracing-subscriber",
-]
 
 [[package]]
 name = "writeable"

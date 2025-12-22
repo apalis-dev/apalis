@@ -22,7 +22,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use tower::Service;
 
-use crate::dag::context::DagflowContext;
+use crate::dag::context::DagFlowContext;
 use crate::dag::response::DagExecutionResponse;
 use crate::id_generator::GenerateId;
 use crate::{DagExecutor, DagService};
@@ -76,7 +76,7 @@ where
     B::IdType: GenerateId + Send + Sync + 'static + PartialEq + Debug,
     B::Compact: Send + Sync + 'static + Clone,
     B::Context:
-        Send + Sync + Default + MetadataExt<DagflowContext<B::IdType>, Error = MetaError> + 'static,
+        Send + Sync + Default + MetadataExt<DagFlowContext<B::IdType>, Error = MetaError> + 'static,
     Err: std::error::Error + Send + Sync + 'static,
     B: Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err> + Unpin,
     B::Codec: Codec<Vec<B::Compact>, Compact = B::Compact, Error = CdcErr>
@@ -103,14 +103,14 @@ where
         let end_nodes = executor.end_nodes.clone();
         async move {
             let ctx = req
-                .extract::<Meta<DagflowContext<B::IdType>>>()
+                .extract::<Meta<DagFlowContext<B::IdType>>>()
                 .await;
             let (response, context) = match ctx {
                 Ok(Meta(mut context)) => {
                     #[cfg(feature = "tracing")]
                     tracing::debug!(
                         node = ?context.current_node,
-                        "Extracted DagflowContext for task"
+                        "Extracted DagFlowContext for task"
                     );
                     let incoming_nodes = executor
                         .graph
@@ -227,14 +227,14 @@ where
                 Err(e) => {
                     #[cfg(feature = "tracing")]
                     tracing::debug!(
-                        "Extracting DagflowContext for task without meta"
+                        "Extracting DagFlowContext for task without meta"
                     );
                     // if no metadata, we assume its an entry task
                     match start_nodes.len() {
                         1 => {
                             #[cfg(feature = "tracing")]
                             tracing::debug!("Single start node detected, proceeding with execution");
-                            let context = DagflowContext::new(req.parts.task_id.clone());
+                            let context = DagFlowContext::new(req.parts.task_id.clone());
                             let task_id = req.parts.task_id.clone();
                             req.parts
                                 .ctx
@@ -249,7 +249,7 @@ where
                             let new_node_task_ids = fan_out_entry_nodes(
                                 &executor,
                                 &mut backend,
-                                &mut DagflowContext::new(req.parts.task_id.clone()),
+                                &mut DagFlowContext::new(req.parts.task_id.clone()),
                                 &req.args,
                             )
                             .await?;
@@ -318,13 +318,13 @@ async fn fan_out_next_nodes<B, Err, CdcErr>(
     executor: &DagExecutor<B>,
     outgoing_nodes: Vec<NodeIndex>,
     backend: &mut B,
-    context: &mut DagflowContext<B::IdType>,
+    context: &mut DagFlowContext<B::IdType>,
     input: &B::Compact,
 ) -> Result<HashMap<NodeIndex, TaskId<B::IdType>>, BoxDynError>
 where
     B::IdType: GenerateId + Send + Sync + 'static + PartialEq + Debug,
     B::Compact: Send + Sync + 'static + Clone,
-    B::Context: Send + Sync + Default + MetadataExt<DagflowContext<B::IdType>> + 'static,
+    B::Context: Send + Sync + Default + MetadataExt<DagFlowContext<B::IdType>> + 'static,
     B: Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err> + Unpin,
     Err: std::error::Error + Send + Sync + 'static,
     B: BackendExt<Error = Err> + Send + Sync + 'static + Clone + WaitForCompletion<B::Compact>,
@@ -345,7 +345,7 @@ where
             .clone();
         let task = TaskBuilder::new(input.clone())
             .with_task_id(task_id.clone())
-            .meta(DagflowContext {
+            .meta(DagFlowContext {
                 prev_node: context.prev_node.clone(),
                 current_node: outgoing_node,
                 completed_nodes: context.completed_nodes.clone(),
@@ -371,13 +371,13 @@ where
 async fn fan_out_entry_nodes<B, Err, CdcErr>(
     executor: &DagExecutor<B>,
     backend: &mut B,
-    context: &mut DagflowContext<B::IdType>,
+    context: &mut DagFlowContext<B::IdType>,
     input: &B::Compact,
 ) -> Result<HashMap<NodeIndex, TaskId<B::IdType>>, BoxDynError>
 where
     B::IdType: GenerateId + Send + Sync + 'static + PartialEq + Debug,
     B::Compact: Send + Sync + 'static + Clone,
-    B::Context: Send + Sync + Default + MetadataExt<DagflowContext<B::IdType>> + 'static,
+    B::Context: Send + Sync + Default + MetadataExt<DagFlowContext<B::IdType>> + 'static,
     B: Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err> + Unpin,
     Err: std::error::Error + Send + Sync + 'static,
     B: BackendExt<Error = Err> + Send + Sync + 'static + Clone + WaitForCompletion<B::Compact>,
@@ -407,7 +407,7 @@ where
             .clone();
         let task = TaskBuilder::new(input)
             .with_task_id(task_id.clone())
-            .meta(DagflowContext {
+            .meta(DagFlowContext {
                 prev_node: None,
                 current_node: outgoing_node,
                 completed_nodes: Default::default(),

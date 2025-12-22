@@ -5,7 +5,7 @@ use thiserror::Error;
 
 /// Errors that can occur during DAG workflow execution.
 #[derive(Error, Debug)]
-pub enum DagflowError {
+pub enum DagFlowError {
     /// An error originating from the actual node execution.
     #[error("Node execution error: {0}")]
     Node(#[source] BoxDynError),
