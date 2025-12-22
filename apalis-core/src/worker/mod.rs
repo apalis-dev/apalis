@@ -586,7 +586,6 @@ where
     fn poll_ready(&mut self, cx: &mut std::task::Context<'_>) -> Poll<Result<(), Self::Error>> {
         if self.ctx.is_shutting_down() || self.ctx.is_paused() {
             self.ctx.is_ready.store(false, Ordering::SeqCst);
-            self.ctx.add_waker(cx);
             return Poll::Pending;
         }
         // Delegate poll_ready to the inner service
