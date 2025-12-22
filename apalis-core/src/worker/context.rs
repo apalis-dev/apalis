@@ -273,10 +273,11 @@ impl WorkerContext {
     /// Is the shutdown token called
     #[must_use]
     pub fn is_shutting_down(&self) -> bool {
-        self.shutdown
-            .as_ref()
-            .map_or(false, |s| s.is_shutting_down())
-            || self.is_stopped()
+        self.is_stopped()
+            || self
+                .shutdown
+                .as_ref()
+                .map_or(false, |s| s.is_shutting_down())
     }
 
     /// Allows workers to emit events
@@ -430,10 +431,13 @@ mod tests {
         assert!(ctx_handle.is_stopped());
         assert!(ctx_handle.is_shutting_down());
 
-        // Try to resume a stopped worker (should fail)
+        // Try to resume a stopped worker (should fail with NotPaused error since state is Stopped)
         assert!(
-            ctx_handle.resume().is_err(),
-            "Resuming a stopped worker should fail"
+            matches!(
+                ctx_handle.resume(),
+                Err(WorkerError::StateError(WorkerStateError::NotPaused))
+            ),
+            "Resuming a stopped worker should fail with NotPaused error"
         );
 
         worker_handle.await.unwrap().unwrap();
