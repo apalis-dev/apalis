@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- **chore**: bump: introducing rc.1 ([#646](https://github.com/geofmureithi/apalis/pull/646))
 - **chore**: feat: refactor and granulize traits ([#586](https://github.com/geofmureithi/apalis/pull/586))
 - **refactor**: refactor: crates, workflow and BackendExt ([#623](https://github.com/geofmureithi/apalis/pull/623))
 - **chore**: bump to v1.0.0 beta.1 ([#624](https://github.com/geofmureithi/apalis/pull/624))
@@ -19,6 +20,7 @@ All notable changes to this project are documented in this file.
 
 - **crates**: Moved backend crates to respective repos ([#586](https://github.com/geofmureithi/apalis/pull/586))
 - **api**: `Backend` must be the second input in `WorkerBuilder` ([#586](https://github.com/geofmureithi/apalis/pull/586))
+
 ```rust
 let worker = WorkerBuilder::new("tasty-banana")
     .backend(sqlite)
@@ -27,14 +29,18 @@ let worker = WorkerBuilder::new("tasty-banana")
     // .data
     .build(task_fn);
 ```
+
 - **api**: `Monitor` supports restarts and factory() becomes factory(usize) ([#586](https://github.com/geofmureithi/apalis/pull/586))
+
 ```rust
     Monitor::new()
         .register({
             WorkerBuilder::new("tasty-banana")
                 ....
 ```
+
 Becomes
+
 ```rust
 Monitor::new()
         .register(|runs: usize| {
