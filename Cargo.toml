@@ -62,4 +62,4 @@ verbose_file_reads = "warn"
 
 [workspace.metadata.cargo-udeps.ignore]
 normal = ["metrics-exporter-prometheus", "document-features"]
-development = ["apalis-workflow"]
+development = ["apalis-workflow", "apalis-file-storage"]

@@ -191,14 +191,13 @@ impl<Args> JsonStorage<Args> {
 
     /// Persist all current data to disk by rewriting the file
     fn persist_to_disk(&self) -> std::io::Result<()> {
-        let tmp_path = self.path.with_extension("tmp");
-
+        let tmp_path = &self.path;
         {
             let tmp_file = OpenOptions::new()
                 .write(true)
                 .create(true)
                 .truncate(true)
-                .open(&tmp_path)?;
+                .open(tmp_path)?;
             let mut writer = BufWriter::new(tmp_file);
 
             for (key, value) in self.tasks.try_read().unwrap().iter() {
