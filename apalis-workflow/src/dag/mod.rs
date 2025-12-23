@@ -82,7 +82,6 @@ where
 
     /// Add a node to the DAG
     #[must_use]
-    #[allow(clippy::todo)]
     pub fn add_node<S, Input, CodecError>(
         &self,
         name: &str,

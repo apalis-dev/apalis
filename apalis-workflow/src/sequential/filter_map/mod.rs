@@ -151,6 +151,7 @@ where
                     let main_args: Vec<Input> = vec![];
                     let steps: Task<Iter, _, _> = request.try_map(|arg| B::Codec::decode(&arg))?;
                     let steps = steps.args.into_iter().collect::<Vec<_>>();
+                    #[cfg(feature = "tracing")]
                     tracing::debug!(step_count = ?steps.len(), "Enqueuing FilterMap steps");
                     let mut task_ids = Vec::new();
                     for step in steps {
