@@ -6,7 +6,7 @@ use apalis_core::{
 use futures::Sink;
 use petgraph::graph::NodeIndex;
 
-use crate::{sequential::WorkflowContext, dag::DagFlowContext, id_generator::GenerateId};
+use crate::{dag::DagFlowContext, id_generator::GenerateId, sequential::WorkflowContext};
 
 /// Extension trait for pushing tasks into a workflow
 pub trait WorkflowSink<Args>: BackendExt

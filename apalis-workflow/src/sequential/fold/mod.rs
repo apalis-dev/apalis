@@ -12,8 +12,8 @@ use tower::Service;
 
 use crate::{
     SteppedService,
-    sequential::context::{StepContext, WorkflowContext},
     id_generator::GenerateId,
+    sequential::context::{StepContext, WorkflowContext},
     sequential::router::{GoTo, StepResult, WorkflowRouter},
     sequential::step::{Layer, Stack, Step},
     sequential::workflow::Workflow,

@@ -5,9 +5,11 @@ use crate::context::SqlContext;
 /// Extension traits for [`TaskBuilder`]
 pub trait TaskBuilderExt {
     /// Set the max number of attempts for the task being built.
+    #[must_use]
     fn max_attempts(self, attempts: u32) -> Self;
 
     /// Set the priority for the task being built.
+    #[must_use]
     fn priority(self, priority: i32) -> Self;
 }
 

@@ -273,11 +273,7 @@ impl WorkerContext {
     /// Is the shutdown token called
     #[must_use]
     pub fn is_shutting_down(&self) -> bool {
-        self.is_stopped()
-            || self
-                .shutdown
-                .as_ref()
-                .map_or(false, |s| s.is_shutting_down())
+        self.is_stopped() || self.shutdown.as_ref().is_some_and(|s| s.is_shutting_down())
     }
 
     /// Allows workers to emit events

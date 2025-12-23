@@ -11,8 +11,8 @@ use tower::Service;
 
 use crate::{
     SteppedService, Workflow,
-    sequential::context::{StepContext, WorkflowContext},
     id_generator::GenerateId,
+    sequential::context::{StepContext, WorkflowContext},
     sequential::router::{GoTo, StepResult, WorkflowRouter},
     sequential::step::{Layer, Stack, Step},
 };
@@ -109,7 +109,7 @@ pub struct DelayWithStep<S, F, B, Input> {
 
 impl<S: Clone, F: Clone, B, Input> Clone for DelayWithStep<S, F, B, Input> {
     fn clone(&self) -> Self {
-        DelayWithStep {
+        Self {
             f: self.f.clone(),
             inner: self.inner.clone(),
             _marker: std::marker::PhantomData,

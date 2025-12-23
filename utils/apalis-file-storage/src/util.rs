@@ -191,7 +191,7 @@ where
                     results.push(apalis_core::backend::TaskResult {
                         task_id: task_id.clone(),
                         status: Status::Pending,
-                        result: Err(format!("Task still pending")),
+                        result: Err("Task not completed yet".to_owned()),
                     });
                     continue;
                 }

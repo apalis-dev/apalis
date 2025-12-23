@@ -99,158 +99,144 @@ where
             let ctx = req
                 .extract::<Meta<DagFlowContext<B::IdType>>>()
                 .await;
-            let (response, context) = match ctx {
-                Ok(Meta(context)) => {
-                    #[cfg(feature = "tracing")]
-                    tracing::debug!(
-                        node = ?context.current_node,
-                        "Extracted DagFlowContext for task"
-                    );
-                    let incoming_nodes = executor
-                        .graph
-                        .neighbors_directed(context.current_node, Direction::Incoming)
-                        .collect::<Vec<_>>();
-                    match incoming_nodes.len() {
-                        // Entry node
-                        0 if start_nodes.len() == 1 => {
-                            let response = executor.call(req).await?;
-                            (response, context)
-                        }
-                        // Entry node with multiple start nodes
-                        0 if start_nodes.len() > 1 => {
-                            let response = executor.call(req).await?;
-                            (response, context)
-                        }
-                        // Single incoming node, proceed normally
-                        1 => {
-                            let response = executor.call(req).await?;
-                            (response, context)
-                        }
-                        // Multiple incoming nodes, fan-in scenario
-                        _ => {
-                            let dependency_task_ids =
-                                context.get_dependency_task_ids(&incoming_nodes);
-                            #[cfg(feature = "tracing")]
-                            tracing::debug!(
-                                prev_node = ?context.prev_node,
-                                node = ?context.current_node,
-                                deps = ?dependency_task_ids,
-                                "Fanning in from multiple dependencies",
-                            );
-                            let results = backend
-                                .check_status(
-                                    dependency_task_ids.values().cloned().collect::<Vec<_>>(),
-                                )
-                                .await?;
-                            if results.iter().all(|s| matches!(s.status, Status::Done)) {
-                                let sorted_results = {
-                                    // Match the order of incoming_nodes by matching NodeIndex
-                                    let res =incoming_nodes
-                                        .iter()
-                                        .rev()
-                                        .map(|node_index| {
-                                            let task_id = context.node_task_ids
-                                                .iter()
-                                                .find(|(n, _)| *n == node_index)
-                                                .map(|(_, task_id)| task_id)
-                                                .ok_or(BoxDynError::from("TaskId for incoming node not found"))?;
-                                            let task_result = results.iter().find(|r| &r.task_id == task_id).ok_or(
-                                                BoxDynError::from(format!(
-                                                    "TaskResult for task_id {:?} not found",
-                                                    task_id
-                                                )))?;
-                                            Ok(task_result)
-                                        })
-                                        .collect::<Result<Vec<_>, BoxDynError>>();
-                                    match res {
-                                        Ok(v) => v,
-                                        Err(_) => return Ok(DagExecutionResponse::WaitingForDependencies { pending_dependencies: dependency_task_ids }),
-                                    }
-                                };
-                                let encoded_input = B::Codec::encode(
-                                    &sorted_results
-                                        .iter()
-                                        .map(|s| match &s.result {
-                                            Ok(val) => {
-                                                let decoded: DagExecutionResponse<
-                                                    B::Compact,
-                                                    B::IdType,
-                                                > = B::Codec::decode(val).map_err(|e: CdcErr| {
-                                                    format!(
-                                                        "Failed to decode dependency result: {:?}",
-                                                        e.into()
-                                                    )
-                                                })?;
-                                                match decoded {
-                                                    DagExecutionResponse::FanOut { response, .. } => {
-                                                        return Ok(response);
-                                                    }
-                                                    DagExecutionResponse::EnqueuedNext { result } => {
-                                                        return Ok(result);
-                                                    }
-                                                    DagExecutionResponse::Complete { result } => {
-                                                        Ok(result)
-                                                    }
-                                                    _ => Err(format!(
-                                                            "Dependency task returned invalid response, which is unexpected during fan-in"
-                                                    ))
-                                                }
-                                            }
-                                            Err(e) => {
-                                                return Err(format!(
-                                                    "Dependency task failed: {:?}",
-                                                    e
-                                                ));
-                                            }
-                                        })
-                                        .collect::<Result<Vec<_>, String>>()?,
-                                )
-                                .map_err(|e| e.into())?;
-                                let req = req.map(|_| encoded_input); // Replace args with fan-in input
-                                let response = executor.call(req).await?;
-                                (response, context)
-                            } else {
-                                return Ok(DagExecutionResponse::WaitingForDependencies {
-                                    pending_dependencies: dependency_task_ids,
-                                });
-                            }
-                        }
+            let (response, context) = if let Ok(Meta(context)) = ctx {
+                #[cfg(feature = "tracing")]
+                tracing::debug!(
+                    node = ?context.current_node,
+                    "Extracted DagFlowContext for task"
+                );
+                let incoming_nodes = executor
+                    .graph
+                    .neighbors_directed(context.current_node, Direction::Incoming)
+                    .collect::<Vec<_>>();
+                match incoming_nodes.len() {
+                    // Entry node
+                    0 if start_nodes.len() == 1 => {
+                        let response = executor.call(req).await?;
+                        (response, context)
                     }
-                }
-
-                Err(_) => {
-                    #[cfg(feature = "tracing")]
-                    tracing::debug!(
-                        "Extracting DagFlowContext for task without meta"
-                    );
-                    // if no metadata, we assume its an entry task
-                    match start_nodes.len() {
-                        1 => {
-                            #[cfg(feature = "tracing")]
-                            tracing::debug!("Single start node detected, proceeding with execution");
-                            let context = DagFlowContext::new(req.parts.task_id.clone());
-                            req.parts
-                                .ctx
-                                .inject(context.clone())
-                                .map_err(|e| e.into())?;
-                            let response = executor.call(req).await?;
-                            #[cfg(feature = "tracing")]
-                            tracing::debug!(node = ?context.current_node, "Execution complete at node");
-                            (response, context)
-                        }
-                        _ => {
-                            let new_node_task_ids = fan_out_entry_nodes(
-                                &executor,
-                                &mut backend,
-                                &mut DagFlowContext::new(req.parts.task_id.clone()),
-                                &req.args,
+                    // Entry node with multiple start nodes
+                    0 if start_nodes.len() > 1 => {
+                        let response = executor.call(req).await?;
+                        (response, context)
+                    }
+                    // Single incoming node, proceed normally
+                    1 => {
+                        let response = executor.call(req).await?;
+                        (response, context)
+                    }
+                    // Multiple incoming nodes, fan-in scenario
+                    _ => {
+                        let dependency_task_ids =
+                            context.get_dependency_task_ids(&incoming_nodes);
+                        #[cfg(feature = "tracing")]
+                        tracing::debug!(
+                            prev_node = ?context.prev_node,
+                            node = ?context.current_node,
+                            deps = ?dependency_task_ids,
+                            "Fanning in from multiple dependencies",
+                        );
+                        let results = backend
+                            .check_status(
+                                dependency_task_ids.values().cloned().collect::<Vec<_>>(),
                             )
                             .await?;
-                            return Ok(DagExecutionResponse::EntryFanOut {
-                                node_task_ids: new_node_task_ids,
+                        if results.iter().all(|s| matches!(s.status, Status::Done)) {
+                            let sorted_results = {
+                                // Match the order of incoming_nodes by matching NodeIndex
+                                let res =incoming_nodes
+                                    .iter()
+                                    .rev()
+                                    .map(|node_index| {
+                                        let task_id = context.node_task_ids
+                                            .iter()
+                                            .find(|(n, _)| *n == node_index)
+                                            .map(|(_, task_id)| task_id)
+                                            .ok_or(BoxDynError::from("TaskId for incoming node not found"))?;
+                                        let task_result = results.iter().find(|r| &r.task_id == task_id).ok_or(
+                                            BoxDynError::from(format!(
+                                                "TaskResult for task_id {task_id:?} not found"
+                                            )))?;
+                                        Ok(task_result)
+                                    })
+                                    .collect::<Result<Vec<_>, BoxDynError>>();
+                                match res {
+                                    Ok(v) => v,
+                                    Err(_) => return Ok(DagExecutionResponse::WaitingForDependencies { pending_dependencies: dependency_task_ids }),
+                                }
+                            };
+                            let encoded_input = B::Codec::encode(
+                                &sorted_results
+                                    .iter()
+                                    .map(|s| match &s.result {
+                                        Ok(val) => {
+                                            let decoded: DagExecutionResponse<
+                                                B::Compact,
+                                                B::IdType,
+                                            > = B::Codec::decode(val).map_err(|e: CdcErr| {
+                                                format!(
+                                                    "Failed to decode dependency result: {:?}",
+                                                    e.into()
+                                                )
+                                            })?;
+                                            match decoded {
+                                                DagExecutionResponse::FanOut { response, .. } => {
+                                                    Ok(response)
+                                                }
+                                                DagExecutionResponse::EnqueuedNext { result } | DagExecutionResponse::Complete { result } => {
+                                                    Ok(result)
+                                                }
+                                                _ => Err("Dependency task returned invalid response, which is unexpected during fan-in".to_owned())
+                                            }
+                                        }
+                                        Err(e) => {
+                                            Err(format!(
+                                                "Dependency task failed: {e:?}"
+                                            ))
+                                        }
+                                    })
+                                    .collect::<Result<Vec<_>, String>>()?,
+                            )
+                            .map_err(|e| e.into())?;
+                            let req = req.map(|_| encoded_input); // Replace args with fan-in input
+                            let response = executor.call(req).await?;
+                            (response, context)
+                        } else {
+                            return Ok(DagExecutionResponse::WaitingForDependencies {
+                                pending_dependencies: dependency_task_ids,
                             });
                         }
                     }
+                }
+            } else {
+                #[cfg(feature = "tracing")]
+                tracing::debug!(
+                    "Extracting DagFlowContext for task without meta"
+                );
+                // if no metadata, we assume its an entry task
+                if start_nodes.len() == 1 {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("Single start node detected, proceeding with execution");
+                    let context = DagFlowContext::new(req.parts.task_id.clone());
+                    req.parts
+                        .ctx
+                        .inject(context.clone())
+                        .map_err(|e| e.into())?;
+                    let response = executor.call(req).await?;
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!(node = ?context.current_node, "Execution complete at node");
+                    (response, context)
+                } else {
+                    let new_node_task_ids = fan_out_entry_nodes(
+                        &executor,
+                        &backend,
+                        &DagFlowContext::new(req.parts.task_id.clone()),
+                        &req.args,
+                    )
+                    .await?;
+                    return Ok(DagExecutionResponse::EntryFanOut {
+                        node_task_ids: new_node_task_ids,
+                    });
                 }
             };
             // At this point we know a node was executed and we have its context
@@ -292,8 +278,8 @@ where
                     let next_task_ids = fan_out_next_nodes(
                         &executor,
                         outgoing_nodes,
-                        &mut backend,
-                        &mut new_context,
+                        &backend,
+                        &new_context,
                         &response,
                     )
                     .await?;
@@ -312,8 +298,8 @@ where
 async fn fan_out_next_nodes<B, Err, CdcErr>(
     _executor: &DagExecutor<B>,
     outgoing_nodes: Vec<NodeIndex>,
-    backend: &mut B,
-    context: &mut DagFlowContext<B::IdType>,
+    backend: &B,
+    context: &DagFlowContext<B::IdType>,
     input: &B::Compact,
 ) -> Result<HashMap<NodeIndex, TaskId<B::IdType>>, BoxDynError>
 where
@@ -341,7 +327,7 @@ where
         let task = TaskBuilder::new(input.clone())
             .with_task_id(task_id.clone())
             .meta(DagFlowContext {
-                prev_node: context.prev_node.clone(),
+                prev_node: context.prev_node,
                 current_node: outgoing_node,
                 completed_nodes: context.completed_nodes.clone(),
                 node_task_ids: node_task_ids.clone(),
@@ -365,8 +351,8 @@ where
 
 async fn fan_out_entry_nodes<B, Err, CdcErr>(
     executor: &DagExecutor<B>,
-    backend: &mut B,
-    context: &mut DagFlowContext<B::IdType>,
+    backend: &B,
+    context: &DagFlowContext<B::IdType>,
     input: &B::Compact,
 ) -> Result<HashMap<NodeIndex, TaskId<B::IdType>>, BoxDynError>
 where

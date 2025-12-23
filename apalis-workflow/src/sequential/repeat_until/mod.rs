@@ -135,7 +135,7 @@ where
             );
         let mut repeater = self.repeater.clone();
 
-        let fut = async move {
+        (async move {
             let mut compact = None;
             let decoded: Input = B::Codec::decode(&task.args)?;
             let prev_task_id = task.parts.task_id.clone();
@@ -190,9 +190,7 @@ where
                 }
             })
         }
-        .boxed();
-
-        fut
+        .boxed()) as _
     }
 }
 
@@ -224,13 +222,13 @@ impl<IdType> RepeaterState<IdType> {
     }
 }
 
-impl<Args: Sync, Ctx: MetadataExt<RepeaterState<IdType>> + Sync, IdType: Sync>
-    FromRequest<Task<Args, Ctx, IdType>> for RepeaterState<IdType>
+impl<Args: Sync, Ctx: MetadataExt<Self> + Sync, IdType: Sync> FromRequest<Task<Args, Ctx, IdType>>
+    for RepeaterState<IdType>
 {
     type Error = Infallible;
     async fn from_request(task: &Task<Args, Ctx, IdType>) -> Result<Self, Infallible> {
-        let state: RepeaterState<IdType> = task.parts.ctx.extract().unwrap_or_default();
-        Ok(RepeaterState {
+        let state: Self = task.parts.ctx.extract().unwrap_or_default();
+        Ok(Self {
             iterations: state.iterations,
             prev_task_id: state.prev_task_id,
         })

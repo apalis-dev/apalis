@@ -69,7 +69,7 @@ pub struct FilterService<F, Backend, Input, Iter> {
 
 impl<F: Clone, Backend, Input, Iter> Clone for FilterService<F, Backend, Input, Iter> {
     fn clone(&self) -> Self {
-        FilterService {
+        Self {
             service: self.service.clone(),
             _marker: PhantomData,
         }

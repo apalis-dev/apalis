@@ -93,7 +93,7 @@ where
                     .node_weight_mut(self.not_ready[0])
                     .unwrap()
                     .poll_ready(cx)
-                    .map_err(|e| DagFlowError::Service(e))?
+                    .map_err(DagFlowError::Service)?
                     .is_pending()
                 {
                     return Poll::Pending;
@@ -119,7 +119,7 @@ where
                 .node_weight_mut(context.current_node)
                 .ok_or_else(|| DagFlowError::MissingService(context.current_node))?;
 
-            let result = service.call(req).await.map_err(|e| DagFlowError::Node(e))?;
+            let result = service.call(req).await.map_err(DagFlowError::Node)?;
 
             Ok(result)
         })

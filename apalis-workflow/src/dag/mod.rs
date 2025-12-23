@@ -61,7 +61,7 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "DAG name: {}", self.name)?;
-        write!(f, "Dot format:\n")?;
+        writeln!(f, "Dot format:")?;
         f.write_str(&self.to_dot())
     }
 }
@@ -302,11 +302,13 @@ pub struct NodeHandle<Input, Output> {
 
 impl<Input, Output> NodeHandle<Input, Output> {
     /// Get the node ID
+    #[must_use]
     pub fn id(&self) -> NodeIndex {
         self.id
     }
 
     /// Get the edge IDs
+    #[must_use]
     pub fn edges(&self) -> &[EdgeIndex] {
         &self.edges
     }
