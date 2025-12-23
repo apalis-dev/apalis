@@ -6,10 +6,7 @@ use std::{
 };
 
 use apalis_core::{
-    backend::{
-        Backend, BackendExt, WaitForCompletion,
-        codec::{Codec, RawDataBackend},
-    },
+    backend::{BackendExt, codec::RawDataBackend},
     error::BoxDynError,
     task::{
         Task,
@@ -17,16 +14,12 @@ use apalis_core::{
     },
     worker::builder::{IntoWorkerService, WorkerService},
 };
-use futures::Sink;
-use petgraph::{
-    dot::Config,
-    graph::{DiGraph, NodeIndex},
-};
+use petgraph::graph::{DiGraph, NodeIndex};
 use tower::Service;
 
 use crate::{
     DagFlow, DagService,
-    dag::{DagFlowContext, RootDagService, error::DagFlowError, response::DagExecutionResponse},
+    dag::{DagFlowContext, RootDagService, error::DagFlowError},
     id_generator::GenerateId,
 };
 
@@ -65,7 +58,7 @@ where
     B: BackendExt,
 {
     /// Get a node by name
-    fn get_node_by_name_mut(
+    pub fn get_node_by_name_mut(
         &mut self,
         name: &str,
     ) -> Option<&mut DagService<B::Compact, B::Context, B::IdType>> {

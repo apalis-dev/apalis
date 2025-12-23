@@ -37,7 +37,7 @@ async fn main() -> Result<(), BoxDynError> {
         .await
         .unwrap();
 
-    let dag_flow = DagFlow::new();
+    let dag_flow = DagFlow::new("user-info-workflow");
     let get_name = dag_flow.node(get_name);
     let get_age = dag_flow.node(get_age);
     let get_address = dag_flow.node(get_address);

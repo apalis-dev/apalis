@@ -1,31 +1,25 @@
+use apalis_core::backend::BackendExt;
 use apalis_core::backend::codec::Codec;
-use apalis_core::backend::{self, BackendExt, TaskResult};
 use apalis_core::task::builder::TaskBuilder;
 use apalis_core::task::metadata::Meta;
 use apalis_core::task::status::Status;
-use apalis_core::task::{self, task_id};
 use apalis_core::{
-    backend::{Backend, WaitForCompletion},
+    backend::WaitForCompletion,
     error::BoxDynError,
     task::{Task, metadata::MetadataExt, task_id::TaskId},
 };
 use futures::future::BoxFuture;
-use futures::stream::StreamExt;
 use futures::{FutureExt, Sink, SinkExt};
-use petgraph::graph::{DiGraph, NodeIndex};
-use petgraph::{Direction, graph};
-use serde::{Deserialize, Serialize, de};
-use std::collections::{HashMap, HashSet, VecDeque};
+use petgraph::Direction;
+use petgraph::graph::NodeIndex;
+use std::collections::HashMap;
 use std::fmt::Debug;
-use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 use tower::Service;
 
+use crate::DagExecutor;
 use crate::dag::context::DagFlowContext;
 use crate::dag::response::DagExecutionResponse;
 use crate::id_generator::GenerateId;
-use crate::{DagExecutor, DagService};
 
 /// Service that manages the execution of a DAG workflow
 pub struct RootDagService<B>
@@ -106,7 +100,7 @@ where
                 .extract::<Meta<DagFlowContext<B::IdType>>>()
                 .await;
             let (response, context) = match ctx {
-                Ok(Meta(mut context)) => {
+                Ok(Meta(context)) => {
                     #[cfg(feature = "tracing")]
                     tracing::debug!(
                         node = ?context.current_node,
@@ -148,7 +142,7 @@ where
                                     dependency_task_ids.values().cloned().collect::<Vec<_>>(),
                                 )
                                 .await?;
-                            if (results.iter().all(|s| matches!(s.status, Status::Done))) {
+                            if results.iter().all(|s| matches!(s.status, Status::Done)) {
                                 let sorted_results = {
                                     // Match the order of incoming_nodes by matching NodeIndex
                                     let res =incoming_nodes
@@ -170,7 +164,7 @@ where
                                         .collect::<Result<Vec<_>, BoxDynError>>();
                                     match res {
                                         Ok(v) => v,
-                                        Err(e) => return Ok(DagExecutionResponse::WaitingForDependencies { pending_dependencies: dependency_task_ids }),
+                                        Err(_) => return Ok(DagExecutionResponse::WaitingForDependencies { pending_dependencies: dependency_task_ids }),
                                     }
                                 };
                                 let encoded_input = B::Codec::encode(
@@ -188,7 +182,7 @@ where
                                                     )
                                                 })?;
                                                 match decoded {
-                                                    DagExecutionResponse::FanOut { response } => {
+                                                    DagExecutionResponse::FanOut { response, .. } => {
                                                         return Ok(response);
                                                     }
                                                     DagExecutionResponse::EnqueuedNext { result } => {
@@ -212,7 +206,7 @@ where
                                         .collect::<Result<Vec<_>, String>>()?,
                                 )
                                 .map_err(|e| e.into())?;
-                                let req = req.map(|args| encoded_input); // Replace args with fan-in input
+                                let req = req.map(|_| encoded_input); // Replace args with fan-in input
                                 let response = executor.call(req).await?;
                                 (response, context)
                             } else {
@@ -224,7 +218,7 @@ where
                     }
                 }
 
-                Err(e) => {
+                Err(_) => {
                     #[cfg(feature = "tracing")]
                     tracing::debug!(
                         "Extracting DagFlowContext for task without meta"
@@ -235,7 +229,6 @@ where
                             #[cfg(feature = "tracing")]
                             tracing::debug!("Single start node detected, proceeding with execution");
                             let context = DagFlowContext::new(req.parts.task_id.clone());
-                            let task_id = req.parts.task_id.clone();
                             req.parts
                                 .ctx
                                 .inject(context.clone())
@@ -270,6 +263,7 @@ where
 
             match outgoing_nodes.len() {
                 0 => {
+                    assert!(end_nodes.contains(&current_node), "Current node is not an end node");
                     // This was an end node
                     return Ok(DagExecutionResponse::Complete { result: response });
                 }
@@ -305,6 +299,7 @@ where
                     .await?;
                     return Ok(DagExecutionResponse::FanOut {
                         response,
+                        node_task_ids: next_task_ids,
                     });
                 }
             }
@@ -315,7 +310,7 @@ where
 }
 
 async fn fan_out_next_nodes<B, Err, CdcErr>(
-    executor: &DagExecutor<B>,
+    _executor: &DagExecutor<B>,
     outgoing_nodes: Vec<NodeIndex>,
     backend: &mut B,
     context: &mut DagFlowContext<B::IdType>,
@@ -386,7 +381,7 @@ where
 {
     let values: Vec<B::Compact> = B::Codec::decode(input).map_err(|e: CdcErr| e.into())?;
     let start_nodes = executor.start_nodes.clone();
-    if (values.len() != start_nodes.len()) {
+    if values.len() != start_nodes.len() {
         return Err(BoxDynError::from(format!(
             "Expected {} inputs for fan-in, got {}",
             start_nodes.len(),

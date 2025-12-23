@@ -12,11 +12,11 @@ use tower::Service;
 
 use crate::{
     SteppedService,
-    context::{StepContext, WorkflowContext},
+    sequential::context::{StepContext, WorkflowContext},
     id_generator::GenerateId,
-    router::{GoTo, StepResult, WorkflowRouter},
-    step::{Layer, Stack, Step},
-    workflow::Workflow,
+    sequential::router::{GoTo, StepResult, WorkflowRouter},
+    sequential::step::{Layer, Stack, Step},
+    sequential::workflow::Workflow,
 };
 
 /// The fold layer that folds over a collection of items.

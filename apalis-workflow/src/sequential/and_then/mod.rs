@@ -14,12 +14,12 @@ use tower::{Service, ServiceBuilder, layer::layer_fn};
 
 use crate::{
     SteppedService,
-    context::{StepContext, WorkflowContext},
     id_generator::GenerateId,
-    router::{GoTo, StepResult, WorkflowRouter},
-    service::handle_step_result,
-    step::{Layer, Stack, Step},
-    workflow::Workflow,
+    sequential::context::{StepContext, WorkflowContext},
+    sequential::router::{GoTo, StepResult, WorkflowRouter},
+    sequential::service::handle_step_result,
+    sequential::step::{Layer, Stack, Step},
+    sequential::workflow::Workflow,
 };
 
 /// A layer that represents an `and_then` step in the workflow.

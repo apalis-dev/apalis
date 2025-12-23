@@ -8,6 +8,9 @@ pub mod context;
 /// SQL task row representation and conversion
 pub mod from_row;
 
+/// Extension traits for `TaskBuilder`
+pub mod ext;
+
 /// Convert a string to a StatType
 #[must_use]
 pub fn stat_type_from_string(s: &str) -> StatType {

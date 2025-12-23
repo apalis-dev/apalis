@@ -58,9 +58,9 @@ pub struct TaskRow {
 
 impl TaskRow {
     /// Convert the TaskRow into a Task with decoded arguments
-    pub fn try_into_task<D, Args, IdType>(
+    pub fn try_into_task<D, Args, IdType, Pool>(
         self,
-    ) -> Result<Task<Args, SqlContext, IdType>, FromRowError>
+    ) -> Result<Task<Args, SqlContext<Pool>, IdType>, FromRowError>
     where
         D::Error: Into<BoxDynError> + Send + Sync + 'static,
         IdType: FromStr,
@@ -107,9 +107,9 @@ impl TaskRow {
     }
 
     /// Convert the TaskRow into a Task with compacted arguments
-    pub fn try_into_task_compact<IdType>(
+    pub fn try_into_task_compact<IdType, Pool>(
         self,
-    ) -> Result<Task<Vec<u8>, SqlContext, IdType>, FromRowError>
+    ) -> Result<Task<Vec<u8>, SqlContext<Pool>, IdType>, FromRowError>
     where
         IdType: FromStr,
         <IdType as FromStr>::Err: std::error::Error + Send + Sync + 'static,

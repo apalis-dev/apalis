@@ -12,10 +12,19 @@
 //! type-safe manner.
 use crate::task::Task;
 use crate::task_fn::FromRequest;
+use std::ops::Deref;
 
 /// Metadata wrapper for task contexts.
 #[derive(Debug, Clone)]
 pub struct Meta<T>(pub T);
+
+impl<T> Deref for Meta<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 /// Task metadata extension trait and implementations.
 /// This trait allows for injecting and extracting metadata associated with tasks.
 pub trait MetadataExt<T> {

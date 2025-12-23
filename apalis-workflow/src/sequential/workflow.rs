@@ -9,11 +9,11 @@ use apalis_core::{
 use futures::Sink;
 
 use crate::{
-    context::WorkflowContext,
     id_generator::GenerateId,
-    router::WorkflowRouter,
-    service::WorkflowService,
-    step::{Identity, Layer, Stack, Step},
+    sequential::context::WorkflowContext,
+    sequential::router::WorkflowRouter,
+    sequential::service::WorkflowService,
+    sequential::step::{Identity, Layer, Stack, Step},
 };
 
 /// A workflow represents a sequence of steps to be executed in order.
@@ -38,6 +38,11 @@ impl<Start, Backend> Workflow<Start, Start, Backend> {
 
 impl<Start, Cur, B, L> Workflow<Start, Cur, B, L> {
     /// Adds a new step to the workflow pipeline.
+    ///
+    /// This method should be used with caution, as it allows adding arbitrary steps
+    /// and manipulating types. It is recommended to use higher-level abstractions for
+    /// common workflow patterns.
+    #[must_use]
     pub fn add_step<S, Output>(self, step: S) -> Workflow<Start, Output, B, Stack<S, L>> {
         Workflow {
             inner: Stack::new(step, self.inner),

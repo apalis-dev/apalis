@@ -11,10 +11,10 @@ use tower::Service;
 
 use crate::{
     SteppedService, Workflow,
-    context::{StepContext, WorkflowContext},
+    sequential::context::{StepContext, WorkflowContext},
     id_generator::GenerateId,
-    router::{GoTo, StepResult, WorkflowRouter},
-    step::{Layer, Stack, Step},
+    sequential::router::{GoTo, StepResult, WorkflowRouter},
+    sequential::step::{Layer, Stack, Step},
 };
 
 /// Layer that delays execution by a specified duration

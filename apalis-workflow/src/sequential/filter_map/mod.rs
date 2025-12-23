@@ -12,12 +12,12 @@ use tower::Service;
 
 use crate::{
     SteppedService,
-    context::{StepContext, WorkflowContext},
     id_generator::GenerateId,
-    router::{GoTo, StepResult, WorkflowRouter},
-    service::handle_step_result,
-    step::{Layer, Stack, Step},
-    workflow::Workflow,
+    sequential::context::{StepContext, WorkflowContext},
+    sequential::router::{GoTo, StepResult, WorkflowRouter},
+    sequential::service::handle_step_result,
+    sequential::step::{Layer, Stack, Step},
+    sequential::workflow::Workflow,
 };
 
 /// A layer that filters and maps task inputs to outputs.
@@ -151,7 +151,7 @@ where
                     let main_args: Vec<Input> = vec![];
                     let steps: Task<Iter, _, _> = request.try_map(|arg| B::Codec::decode(&arg))?;
                     let steps = steps.args.into_iter().collect::<Vec<_>>();
-                    println!("Decoded steps: {:?}", steps.len());
+                    tracing::debug!(step_count = ?steps.len(), "Enqueuing FilterMap steps");
                     let mut task_ids = Vec::new();
                     for step in steps {
                         let task_id = TaskId::new(B::IdType::generate());

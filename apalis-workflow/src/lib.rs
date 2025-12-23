@@ -9,7 +9,7 @@
 
 use apalis_core::{error::BoxDynError, task::Task};
 
-use crate::router::{GoTo, StepResult};
+use crate::sequential::router::{GoTo, StepResult};
 
 type BoxedService<Input, Output> = tower::util::BoxCloneSyncService<Input, Output, BoxDynError>;
 type SteppedService<Compact, Ctx, IdType> =
@@ -17,41 +17,29 @@ type SteppedService<Compact, Ctx, IdType> =
 
 type DagService<Compact, Ctx, IdType> = BoxedService<Task<Compact, Ctx, IdType>, Compact>;
 
-/// combinator for sequential workflow execution.
-pub mod and_then;
 /// combinator for chaining multiple workflows.
-pub mod chain;
-/// utilities for workflow context management.
-pub mod context;
+pub mod composite;
 /// utilities for directed acyclic graph workflows.
-#[allow(unused)]
 pub mod dag;
-/// utilities for introducing delays in workflow execution.
-pub mod delay;
-/// combinator for filtering and mapping workflow items.
-pub mod filter_map;
-/// combinator for folding over workflow items.
-pub mod fold;
 mod id_generator;
-/// utilities for workflow routing.
-pub mod router;
-/// utilities for workflow service orchestration.
-pub mod service;
+/// utilities for workflow steps.
+pub mod sequential;
 /// utilities for workflow sinks.
 pub mod sink;
-/// utilities for workflow steps.
-pub mod step;
-/// workflow definitions.
-pub mod workflow;
 
-pub use {dag::DagFlow, dag::executor::DagExecutor, sink::WorkflowSink, workflow::Workflow};
+pub use {
+    dag::DagFlow, dag::executor::DagExecutor, sequential::workflow::Workflow, sink::WorkflowSink,
+};
 
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, time::Duration};
 
     use apalis_core::{
-        task::{builder::TaskBuilder, task_id::TaskId},
+        task::{
+            builder::TaskBuilder,
+            task_id::{RandomId, TaskId},
+        },
         task_fn::task_fn,
         worker::{
             builder::WorkerBuilder, context::WorkerContext, event::Event,
@@ -62,7 +50,7 @@ mod tests {
     use futures::SinkExt;
     use serde_json::Value;
 
-    use crate::{and_then::AndThen, workflow::Workflow};
+    use crate::sequential::{AndThen, repeat_until::RepeaterState, workflow::Workflow};
 
     use super::*;
 
@@ -73,7 +61,17 @@ mod tests {
             .delay_for(Duration::from_secs(1))
             .and_then(async |input: usize| (input) as usize)
             .delay_for(Duration::from_secs(1))
-            // .delay_with(|_: Task<usize, _, _>| Duration::from_secs(1))
+            .delay_with(|_| Duration::from_secs(1))
+            .repeat_until(|res: usize, state: RepeaterState<RandomId>| async move {
+                println!("Iteration {}: got result {}", state.iterations(), res);
+                // Repeat until we have iterated 3 times
+                // Of course, in a real-world scenario, the condition would be based on `res`
+                if state.iterations() < 3 {
+                    None
+                } else {
+                    Some(res)
+                }
+            })
             .add_step(AndThen::new(task_fn(async |input: usize| {
                 Ok::<_, BoxDynError>(input.to_string())
             })))

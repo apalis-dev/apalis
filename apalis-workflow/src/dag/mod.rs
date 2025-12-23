@@ -6,21 +6,16 @@ use std::{
 };
 
 use apalis_core::{
-    backend::{
-        Backend, BackendExt, WaitForCompletion,
-        codec::{Codec, RawDataBackend},
-    },
+    backend::{BackendExt, codec::Codec},
     error::BoxDynError,
-    task::{Task, metadata::MetadataExt},
+    task::Task,
     task_fn::{TaskFn, task_fn},
-    worker::builder::{IntoWorkerService, WorkerService},
 };
-use futures::Sink;
 use petgraph::{
     Direction,
     algo::toposort,
     dot::Config,
-    graph::{DiGraph, EdgeIndex, Node, NodeIndex},
+    graph::{DiGraph, EdgeIndex, NodeIndex},
 };
 /// DAG executor implementations
 pub mod executor;
@@ -39,12 +34,11 @@ pub mod context;
 pub mod response;
 
 use serde::{Deserialize, Serialize};
-use tower::{Service, ServiceBuilder, util::BoxCloneSyncService};
+use tower::{Service, util::BoxCloneSyncService};
 
 use crate::{
-    BoxedService, DagService,
+    DagService,
     dag::{error::DagFlowError, executor::DagExecutor, node::NodeService},
-    id_generator::GenerateId,
 };
 
 pub use context::DagFlowContext;
@@ -56,17 +50,9 @@ pub struct DagFlow<B>
 where
     B: BackendExt,
 {
+    name: String,
     graph: Mutex<DiGraph<DagService<B::Compact, B::Context, B::IdType>, ()>>,
     node_mapping: Mutex<HashMap<String, NodeIndex>>,
-}
-
-impl<B> Default for DagFlow<B>
-where
-    B: BackendExt,
-{
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl<B> fmt::Display for DagFlow<B>
@@ -74,6 +60,8 @@ where
     B: BackendExt,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "DAG name: {}", self.name)?;
+        write!(f, "Dot format:\n")?;
         f.write_str(&self.to_dot())
     }
 }
@@ -84,8 +72,9 @@ where
 {
     /// Create a new DAG workflow builder
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(name: &str) -> Self {
         Self {
+            name: name.to_owned(),
             graph: Mutex::new(DiGraph::new()),
             node_mapping: Mutex::new(HashMap::new()),
         }
@@ -311,6 +300,18 @@ pub struct NodeHandle<Input, Output> {
     pub(crate) _phantom: PhantomData<(Input, Output)>,
 }
 
+impl<Input, Output> NodeHandle<Input, Output> {
+    /// Get the node ID
+    pub fn id(&self) -> NodeIndex {
+        self.id
+    }
+
+    /// Get the edge IDs
+    pub fn edges(&self) -> &[EdgeIndex] {
+        &self.edges
+    }
+}
+
 /// Trait for converting dependencies into node IDs
 pub trait DepsCheck<Input> {
     /// Convert dependencies to node indices
@@ -409,31 +410,28 @@ pub enum DagState {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::HashMap, marker::PhantomData, num::ParseIntError, ops::Range, time::Duration,
-    };
+    use std::num::ParseIntError;
 
     use apalis_core::{
         error::BoxDynError,
-        task::{Task, builder::TaskBuilder, task_id::RandomId},
         task_fn::task_fn,
         worker::{
             builder::WorkerBuilder, context::WorkerContext, event::Event,
             ext::event_listener::EventListenerExt,
         },
     };
-    use apalis_file_storage::{JsonMapMetadata, JsonStorage};
+    use apalis_file_storage::JsonStorage;
     use petgraph::graph::NodeIndex;
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
 
-    use crate::{WorkflowSink, step::Identity, workflow::Workflow};
+    use crate::WorkflowSink;
 
     use super::*;
 
     #[tokio::test]
     async fn test_basic_workflow() {
-        let dag = DagFlow::new();
+        let dag = DagFlow::new("sequential-workflow");
         let start = dag.add_node("start", task_fn(|task: u32| async move { task as usize }));
         let middle = dag
             .add_node(
@@ -442,7 +440,7 @@ mod tests {
             )
             .depends_on(&start);
 
-        let end = dag
+        let _end = dag
             .add_node(
                 "end",
                 task_fn(|task: String, worker: WorkerContext| async move {
@@ -472,7 +470,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fan_out_workflow() {
-        let dag = DagFlow::new();
+        let dag = DagFlow::new("fan-out-workflow");
         let source = dag.add_node("source", task_fn(|task: u32| async move { task as usize }));
         let plus_one = dag
             .add_node("plus_one", task_fn(|task: usize| async move { task + 1 }))
@@ -485,7 +483,7 @@ mod tests {
             .add_node("squared", task_fn(|task: usize| async move { task * task }))
             .depends_on(&source);
 
-        let collector = dag
+        let _collector = dag
             .add_node(
                 "collector",
                 task_fn(|task: (usize, usize, usize), w: WorkerContext| async move {
@@ -515,7 +513,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fan_in_workflow() {
-        let dag = DagFlow::new();
+        let dag = DagFlow::new("fan-in-workflow");
         let get_name = dag.add_node(
             "get_name",
             task_fn(|task: u32| async move { task as usize }),
@@ -544,7 +542,7 @@ mod tests {
             )
             .depends_on(vec![&get_name, &get_address]);
 
-        let final_node = dag
+        let _final_node = dag
             .add_node(
                 "final_node",
                 task_fn(|task: (usize, usize), w: WorkerContext| async move {
@@ -577,7 +575,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_routed_workflow() {
-        let dag = DagFlow::new();
+        let dag = DagFlow::new("routed-workflow");
 
         let entry1 = dag.add_node("entry1", task_fn(|task: u32| async move { task as usize }));
         let entry2 = dag.add_node("entry2", task_fn(|task: u32| async move { task as usize }));
@@ -611,7 +609,7 @@ mod tests {
         }
         let collector = dag.node(collect).depends_on((&entry1, &entry2, &entry3));
 
-        async fn vec_collect(task: Vec<usize>, worker: WorkerContext) -> usize {
+        async fn vec_collect(task: Vec<usize>, _wrk: WorkerContext) -> usize {
             task.iter().sum::<usize>()
         }
 

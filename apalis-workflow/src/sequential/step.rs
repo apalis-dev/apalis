@@ -1,6 +1,6 @@
 use apalis_core::{backend::BackendExt, error::BoxDynError};
 
-use crate::router::WorkflowRouter;
+use crate::sequential::router::WorkflowRouter;
 
 /// A layer to wrap a step
 pub trait Layer<S> {

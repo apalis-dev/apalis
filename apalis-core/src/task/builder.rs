@@ -34,7 +34,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[derive(Debug)]
 pub struct TaskBuilder<Args, Ctx, IdType> {
     pub(super) args: Args,
-    pub(super) ctx: Ctx,
+    /// The backend context for the task
+    #[doc(hidden)]
+    pub ctx: Ctx,
     pub(super) data: Extensions,
     pub(super) task_id: Option<TaskId<IdType>>,
     pub(super) attempt: Option<Attempt>,

@@ -13,8 +13,8 @@ use serde::{
 };
 
 /// The SQL context used for jobs stored in a SQL database
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SqlContext {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SqlContext<Pool> {
     max_attempts: i32,
     last_result: Option<serde_json::Value>,
     lock_at: Option<i64>,
@@ -23,15 +23,34 @@ pub struct SqlContext {
     priority: i32,
     queue: Option<String>,
     meta: JsonMapMetadata,
+    // Marker to hold the Pool type
+    // Used to associate the context with a specific database pool type
+    _pool: std::marker::PhantomData<Pool>,
 }
 
-impl Default for SqlContext {
+impl<Pool> Clone for SqlContext<Pool> {
+    fn clone(&self) -> Self {
+        Self {
+            lock_at: self.lock_at,
+            done_at: self.done_at,
+            max_attempts: self.max_attempts,
+            last_result: self.last_result.clone(),
+            lock_by: self.lock_by.clone(),
+            priority: self.priority,
+            queue: self.queue.clone(),
+            meta: self.meta.clone(),
+            _pool: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<Pool> Default for SqlContext<Pool> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl SqlContext {
+impl<Pool> SqlContext<Pool> {
     /// Build a new context with defaults
     #[must_use]
     pub fn new() -> Self {
@@ -44,6 +63,7 @@ impl SqlContext {
             priority: 0,
             queue: None,
             meta: Default::default(),
+            _pool: std::marker::PhantomData,
         }
     }
 
@@ -152,14 +172,16 @@ impl SqlContext {
     }
 }
 
-impl<Args: Sync, IdType: Sync> FromRequest<Task<Args, Self, IdType>> for SqlContext {
+impl<Args: Sync, IdType: Sync, Pool: Sync> FromRequest<Task<Args, Self, IdType>>
+    for SqlContext<Pool>
+{
     type Error = Infallible;
     async fn from_request(req: &Task<Args, Self, IdType>) -> Result<Self, Self::Error> {
         Ok(req.parts.ctx.clone())
     }
 }
 
-impl<T: DeserializeOwned + Serialize> MetadataExt<T> for SqlContext {
+impl<T: DeserializeOwned + Serialize, Pool> MetadataExt<T> for SqlContext<Pool> {
     type Error = serde_json::Error;
     fn extract(&self) -> Result<T, Self::Error> {
         self.meta

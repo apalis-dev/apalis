@@ -71,7 +71,7 @@ async fn get_address(user_id: u32) -> Result<usize, BoxDynError> {
 }
 
 async fn collector(
-    (name, age, address): (String, usize, usize), 
+    (name, age, address): (String, usize, usize),
     wrk: WorkerContext,
 ) -> Result<usize, BoxDynError> {
     let result = name.parse::<usize>()? + age + address;
@@ -89,7 +89,7 @@ async fn main() -> Result<(), BoxDynError> {
         .await
         .unwrap();
 
-    let dag_flow = DagFlow::new();
+    let dag_flow = DagFlow::new("user-etl-workflow");
     let get_name = dag_flow.node(get_name);
     let get_age = dag_flow.node(get_age);
     let get_address = dag_flow.node(get_address);
@@ -140,7 +140,7 @@ You can track your workflows using [apalis-board](https://github.com/apalis-dev/
 ## Inspirations:
 
 - [Underway](https://github.com/maxcountryman/underway): Postgres-only `stepped` solution
-- [dagx](https://github.com/swaits/dagx): blazing fast *in-memory* `dag` solution
+- [dagx](https://github.com/swaits/dagx): blazing fast _in-memory_ `dag` solution
 
 ## License
 

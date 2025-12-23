@@ -14,9 +14,9 @@ use tower::Service;
 
 use crate::{
     SteppedService,
-    context::{StepContext, WorkflowContext},
     id_generator::GenerateId,
-    router::{GoTo, StepResult},
+    sequential::context::{StepContext, WorkflowContext},
+    sequential::router::{GoTo, StepResult},
 };
 
 /// The main workflow service that orchestrates the execution of workflow steps.

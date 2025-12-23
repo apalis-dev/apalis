@@ -16,6 +16,8 @@ pub enum DagExecutionResponse<Compact, IdType> {
     FanOut {
         /// Result of the current task
         response: Compact,
+        /// Map of node indices to their task IDs
+        node_task_ids: HashMap<NodeIndex, TaskId<IdType>>,
     },
     /// Next task has been enqueued
     EnqueuedNext {
