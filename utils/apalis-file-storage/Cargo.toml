@@ -8,6 +8,11 @@ authors = ["Njuguna Mureithi <mureithinjuguna@gmail.com>"]
 license = "MIT"
 description = "A test-friendly single process file-based storage backend for apalis"
 publish = true
+documentation = "https://docs.rs/apalis-file-storage"
+homepage = "https://github.com/apalis-dev/apalis"
+readme = "README.md"
+keywords = ["apalis", "file", "storage", "backend", "rust"]
+categories = ["database", "filesystem", "asynchronous", "data-structures"]
 
 [lib]
 
