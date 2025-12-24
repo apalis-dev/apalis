@@ -1,6 +1,6 @@
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
 
 name: Continuous delivery
 permissions:
@@ -42,16 +42,26 @@ jobs:
         with:
           command: publish
           args: ${{ env.PUBLISH_OPTS }} -p apalis-core
-      - name: publish apalis-workflow
-        uses: actions-rs/cargo@v1
-        with:
-          command: publish
-          args: ${{ env.PUBLISH_OPTS }} -p apalis-workflow
       - name: publish apalis-sql
         uses: actions-rs/cargo@v1
         with:
           command: publish
           args: ${{ env.PUBLISH_OPTS }} -p apalis-sql
+      - name: publish apalis-codec
+        uses: actions-rs/cargo@v1
+        with:
+          command: publish
+          args: ${{ env.PUBLISH_OPTS }} -p apalis-codec
+      - name: publish apalis-file-storage
+        uses: actions-rs/cargo@v1
+        with:
+          command: publish
+          args: ${{ env.PUBLISH_OPTS }} -p apalis-file-storage
+      - name: publish apalis-workflow
+        uses: actions-rs/cargo@v1
+        with:
+          command: publish
+          args: ${{ env.PUBLISH_OPTS }} -p apalis-workflow
       - name: publish apalis
         uses: actions-rs/cargo@v1
         with:
