@@ -17,7 +17,7 @@
 //! Some work better with `chrono`, others with `time`. This module allows users to
 //! choose the datetime crate that best fits their database driver and application
 //! needs, while the rest of the codebase uses a consistent API through the
-//! [`SqlDateTimeExt`] trait.
+//! [`DateTimeExt`] trait.
 //!
 //! # Usage
 //!
@@ -31,7 +31,7 @@
 //! let timestamp = now.to_unix_timestamp();
 //!
 //! // Create from Unix timestamp
-//! let dt = SqlDateTime::from_unix_timestamp(timestamp);
+//! let dt = DateTime::from_unix_timestamp(timestamp);
 //! ```
 
 /// DateTime type alias that uses either chrono or time depending on enabled features.
