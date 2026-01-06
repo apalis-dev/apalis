@@ -13,7 +13,7 @@ pub mod from_row;
 /// Extension traits for `TaskBuilder`
 pub mod ext;
 
-pub use datetime::{SqlDateTime, SqlDateTimeExt};
+pub use datetime::{DateTime, DateTimeExt};
 pub use from_row::TaskRow;
 
 /// Convert a string to a StatType

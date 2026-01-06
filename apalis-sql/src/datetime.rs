@@ -22,10 +22,10 @@
 //! # Usage
 //!
 //! ```rust
-//! use apalis_sql::{SqlDateTime, SqlDateTimeExt};
+//! use apalis_sql::{DateTime, DateTimeExt};
 //!
 //! // Get current time (works with either feature)
-//! let now = SqlDateTime::now();
+//! let now = DateTime::now();
 //!
 //! // Convert to Unix timestamp
 //! let timestamp = now.to_unix_timestamp();
@@ -34,31 +34,25 @@
 //! let dt = SqlDateTime::from_unix_timestamp(timestamp);
 //! ```
 
-#[cfg(all(feature = "chrono", not(feature = "time")))]
-use chrono::{DateTime, Utc};
-
-#[cfg(feature = "time")]
-use time::OffsetDateTime;
-
 /// DateTime type alias that uses either chrono or time depending on enabled features.
 ///
 /// When the `time` feature is enabled, this is `time::OffsetDateTime`.
 /// When the `chrono` feature is enabled (and `time` is not), this is `chrono::DateTime<Utc>`.
 #[cfg(all(feature = "chrono", not(feature = "time")))]
-pub type SqlDateTime = DateTime<Utc>;
+pub type DateTime = chrono::DateTime<chrono::Utc>;
 
 /// DateTime type alias that uses either chrono or time depending on enabled features.
 ///
 /// When the `time` feature is enabled, this is `time::OffsetDateTime`.
 /// When the `chrono` feature is enabled (and `time` is not), this is `chrono::DateTime<Utc>`.
 #[cfg(feature = "time")]
-pub type SqlDateTime = OffsetDateTime;
+pub type DateTime = time::OffsetDateTime;
 
 /// Extension trait for SQL datetime operations.
 ///
 /// This trait provides a unified API for datetime operations regardless of
 /// whether `chrono` or `time` feature is enabled.
-pub trait SqlDateTimeExt {
+pub trait DateTimeExt {
     /// Returns the current UTC datetime.
     fn now() -> Self;
 
@@ -70,9 +64,9 @@ pub trait SqlDateTimeExt {
 }
 
 #[cfg(all(feature = "chrono", not(feature = "time")))]
-impl SqlDateTimeExt for DateTime<Utc> {
+impl DateTimeExt for DateTime {
     fn now() -> Self {
-        Utc::now()
+        chrono::Utc::now()
     }
 
     fn to_unix_timestamp(&self) -> i64 {
@@ -85,7 +79,7 @@ impl SqlDateTimeExt for DateTime<Utc> {
 }
 
 #[cfg(feature = "time")]
-impl SqlDateTimeExt for OffsetDateTime {
+impl DateTimeExt for DateTime {
     fn now() -> Self {
         Self::now_utc()
     }

@@ -7,7 +7,7 @@ use apalis_core::{
 };
 
 use crate::context::SqlContext;
-use crate::datetime::{SqlDateTime, SqlDateTimeExt};
+use crate::datetime::{DateTime, DateTimeExt};
 
 /// Errors that can occur when converting a database row into a Task
 #[derive(Debug, thiserror::Error)]
@@ -41,15 +41,15 @@ pub struct TaskRow {
     /// Maximum number of attempts allowed for this task before giving up
     pub max_attempts: Option<usize>,
     /// When the task should be executed (for scheduled tasks)
-    pub run_at: Option<SqlDateTime>,
+    pub run_at: Option<DateTime>,
     /// The result of the last execution attempt, stored as JSON
     pub last_result: Option<serde_json::Value>,
     /// Timestamp when the task was locked for execution
-    pub lock_at: Option<SqlDateTime>,
+    pub lock_at: Option<DateTime>,
     /// Identifier of the worker/process that has locked this task
     pub lock_by: Option<String>,
     /// Timestamp when the task was completed
-    pub done_at: Option<SqlDateTime>,
+    pub done_at: Option<DateTime>,
     /// Priority level of the task (higher values indicate higher priority)
     pub priority: Option<usize>,
     /// Additional metadata associated with the task, stored as JSON
