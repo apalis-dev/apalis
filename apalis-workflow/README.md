@@ -85,7 +85,7 @@ async fn main() -> Result<(), BoxDynError> {
     let mut backend = JsonStorage::new_temp().unwrap();
 
     backend
-        .push_start(Value::from(vec![42, 43, 44]))
+        .push_start(vec![42, 43, 44])
         .await
         .unwrap();
 

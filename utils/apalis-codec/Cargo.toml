@@ -11,7 +11,7 @@ homepage = "https://github.com/apalis-dev/apalis"
 documentation = "https://docs.rs/apalis-codec"
 readme = "README.md"
 keywords = ["apalis", "codec", "job", "serde", "rust"]
-categories = ["encoding", "parsing", "serialization", "concurrency"]
+categories = ["encoding", "parsing", "concurrency"]
 
 [features]
 default = ["json"]

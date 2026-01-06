@@ -1,7 +1,6 @@
 use apalis::prelude::*;
 use apalis_file_storage::JsonStorage;
 use apalis_workflow::{DagFlow, WorkflowSink};
-use serde_json::Value;
 use tracing::info;
 
 async fn get_name(user_id: u32) -> Result<String, BoxDynError> {
@@ -32,10 +31,7 @@ async fn main() -> Result<(), BoxDynError> {
     };
     tracing_subscriber::fmt::init();
     let mut backend = JsonStorage::new_temp().unwrap();
-    backend
-        .push_start(Value::from(vec![42, 43, 44]))
-        .await
-        .unwrap();
+    backend.push_start(vec![42, 43, 44]).await.unwrap();
 
     let dag_flow = DagFlow::new("user-info-workflow");
     let get_name = dag_flow.node(get_name);
