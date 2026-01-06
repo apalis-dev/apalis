@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- **chore**: chore: add file storage backend docs ([#658](https://github.com/apalis-dev/apalis/pull/658))
 - **chore**: chore: prep codec and filestorage crates ([#653](https://github.com/geofmureithi/apalis/pull/653))
 - **chore**: bump: introducing rc.1 ([#646](https://github.com/geofmureithi/apalis/pull/646))
 - **chore**: feat: refactor and granulize traits ([#586](https://github.com/geofmureithi/apalis/pull/586))
