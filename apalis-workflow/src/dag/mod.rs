@@ -557,10 +557,7 @@ mod tests {
 
         let mut backend: JsonStorage<Value> = JsonStorage::new_temp().unwrap();
 
-        backend
-            .push_start(vec![42, 43, 44])
-            .await
-            .unwrap();
+        backend.push_start(vec![42, 43, 44]).await.unwrap();
 
         let worker = WorkerBuilder::new("rango-tango")
             .backend(backend)
