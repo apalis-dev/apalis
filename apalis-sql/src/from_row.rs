@@ -5,9 +5,9 @@ use apalis_core::{
     error::BoxDynError,
     task::{Task, attempt::Attempt, builder::TaskBuilder, status::Status, task_id::TaskId},
 };
-use chrono::{DateTime, Utc};
 
 use crate::context::SqlContext;
+use crate::datetime::{SqlDateTime, SqlDateTimeExt};
 
 /// Errors that can occur when converting a database row into a Task
 #[derive(Debug, thiserror::Error)]
@@ -41,15 +41,15 @@ pub struct TaskRow {
     /// Maximum number of attempts allowed for this task before giving up
     pub max_attempts: Option<usize>,
     /// When the task should be executed (for scheduled tasks)
-    pub run_at: Option<DateTime<Utc>>,
+    pub run_at: Option<SqlDateTime>,
     /// The result of the last execution attempt, stored as JSON
     pub last_result: Option<serde_json::Value>,
     /// Timestamp when the task was locked for execution
-    pub lock_at: Option<DateTime<Utc>>,
+    pub lock_at: Option<SqlDateTime>,
     /// Identifier of the worker/process that has locked this task
     pub lock_by: Option<String>,
     /// Timestamp when the task was completed
-    pub done_at: Option<DateTime<Utc>>,
+    pub done_at: Option<SqlDateTime>,
     /// Priority level of the task (higher values indicate higher priority)
     pub priority: Option<usize>,
     /// Additional metadata associated with the task, stored as JSON
@@ -69,7 +69,7 @@ impl TaskRow {
         Args: 'static,
     {
         let ctx = SqlContext::default()
-            .with_done_at(self.done_at.map(|dt| dt.timestamp()))
+            .with_done_at(self.done_at.map(|dt| dt.to_unix_timestamp()))
             .with_lock_by(self.lock_by)
             .with_max_attempts(self.max_attempts.unwrap_or(25) as i32)
             .with_last_result(self.last_result)
@@ -86,7 +86,7 @@ impl TaskRow {
                     .unwrap_or_default(),
             )
             .with_queue(self.job_type)
-            .with_lock_at(self.lock_at.map(|dt| dt.timestamp()));
+            .with_lock_at(self.lock_at.map(|dt| dt.to_unix_timestamp()));
 
         let args = D::decode(&self.job).map_err(|e| FromRowError::DecodeError(e.into()))?;
         let task = TaskBuilder::new(args)
@@ -101,7 +101,7 @@ impl TaskRow {
             .run_at_timestamp(
                 self.run_at
                     .ok_or(FromRowError::ColumnNotFound("run_at".to_owned()))?
-                    .timestamp() as u64,
+                    .to_unix_timestamp() as u64,
             );
         Ok(task.build())
     }
@@ -115,7 +115,7 @@ impl TaskRow {
         <IdType as FromStr>::Err: std::error::Error + Send + Sync + 'static,
     {
         let ctx = SqlContext::default()
-            .with_done_at(self.done_at.map(|dt| dt.timestamp()))
+            .with_done_at(self.done_at.map(|dt| dt.to_unix_timestamp()))
             .with_lock_by(self.lock_by)
             .with_max_attempts(self.max_attempts.unwrap_or(25) as i32)
             .with_last_result(self.last_result)
@@ -126,7 +126,7 @@ impl TaskRow {
                     .unwrap_or_default(),
             )
             .with_queue(self.job_type)
-            .with_lock_at(self.lock_at.map(|dt| dt.timestamp()));
+            .with_lock_at(self.lock_at.map(|dt| dt.to_unix_timestamp()));
 
         let task = TaskBuilder::new(self.job)
             .with_ctx(ctx)
@@ -140,7 +140,7 @@ impl TaskRow {
             .run_at_timestamp(
                 self.run_at
                     .ok_or(FromRowError::ColumnNotFound("run_at".to_owned()))?
-                    .timestamp() as u64,
+                    .to_unix_timestamp() as u64,
             );
         Ok(task.build())
     }

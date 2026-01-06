@@ -30,7 +30,7 @@ jobs:
       - name: cargo install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: cargo hack
-        run: cargo hack --feature-powerset check
+        run: cargo hack --feature-powerset --at-least-one-of chrono,time check
 
   test:
     name: Test Suite

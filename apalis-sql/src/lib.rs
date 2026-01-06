@@ -5,11 +5,16 @@ use apalis_core::backend::StatType;
 pub mod config;
 /// SQL context for jobs stored in a SQL database
 pub mod context;
+/// DateTime abstraction for unified time handling
+pub mod datetime;
 /// SQL task row representation and conversion
 pub mod from_row;
 
 /// Extension traits for `TaskBuilder`
 pub mod ext;
+
+pub use datetime::{SqlDateTime, SqlDateTimeExt};
+pub use from_row::TaskRow;
 
 /// Convert a string to a StatType
 #[must_use]
