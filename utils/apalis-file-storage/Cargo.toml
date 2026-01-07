@@ -1,6 +1,6 @@
 [package]
 name = "apalis-file-storage"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 rust-version.workspace = true
 edition.workspace = true
 repository.workspace = true
@@ -18,7 +18,7 @@ categories = ["database", "filesystem", "asynchronous", "data-structures"]
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
-apalis-core = { path = "../../apalis-core", version = "1.0.0-rc.1", default-features = false, features = [
+apalis-core = { path = "../../apalis-core", version = "1.0.0-rc.2", default-features = false, features = [
     "sleep",
     "serde",
 ] }
@@ -35,13 +35,13 @@ futures-util = { version = "0.3.30", features = [
     "std",
 ], default-features = false }
 futures-core = { version = "0.3.30", default-features = false }
-apalis-codec = { path = "../apalis-codec", version = "0.1.0-rc.1", default-features = false, features = [
+apalis-codec = { path = "../apalis-codec", version = "0.1.0-rc.2", default-features = false, features = [
     "json",
 ] }
 
 [dev-dependencies]
 tokio = { version = "1.37.0", features = ["full"] }
-apalis-workflow = { path = "../../apalis-workflow", version = "0.1.0-rc.1" } # For json backend tests
+apalis-workflow = { path = "../../apalis-workflow", version = "0.1.0-rc.2" } # For json backend tests
 
 [lints]
 workspace = true

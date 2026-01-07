@@ -41,19 +41,19 @@ version = "1.0.100"
 criteria = "safe-to-deploy"
 
 [[exemptions.apalis]]
-version = "1.0.0-beta.2"
-criteria = "safe-to-deploy"
-
-[[exemptions.apalis-core]]
 version = "1.0.0-rc.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.apalis-core]]
+version = "1.0.0-rc.2"
+criteria = "safe-to-deploy"
+
 [[exemptions.apalis-sql]]
-version = "1.0.0-beta.2"
+version = "1.0.0-rc.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.apalis-workflow]]
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.async-trait]]
@@ -877,7 +877,7 @@ version = "1.0.228"
 criteria = "safe-to-deploy"
 
 [[exemptions.serde_json]]
-version = "1.0.148"
+version = "1.0.149"
 criteria = "safe-to-deploy"
 
 [[exemptions.serde_urlencoded]]
@@ -925,7 +925,7 @@ version = "2.6.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.syn]]
-version = "2.0.113"
+version = "2.0.114"
 criteria = "safe-to-deploy"
 
 [[exemptions.sync_wrapper]]
@@ -1289,11 +1289,11 @@ version = "0.8.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.zerocopy]]
-version = "0.8.31"
+version = "0.8.32"
 criteria = "safe-to-deploy"
 
 [[exemptions.zerocopy-derive]]
-version = "0.8.31"
+version = "0.8.32"
 criteria = "safe-to-deploy"
 
 [[exemptions.zerofrom]]

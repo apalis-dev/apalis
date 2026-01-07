@@ -1,6 +1,6 @@
 [package]
 name = "apalis-codec"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 rust-version.workspace = true
 edition.workspace = true
 repository.workspace = true
@@ -23,7 +23,7 @@ bincode = ["dep:bincode", "dep:thiserror"]
 msgpack = ["dep:rmp-serde", "dep:serde", "apalis-core/serde", "dep:thiserror"]
 
 [dependencies]
-apalis-core = { path = "../../apalis-core", version = "1.0.0-rc.1", default-features = false }
+apalis-core = { path = "../../apalis-core", version = "1.0.0-rc.2", default-features = false }
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 bincode = { version = "2.0.1", optional = true }
