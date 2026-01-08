@@ -41,7 +41,7 @@ apalis-codec = { path = "../apalis-codec", version = "0.1.0-rc.2", default-featu
 
 [dev-dependencies]
 tokio = { version = "1.37.0", features = ["full"] }
-apalis-workflow = { path = "../../apalis-workflow", version = "0.1.0-rc.2" } # For json backend tests
+apalis-workflow = { path = "../../apalis-workflow" } # For json backend tests
 
 [lints]
 workspace = true

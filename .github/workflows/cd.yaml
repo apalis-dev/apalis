@@ -52,16 +52,16 @@ jobs:
         with:
           command: publish
           args: ${{ env.PUBLISH_OPTS }} -p apalis-codec
-      - name: publish apalis-file-storage
-        uses: actions-rs/cargo@v1
-        with:
-          command: publish
-          args: ${{ env.PUBLISH_OPTS }} -p apalis-file-storage
       - name: publish apalis-workflow
         uses: actions-rs/cargo@v1
         with:
           command: publish
           args: ${{ env.PUBLISH_OPTS }} -p apalis-workflow
+      - name: publish apalis-file-storage
+        uses: actions-rs/cargo@v1
+        with:
+          command: publish
+          args: ${{ env.PUBLISH_OPTS }} -p apalis-file-storage
       - name: publish apalis
         uses: actions-rs/cargo@v1
         with:
