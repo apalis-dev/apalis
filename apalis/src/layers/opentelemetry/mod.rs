@@ -6,8 +6,12 @@ use std::{
 };
 
 use apalis_core::{task::Task, worker::context::WorkerContext};
+use opentelemetry::{
+    global,
+    metrics::{Counter, Histogram},
+    KeyValue,
+};
 use tower::{Layer, Service};
-use opentelemetry::{global, KeyValue, metrics::{Counter, Histogram}};
 
 /// A layer to support OpenTelemetry metrics
 #[derive(Debug, Default)]
@@ -20,13 +24,15 @@ impl<S> Layer<S> for OpenTelemetryMetricsLayer {
     fn layer(&self, service: S) -> Self::Service {
         let meter = global::meter("apalis");
 
-        let task_counter = meter.u64_counter("apalis_task")
-                                   .build();
+        let task_counter = meter.u64_counter("apalis_task").build();
 
         let duration_histogram = meter
             .f64_histogram("apalis_task_duration")
             .with_unit("s")
-            .with_boundaries(vec![0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 60.0, 120.0, 300.0, 600.0])
+            .with_boundaries(vec![
+                0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0,
+                60.0, 120.0, 300.0, 600.0,
+            ])
             .build();
 
         OpenTelemetryMetricsService {
@@ -42,10 +48,11 @@ impl<S> Layer<S> for OpenTelemetryMetricsLayer {
 pub struct OpenTelemetryMetricsService<S> {
     service: S,
     task_counter: Counter<u64>,
-    duration_histogram: Histogram<f64>
+    duration_histogram: Histogram<f64>,
 }
 
-impl<Svc, Fut, Args, Ctx, Res, Err, IdType> Service<Task<Args, Ctx, IdType>> for OpenTelemetryMetricsService<Svc>
+impl<Svc, Fut, Args, Ctx, Res, Err, IdType> Service<Task<Args, Ctx, IdType>>
+    for OpenTelemetryMetricsService<Svc>
 where
     Svc: Service<Task<Args, Ctx, IdType>, Response = Res, Error = Err, Future = Fut>,
     Fut: Future<Output = Result<Res, Err>> + 'static,
@@ -91,7 +98,7 @@ pub struct ResponseFuture<F> {
     pub(crate) task_type: String,
     pub(crate) worker: String,
     pub(crate) task_counter: Counter<u64>,
-    pub(crate) duration_histogram: Histogram<f64>
+    pub(crate) duration_histogram: Histogram<f64>,
 }
 
 impl<F> fmt::Debug for ResponseFuture<F>
