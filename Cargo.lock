@@ -1758,6 +1758,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "apalis",
+ "apalis-file-storage",
  "axum 0.8.8",
  "email-service",
  "futures",

@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     pin::Pin,
     task::{Context, Poll},
     time::Instant,
@@ -44,10 +45,10 @@ pub struct OpenTelemetryMetricsService<S> {
     duration_histogram: Histogram<f64>
 }
 
-impl<Svc, Fut, Req, Ctx, Res> Service<Request<Req, Ctx>> for OpenTelemetryMetricsService<Svc>
+impl<Svc, Fut, Args, Ctx, Res, Err, IdType> Service<Task<Args, Ctx, IdType>> for OpenTelemetryMetricsService<Svc>
 where
-    Svc: Service<Request<Req, Ctx>, Response = Res, Error = Error, Future = Fut>,
-    Fut: Future<Output = Result<Res, Error>> + 'static,
+    Svc: Service<Task<Args, Ctx, IdType>, Response = Res, Error = Err, Future = Fut>,
+    Fut: Future<Output = Result<Res, Err>> + 'static,
 {
     type Response = Svc::Response;
     type Error = Svc::Error;
@@ -57,39 +58,27 @@ where
         self.service.poll_ready(cx)
     }
 
-    fn call(&mut self, request: Request<Req, Ctx>) -> Self::Future {
+    fn call(&mut self, request: Task<Args, Ctx, IdType>) -> Self::Future {
         let start = Instant::now();
-        let namespace = request
+        let worker = request
             .parts
-            .namespace
-            .as_ref()
-            .map(|ns| ns.0.to_string())
-            .unwrap_or(std::any::type_name::<Svc>().to_string());
+            .data
+            .get::<WorkerContext>()
+            .map(|ns| ns.name())
+            .cloned()
+            .expect("worker context not found in task data");
 
         let req = self.service.call(request);
-        let job_type = std::any::type_name::<Req>().to_string();
+        let job_type = std::any::type_name::<Args>().to_string();
 
         ResponseFuture {
             inner: req,
             start,
             job_type,
-            operation: namespace,
+            worker,
             task_counter: self.task_counter.clone(),
             duration_histogram: self.duration_histogram.clone(),
         }
-    }
-}
-
-pin_project! {
-    /// Response for prometheus service
-    pub struct ResponseFuture<F> {
-        #[pin]
-        pub(crate) inner: F,
-        pub(crate) start: Instant,
-        pub(crate) job_type: String,
-        pub(crate) operation: String,
-        pub(crate) task_counter: Counter<u64>,
-        pub(crate) duration_histogram: Histogram<f64>
     }
 }
 
@@ -101,18 +90,38 @@ pub struct ResponseFuture<F> {
     pub(crate) start: Instant,
     pub(crate) job_type: String,
     pub(crate) worker: String,
+    pub(crate) task_counter: Counter<u64>,
+    pub(crate) duration_histogram: Histogram<f64>
 }
 
-impl<Fut, Res> Future for ResponseFuture<Fut>
+impl<F> fmt::Debug for ResponseFuture<F>
 where
-    Fut: Future<Output = Result<Res, Error>>,
+    F: fmt::Debug,
 {
-    type Output = Result<Res, Error>;
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let elapsed = self.start.elapsed();
+
+        f.debug_struct("ResponseFuture")
+            .field("inner", &self.inner)
+            .field("elapsed_since_start", &elapsed)
+            .field("job_type", &self.job_type)
+            .field("worker", &self.worker)
+            .field("task_counter", &self.task_counter)
+            .field("duration_histogram", &self.duration_histogram)
+            .finish()
+    }
+}
+
+impl<Fut, Res, Err> Future for ResponseFuture<Fut>
+where
+    Fut: Future<Output = Result<Res, Err>>,
+{
+    type Output = Result<Res, Err>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
 
-        let response = futures::ready!(this.inner.poll(cx));
+        let response = std::task::ready!(this.inner.poll(cx));
 
         let latency = this.start.elapsed().as_secs_f64();
         let status = response
@@ -122,8 +131,8 @@ where
             .unwrap_or_else(|| "Err".to_string());
 
         let attributes = [
-            KeyValue::new("name", this.operation.to_string()),
-            KeyValue::new("namespace", this.job_type.to_string()),
+            KeyValue::new("worker", this.worker.to_string()),
+            KeyValue::new("queue", this.job_type.to_string()),
             KeyValue::new("status", status),
         ];
         this.task_counter.add(1, &attributes);

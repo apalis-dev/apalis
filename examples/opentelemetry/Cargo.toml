@@ -12,6 +12,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde = { version = "1.0", features = ["derive"] }
 apalis = { path = "../../apalis", features = ["opentelemetry"] }
+apalis-file-storage = { path = "../../utils/apalis-file-storage" }
 futures = "0.3"
 email-service = { path = "../email-service" }
 opentelemetry = { version = "0.31.0", default-features = false, features = ["metrics"] }

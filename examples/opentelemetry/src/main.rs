@@ -9,6 +9,7 @@
 use anyhow::Result;
 use apalis::layers::opentelemetry::OpenTelemetryMetricsLayer;
 use apalis::prelude::*;
+use apalis_file_storage::JsonStorage;
 use axum::{
     extract::{State, Form},
     http::{header::CONTENT_TYPE, StatusCode},
@@ -42,7 +43,7 @@ async fn main() -> Result<()> {
     // build our application with some routes
     let app = Router::new()
         .route("/", get(show_form).post(add_new_job::<Email>))
-        .layer(Extension(storage.clone()))
+        .layer(Extension(backend.clone()))
         .route("/metrics", get(async |State(registry): State<Registry>| {
             let mut buffer = vec![];
             let encoder = TextEncoder::new();
@@ -53,7 +54,6 @@ async fn main() -> Result<()> {
         }))
         .with_state(registry);
 
-
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     tracing::debug!("listening on {}", addr);
@@ -63,18 +63,17 @@ async fn main() -> Result<()> {
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::BrokenPipe, e))
     };
-    let monitor = async {
-        Monitor::new()
-            .register({
-                WorkerBuilder::new("tasty-banana")
-                    .layer(OpenTelemetryMetricsLayer::default())
-                    .backend(storage.clone())
-                    .build_fn(send_email)
-            })
+    let worker = async {
+        WorkerBuilder::new("tasty-banana")
+            .backend(backend.clone())
+            .layer(OpenTelemetryMetricsLayer::default())
+            .build(send_email)
             .run()
             .await
+            .expect("Worker failed");
+        Ok(())
     };
-    let _res = futures::future::try_join(monitor, http)
+    let _res = futures::future::try_join(worker, http)
         .await
         .expect("Could not start services");
     Ok(())
