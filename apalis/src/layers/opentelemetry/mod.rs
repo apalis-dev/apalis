@@ -17,21 +17,20 @@ impl<S> Layer<S> for OpenTelemetryMetricsLayer {
     type Service = OpenTelemetryMetricsService<S>;
 
     fn layer(&self, service: S) -> Self::Service {
-
-
         let meter = global::meter("apalis");
 
-        let request_counter = meter.u64_counter("requests")
+        let task_counter = meter.u64_counter("apalis_task")
                                    .build();
 
-        let duration_histogram = meter.f64_histogram("request_duration")
-                                      .with_unit("s")
+        let duration_histogram = meter
+            .f64_histogram("apalis_task_duration")
+            .with_unit("s")
             .with_boundaries(vec![0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 60.0, 120.0, 300.0, 600.0])
             .build();
 
         OpenTelemetryMetricsService {
             service,
-            request_counter,
+            task_counter,
             duration_histogram,
         }
     }
@@ -41,7 +40,7 @@ impl<S> Layer<S> for OpenTelemetryMetricsLayer {
 #[derive(Debug, Clone)]
 pub struct OpenTelemetryMetricsService<S> {
     service: S,
-    request_counter: Counter<u64>,
+    task_counter: Counter<u64>,
     duration_histogram: Histogram<f64>
 }
 
@@ -75,7 +74,7 @@ where
             start,
             job_type,
             operation: namespace,
-            request_counter: self.request_counter.clone(),
+            task_counter: self.task_counter.clone(),
             duration_histogram: self.duration_histogram.clone(),
         }
     }
@@ -89,7 +88,7 @@ pin_project! {
         pub(crate) start: Instant,
         pub(crate) job_type: String,
         pub(crate) operation: String,
-        pub(crate) request_counter: Counter<u64>,
+        pub(crate) task_counter: Counter<u64>,
         pub(crate) duration_histogram: Histogram<f64>
     }
 }
@@ -127,7 +126,7 @@ where
             KeyValue::new("namespace", this.job_type.to_string()),
             KeyValue::new("status", status),
         ];
-        this.request_counter.add(1, &attributes);
+        this.task_counter.add(1, &attributes);
         this.duration_histogram.record(latency, &attributes);
 
         Poll::Ready(response)
