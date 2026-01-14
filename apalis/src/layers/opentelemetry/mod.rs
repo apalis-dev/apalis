@@ -24,7 +24,7 @@ impl<S> Layer<S> for OpenTelemetryMetricsLayer {
     fn layer(&self, service: S) -> Self::Service {
         let meter = global::meter("apalis");
 
-        let task_counter = meter.u64_counter("apalis_task").build();
+        let task_counter = meter.u64_counter("apalis_tasks").build();
 
         let duration_histogram = meter
             .f64_histogram("apalis_task_duration")
