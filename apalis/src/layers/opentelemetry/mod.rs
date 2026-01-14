@@ -123,18 +123,13 @@ where
             .unwrap_or_else(|| "Err".to_string());
 
         let attributes = [
-            KeyValue::new("name", this.operation.to_string()), // .to_string()),
-            KeyValue::new("namespace", this.job_type.to_string()), //.to_string()),
+            KeyValue::new("name", this.operation.to_string()),
+            KeyValue::new("namespace", this.job_type.to_string()),
             KeyValue::new("status", status),
         ];
-
         this.request_counter.add(1, &attributes);
-        // let counter = metrics::counter!("requests_total", &labels);
-        // counter.increment(1);
         this.duration_histogram.record(latency, &attributes);
 
-        // let hist = metrics::histogram!("request_duration_seconds", &labels);
-        // hist.record(latency);
         Poll::Ready(response)
     }
 }
