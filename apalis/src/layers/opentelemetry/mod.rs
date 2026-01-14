@@ -69,12 +69,12 @@ where
             .expect("worker context not found in task data");
 
         let req = self.service.call(request);
-        let job_type = std::any::type_name::<Args>().to_string();
+        let task_type = std::any::type_name::<Args>().to_string();
 
         ResponseFuture {
             inner: req,
             start,
-            job_type,
+            task_type,
             worker,
             task_counter: self.task_counter.clone(),
             duration_histogram: self.duration_histogram.clone(),
@@ -88,7 +88,7 @@ pub struct ResponseFuture<F> {
     #[pin]
     pub(crate) inner: F,
     pub(crate) start: Instant,
-    pub(crate) job_type: String,
+    pub(crate) task_type: String,
     pub(crate) worker: String,
     pub(crate) task_counter: Counter<u64>,
     pub(crate) duration_histogram: Histogram<f64>
@@ -104,7 +104,7 @@ where
         f.debug_struct("ResponseFuture")
             .field("inner", &self.inner)
             .field("elapsed_since_start", &elapsed)
-            .field("job_type", &self.job_type)
+            .field("task_type", &self.task_type)
             .field("worker", &self.worker)
             .field("task_counter", &self.task_counter)
             .field("duration_histogram", &self.duration_histogram)
@@ -132,7 +132,7 @@ where
 
         let attributes = [
             KeyValue::new("worker", this.worker.to_string()),
-            KeyValue::new("queue", this.job_type.to_string()),
+            KeyValue::new("queue", this.task_type.to_string()),
             KeyValue::new("status", status),
         ];
         this.task_counter.add(1, &attributes);
