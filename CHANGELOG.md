@@ -59,6 +59,7 @@ Monitor::new()
 
 ### Added
 
+- **opentelemetry layer**: monitor tasks with [OpenTelemetry](https://docs.rs/opentelemetry/latest/opentelemetry/) metrics ([#663](https://github.com/apalis-dev/apalis/pull/663))
 - **api**: `Monitor::should_restart` for controlling worker restarts ([#586](https://github.com/geofmureithi/apalis/pull/586))
 
 ```rs
@@ -69,7 +70,6 @@ Monitor::new()
         matches!(last_err, WorkerError::GracefulExit)
     })
 ```
-- **opentelemetry layer**: monitor tasks with [OpenTelemetry](https://docs.rs/opentelemetry/latest/opentelemetry/) metrics ([#663](https://github.com/apalis-dev/apalis/pull/663))
 
 ## [0.7.4](https://github.com/geofmureithi/apalis/releases/tag/v0.7.4)
 
