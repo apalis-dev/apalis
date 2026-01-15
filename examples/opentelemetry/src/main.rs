@@ -11,18 +11,18 @@ use apalis::layers::opentelemetry::OpenTelemetryMetricsLayer;
 use apalis::prelude::*;
 use apalis_file_storage::JsonStorage;
 use axum::{
-    extract::{State, Form},
+    extract::{Form, State},
     http::{header::CONTENT_TYPE, StatusCode},
     response::{Html, IntoResponse},
     routing::get,
     Extension, Router,
 };
+use opentelemetry::global;
+use opentelemetry_sdk::{metrics::SdkMeterProvider, Resource};
+use prometheus::{Encoder, Registry, TextEncoder};
 use serde::{de::DeserializeOwned, Serialize};
 use std::{fmt::Debug, net::SocketAddr, sync::OnceLock};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use prometheus::{Registry, TextEncoder, Encoder};
-use opentelemetry::global;
-use opentelemetry_sdk::{metrics::SdkMeterProvider, Resource};
 // use opentelemetry_otlp::{MetricExporter, Protocol, WithExportConfig};
 
 use email_service::{send_email, Email, FORM_HTML};
@@ -44,14 +44,19 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/", get(show_form).post(add_new_job::<Email>))
         .layer(Extension(backend.clone()))
-        .route("/metrics", get(async |State(registry): State<Registry>| {
-            let mut buffer = vec![];
-            let encoder = TextEncoder::new();
-            let metric_families = registry.gather();
-            encoder.encode(&metric_families, &mut buffer).expect("Could not encode");
+        .route(
+            "/metrics",
+            get(async |State(registry): State<Registry>| {
+                let mut buffer = vec![];
+                let encoder = TextEncoder::new();
+                let metric_families = registry.gather();
+                encoder
+                    .encode(&metric_families, &mut buffer)
+                    .expect("Could not encode");
 
-            ([(CONTENT_TYPE, encoder.format_type().to_string())], buffer)
-        }))
+                ([(CONTENT_TYPE, encoder.format_type().to_string())], buffer)
+            }),
+        )
         .with_state(registry);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
@@ -81,12 +86,7 @@ async fn main() -> Result<()> {
 
 fn get_resource() -> Resource {
     static RESOURCE: OnceLock<Resource> = OnceLock::new();
-    RESOURCE
-        .get_or_init(|| {
-            Resource::builder()
-                .build()
-        })
-        .clone()
+    RESOURCE.get_or_init(|| Resource::builder().build()).clone()
 }
 
 fn setup_metrics_provider() -> (SdkMeterProvider, Registry) {

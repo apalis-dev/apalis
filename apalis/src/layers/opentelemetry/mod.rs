@@ -7,9 +7,8 @@ use std::{
 
 use apalis_core::{task::Task, worker::context::WorkerContext};
 use opentelemetry::{
-    global,
+    KeyValue, global,
     metrics::{Counter, Histogram},
-    KeyValue,
 };
 use tower::{Layer, Service};
 
@@ -24,7 +23,9 @@ impl<S> Layer<S> for OpenTelemetryMetricsLayer {
     fn layer(&self, service: S) -> Self::Service {
         let meter = global::meter("apalis");
 
-        let task_counter = meter.u64_counter("messaging.client.consumed.messages").build();
+        let task_counter = meter
+            .u64_counter("messaging.client.consumed.messages")
+            .build();
 
         let duration_histogram = meter
             .f64_histogram("messaging.process.duration")
@@ -140,7 +141,10 @@ where
         let attributes = [
             KeyValue::new("messaging.system", "apalis"),
             KeyValue::new("messaging.operation.name", "process"),
-            KeyValue::new("messaging.destination.partition.id", this.worker.to_string()),
+            KeyValue::new(
+                "messaging.destination.partition.id",
+                this.worker.to_string(),
+            ),
             KeyValue::new("messaging.destination.name", this.task_type.to_string()),
             KeyValue::new("apalis.status", status),
         ];
