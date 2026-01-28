@@ -113,13 +113,12 @@ where
                 .await
                 .map_err(|e| DagFlowError::Metadata(e.into()))?
                 .0;
-
             // Get the service for this node
             let service = graph
                 .node_weight_mut(context.current_node)
                 .ok_or_else(|| DagFlowError::MissingService(context.current_node))?;
 
-            let result = service.call(req).await.map_err(DagFlowError::Node)?;
+            let result = service.call(req).await.map_err(DagFlowError::NodeExecutionError)?;
 
             Ok(result)
         })

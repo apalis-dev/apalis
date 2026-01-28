@@ -63,12 +63,17 @@ where
     }
 }
 
-impl<B, Err, CdcErr, MetaError> Service<Task<B::Compact, B::Context, B::IdType>>
+impl<B, Err, CdcErr, MetaError, IdType> Service<Task<B::Compact, B::Context, B::IdType>>
     for RootDagService<B>
 where
-    B: BackendExt<Error = Err> + Send + Sync + 'static + Clone + WaitForCompletion<B::Compact>,
-    B::IdType: GenerateId + Send + Sync + 'static + PartialEq + Debug,
-    B::Compact: Send + Sync + 'static + Clone,
+    B: BackendExt<Error = Err, IdType = IdType>
+        + Send
+        + Sync
+        + 'static
+        + Clone
+        + WaitForCompletion<DagExecutionResponse<B::Compact, IdType>>,
+    IdType: GenerateId + Send + Sync + 'static + PartialEq + Debug + Clone,
+    B::Compact: Send + Sync + 'static + Clone + Debug,
     B::Context:
         Send + Sync + Default + MetadataExt<DagFlowContext<B::IdType>, Error = MetaError> + 'static,
     Err: std::error::Error + Send + Sync + 'static,
@@ -141,10 +146,11 @@ where
                                 dependency_task_ids.values().cloned().collect::<Vec<_>>(),
                             )
                             .await?;
+                        // TODO(bug): The check of done is not a good one as it can be called more than once if the jobs a too quickly executed
                         if results.iter().all(|s| matches!(s.status, Status::Done)) {
                             let sorted_results = {
                                 // Match the order of incoming_nodes by matching NodeIndex
-                                let res =incoming_nodes
+                                let res = incoming_nodes
                                     .iter()
                                     .rev()
                                     .map(|node_index| {
@@ -165,26 +171,16 @@ where
                                     Err(_) => return Ok(DagExecutionResponse::WaitingForDependencies { pending_dependencies: dependency_task_ids }),
                                 }
                             };
-                            let encoded_input = B::Codec::encode(
-                                &sorted_results
+                            let res = sorted_results
                                     .iter()
                                     .map(|s| match &s.result {
                                         Ok(val) => {
-                                            let decoded: DagExecutionResponse<
-                                                B::Compact,
-                                                B::IdType,
-                                            > = B::Codec::decode(val).map_err(|e: CdcErr| {
-                                                format!(
-                                                    "Failed to decode dependency result: {:?}",
-                                                    e.into()
-                                                )
-                                            })?;
-                                            match decoded {
+                                            match val {
                                                 DagExecutionResponse::FanOut { response, .. } => {
-                                                    Ok(response)
+                                                    Ok(response.clone())
                                                 }
                                                 DagExecutionResponse::EnqueuedNext { result } | DagExecutionResponse::Complete { result } => {
-                                                    Ok(result)
+                                                    Ok(result.clone())
                                                 }
                                                 _ => Err("Dependency task returned invalid response, which is unexpected during fan-in".to_owned())
                                             }
@@ -195,9 +191,12 @@ where
                                             ))
                                         }
                                     })
-                                    .collect::<Result<Vec<_>, String>>()?,
+                                    .collect::<Result<Vec<_>, String>>()?;
+                            let encoded_input = B::Codec::encode(
+                                &res
                             )
                             .map_err(|e| e.into())?;
+
                             let req = req.map(|_| encoded_input); // Replace args with fan-in input
                             let response = executor.call(req).await?;
                             (response, context)
@@ -308,7 +307,7 @@ where
     B::Context: Send + Sync + Default + MetadataExt<DagFlowContext<B::IdType>> + 'static,
     B: Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err> + Unpin,
     Err: std::error::Error + Send + Sync + 'static,
-    B: BackendExt<Error = Err> + Send + Sync + 'static + Clone + WaitForCompletion<B::Compact>,
+    B: BackendExt<Error = Err> + Send + Sync + 'static + Clone,
     B::Codec: Codec<Vec<B::Compact>, Compact = B::Compact, Error = CdcErr>,
     CdcErr: Into<BoxDynError>,
 {
@@ -361,7 +360,7 @@ where
     B::Context: Send + Sync + Default + MetadataExt<DagFlowContext<B::IdType>> + 'static,
     B: Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err> + Unpin,
     Err: std::error::Error + Send + Sync + 'static,
-    B: BackendExt<Error = Err> + Send + Sync + 'static + Clone + WaitForCompletion<B::Compact>,
+    B: BackendExt<Error = Err> + Send + Sync + 'static + Clone,
     B::Codec: Codec<Vec<B::Compact>, Compact = B::Compact, Error = CdcErr>,
     CdcErr: Into<BoxDynError>,
 {

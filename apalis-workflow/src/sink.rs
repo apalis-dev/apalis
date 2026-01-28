@@ -6,18 +6,31 @@ use apalis_core::{
 use futures::Sink;
 use petgraph::graph::NodeIndex;
 
-use crate::{dag::DagFlowContext, id_generator::GenerateId, sequential::WorkflowContext};
+use crate::{
+    dag::{DagFlowContext, decode::DagCodec},
+    id_generator::GenerateId,
+    sequential::WorkflowContext,
+};
 
 /// Extension trait for pushing tasks into a workflow
-pub trait WorkflowSink<Args>: BackendExt
+pub trait WorkflowSink<Args>: BackendExt + Sized
 where
     Self::Codec: Codec<Args, Compact = Self::Compact>,
 {
-    /// Push a task into the workflow sink at the start
+    /// Push a single task into the workflow sink at the start
     fn push_start(
         &mut self,
         args: Args,
     ) -> impl Future<Output = Result<(), TaskSinkError<Self::Error>>> + Send;
+
+    /// Push a single task into the workflow sink at the start
+    fn start_fan_out(
+        &mut self,
+        args: Args,
+    ) -> impl Future<Output = Result<(), TaskSinkError<Self::Error>>> + Send
+    where
+        Args: DagCodec<Self>,
+        Args::Error: std::error::Error + Send + Sync + 'static;
 
     /// Push a step into the workflow sink at the specified index
     ///
@@ -70,6 +83,24 @@ where
             .await
             .map_err(|e| TaskSinkError::PushError(e))
     }
+
+    async fn start_fan_out(&mut self, args: Args) -> Result<(), TaskSinkError<Self::Error>>
+    where
+        Args: DagCodec<Self>,
+        Args::Error: std::error::Error + Send + Sync + 'static
+    {
+        use futures::SinkExt;
+        let task_id = TaskId::new(S::IdType::generate());
+
+        let compact = Args::encode(args).map_err(|e| TaskSinkError::CodecError(e.into()))?;
+        let task = TaskBuilder::new(compact)
+            .with_task_id(task_id.clone())
+            .build();
+        self.send(task)
+            .await
+            .map_err(|e| TaskSinkError::PushError(e))
+    }
+
     async fn push_step(
         &mut self,
         step: Args,

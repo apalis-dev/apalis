@@ -7,6 +7,8 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use tower::Service;
 
+use crate::dag::decode::DagCodec;
+
 /// A service that wraps another service to handle encoding and decoding
 /// of task inputs and outputs using the backend's codec.
 pub struct NodeService<S, B, Input>
@@ -66,6 +68,7 @@ where
     B: BackendExt,
     B::Codec: Codec<Input, Compact = B::Compact, Error = CdcErr>
         + Codec<S::Response, Compact = B::Compact, Error = CdcErr>,
+    Input: DagCodec<B, Error = CdcErr>,
     CdcErr: Into<BoxDynError> + Send + 'static,
     S::Future: Send + 'static,
 {
@@ -78,7 +81,7 @@ where
     }
 
     fn call(&mut self, req: Task<B::Compact, B::Context, B::IdType>) -> Self::Future {
-        let decoded_req = match B::Codec::decode(&req.args) {
+        let decoded_req = match Input::decode(&req.args) {
             Ok(decoded) => req.map(|_| decoded),
             Err(e) => {
                 return Box::pin(async move { Err(CdcErr::into(e)) });

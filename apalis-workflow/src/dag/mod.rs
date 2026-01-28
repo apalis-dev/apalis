@@ -33,12 +33,15 @@ pub mod context;
 /// DAG response implementations
 pub mod response;
 
+/// DAG Decoding and encoding utilities
+pub mod decode;
+
 use serde::{Deserialize, Serialize};
 use tower::{Service, util::BoxCloneSyncService};
 
 use crate::{
     DagService,
-    dag::{error::DagFlowError, executor::DagExecutor, node::NodeService},
+    dag::{decode::DagCodec, error::DagFlowError, executor::DagExecutor, node::NodeService},
 };
 
 pub use context::DagFlowContext;
@@ -96,7 +99,7 @@ where
         CodecError: Into<BoxDynError> + Send + 'static,
         S::Error: Into<BoxDynError>,
         B: Send + Sync + 'static,
-        Input: Send + Sync + 'static,
+        Input: DagCodec<B, Error = CodecError> + Send + Sync + 'static,
     {
         let svc: NodeService<S, B, Input> = NodeService::new(service);
         let node = self
@@ -130,7 +133,7 @@ where
         CodecError: Into<BoxDynError> + Send + 'static,
         Err: Into<BoxDynError>,
         B: Send + Sync + 'static,
-        Input: Send + Sync + 'static,
+        Input: DagCodec<B, Error = CodecError> + Send + Sync + 'static,
 
     {
         self.add_node(std::any::type_name::<F>(), task_fn(node))
@@ -155,7 +158,7 @@ where
         CodecError: Into<BoxDynError> + Send + 'static,
         Err: Into<BoxDynError>,
         B: Send + Sync + 'static,
-        Input: Send + Sync + 'static,
+        Input: DagCodec<B, Error = CodecError> + Send + Sync + 'static,
 
     {
         self.add_node::<TaskFn<F, Input, B::Context, FnArgs>, Input, CodecError>(
@@ -455,7 +458,7 @@ mod tests {
 
         let mut backend = JsonStorage::new_temp().unwrap();
 
-        backend.push_start(Value::from(42)).await.unwrap();
+        backend.push_start(42).await.unwrap();
 
         let worker = WorkerBuilder::new("rango-tango")
             .backend(backend)
@@ -498,7 +501,7 @@ mod tests {
 
         let mut backend: JsonStorage<Value> = JsonStorage::new_temp().unwrap();
 
-        backend.push_start(Value::from(42)).await.unwrap();
+        backend.push_start(42).await.unwrap();
 
         let worker = WorkerBuilder::new("rango-tango")
             .backend(backend)
@@ -517,7 +520,7 @@ mod tests {
         let dag = DagFlow::new("fan-in-workflow");
         let get_name = dag.add_node(
             "get_name",
-            task_fn(|task: u32| async move { task as usize }),
+            task_fn(|task: usize| async move { task as usize }),
         );
         let get_age = dag.add_node(
             "get_age",
@@ -525,7 +528,7 @@ mod tests {
         );
         let get_address = dag.add_node(
             "get_address",
-            task_fn(|task: u32| async move { task as usize }),
+            task_fn(|task: i32| async move { task as usize }),
         );
         let main_collector = dag
             .add_node(
@@ -539,9 +542,11 @@ mod tests {
         let side_collector = dag
             .add_node(
                 "side_collector",
-                task_fn(|task: Vec<usize>| async move { task.iter().sum::<usize>() }),
+                task_fn(
+                    |task: (usize, usize)| async move { [task.0, task.1].iter().sum::<usize>() },
+                ),
             )
-            .depends_on(vec![&get_name, &get_address]);
+            .depends_on((&get_name, &get_address));
 
         let _final_node = dag
             .add_node(
@@ -557,7 +562,10 @@ mod tests {
 
         let mut backend: JsonStorage<Value> = JsonStorage::new_temp().unwrap();
 
-        backend.push_start(vec![42, 43, 44]).await.unwrap();
+        backend
+            .start_fan_out((42usize, 43u32, 44i32))
+            .await
+            .unwrap();
 
         let worker = WorkerBuilder::new("rango-tango")
             .backend(backend)
@@ -641,10 +649,7 @@ mod tests {
 
         let mut backend = JsonStorage::new_temp().unwrap();
 
-        backend
-            .push_start(Value::from(vec![17, 18, 19]))
-            .await
-            .unwrap();
+        backend.start_fan_out(vec![17, 18, 19]).await.unwrap();
 
         let worker = WorkerBuilder::new("rango-tango")
             .backend(backend)

@@ -74,7 +74,7 @@ impl DateTimeExt for DateTime {
     }
 
     fn from_unix_timestamp(secs: i64) -> Self {
-        DateTime::from_timestamp(secs, 0).unwrap_or_default()
+        Self::from_timestamp(secs, 0).unwrap_or_default()
     }
 }
 

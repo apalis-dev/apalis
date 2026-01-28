@@ -8,7 +8,7 @@ use thiserror::Error;
 pub enum DagFlowError {
     /// An error originating from the actual node execution.
     #[error("Node execution error: {0}")]
-    Node(#[source] BoxDynError),
+    NodeExecutionError(#[source] BoxDynError),
     /// An error originating from the backend.
     #[error("Backend error: {0}")]
     Backend(#[source] BoxDynError),
