@@ -3,6 +3,8 @@
 All notable changes to this project are documented in this file.
 
 ## [Unreleased]
+
+- **chore**: add `DagCodec` trait which handles entry and output in dag nodes ([#668](https://github.com/geofmureithi/apalis/pull/668))
 - **chore**: bump to v1.0.0 rc.2 ([#660](https://github.com/geofmureithi/apalis/pull/660))
 - **refactor(apalis-sql)**: refactor `SqlDateTime` and `SqlDateTimeExt` to remove the `Sql` prefix ([#659](https://github.com/apalis-dev/apalis/pull/659))
 - **chore**: chore: add file storage backend docs ([#658](https://github.com/apalis-dev/apalis/pull/658))

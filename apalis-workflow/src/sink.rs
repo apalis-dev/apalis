@@ -87,7 +87,7 @@ where
     async fn start_fan_out(&mut self, args: Args) -> Result<(), TaskSinkError<Self::Error>>
     where
         Args: DagCodec<Self>,
-        Args::Error: std::error::Error + Send + Sync + 'static
+        Args::Error: std::error::Error + Send + Sync + 'static,
     {
         use futures::SinkExt;
         let task_id = TaskId::new(S::IdType::generate());

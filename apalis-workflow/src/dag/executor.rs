@@ -118,7 +118,10 @@ where
                 .node_weight_mut(context.current_node)
                 .ok_or_else(|| DagFlowError::MissingService(context.current_node))?;
 
-            let result = service.call(req).await.map_err(DagFlowError::NodeExecutionError)?;
+            let result = service
+                .call(req)
+                .await
+                .map_err(DagFlowError::NodeExecutionError)?;
 
             Ok(result)
         })
