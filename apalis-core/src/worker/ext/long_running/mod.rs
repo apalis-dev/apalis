@@ -168,7 +168,7 @@ pub struct RunnerContext<Res> {
 
 impl<Res> RunnerContext<Res> {
     /// Closes the context and waits for the long running futures to complete
-    #[must_use] 
+    #[must_use]
     pub fn wait(self) -> Tracked<TaskTrackerWaitFuture> {
         let _ = self.tracker.close();
         self.worker.track(self.tracker.wait())
