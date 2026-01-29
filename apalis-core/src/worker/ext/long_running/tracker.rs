@@ -11,6 +11,14 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll, Waker};
+use std::time::Duration;
+
+use futures_timer::Delay;
+use thiserror::Error;
+
+use crate::worker::ext::long_running::LongRunningConfig;
+use crate::worker::ext::long_running::Sender;
+use crate::worker::ext::long_running::future::LongRunningFuture;
 
 /// A task tracker used for waiting until tasks exit.
 pub struct TaskTracker {
@@ -33,17 +41,6 @@ struct TaskTrackerInner {
     state: AtomicUsize,
     /// Used to notify when the last task exits.
     wakers: Mutex<VecDeque<Waker>>,
-}
-
-/// A future that is tracked as a task by a [`TaskTracker`].
-///
-/// The associated [`TaskTracker`] cannot complete until this future is dropped.
-#[must_use = "futures do nothing unless polled"]
-#[pin_project::pin_project]
-pub struct LongRunningFuture<F> {
-    #[pin]
-    future: F,
-    token: TaskTrackerToken,
 }
 
 /// A future that completes when the [`TaskTracker`] is empty and closed.
@@ -201,10 +198,18 @@ impl TaskTracker {
 
     /// Track the provided future.
     #[inline]
-    pub(super) fn track_future<F: Future>(&self, future: F) -> LongRunningFuture<F> {
+    pub(super) fn track_future<F: Future>(
+        &self,
+        future: F,
+        config: &LongRunningConfig,
+        sender: &Sender<F::Output>,
+    ) -> LongRunningFuture<F> {
         LongRunningFuture {
             future,
             token: self.token(),
+            max_duration: config.max_duration,
+            timeout: config.max_duration.map(Delay::new),
+            sender: sender.clone(),
         }
     }
 
@@ -291,22 +296,15 @@ impl Drop for TaskTrackerToken {
     }
 }
 
-impl<F: Future> Future for LongRunningFuture<F> {
-    type Output = F::Output;
-
-    #[inline]
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<F::Output> {
-        self.project().future.poll(cx)
-    }
-}
-
-impl<F: fmt::Debug> fmt::Debug for LongRunningFuture<F> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LongRunningFuture")
-            .field("future", &self.future)
-            .field("task_tracker", self.token.task_tracker())
-            .finish()
-    }
+/// An error encountered during a long running task
+#[derive(Error, Debug, Clone)]
+pub enum LongRunningError {
+    /// Operation exceeded maximum duration
+    #[error("Operation exceeded maximum duration of {max_duration:?}")]
+    Timeout {
+        /// The max duration that a future should run
+        max_duration: Duration,
+    },
 }
 
 impl Future for TaskTrackerWaitFuture {
