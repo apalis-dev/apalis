@@ -36,7 +36,7 @@ where
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
         // Check timeout if configured
-         #[cfg(feature = "sleep")]
+        #[cfg(feature = "sleep")]
         if let Some(timeout) = this.timeout.as_pin_mut() {
             if timeout.poll(cx).is_ready() {
                 let error = LongRunningError::Timeout {
