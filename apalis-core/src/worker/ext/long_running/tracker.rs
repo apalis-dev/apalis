@@ -12,8 +12,6 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
-
-use futures_timer::Delay;
 use thiserror::Error;
 
 use crate::worker::ext::long_running::LongRunningConfig;
@@ -208,7 +206,8 @@ impl TaskTracker {
             future,
             token: self.token(),
             max_duration: config.max_duration,
-            timeout: config.max_duration.map(Delay::new),
+            #[cfg(feature = "sleep")]
+            timeout: config.max_duration.map(futures_timer::Delay::new),
             sender: sender.clone(),
         }
     }

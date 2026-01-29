@@ -1,7 +1,6 @@
 use crate::worker::ext::long_running::Sender;
 use crate::worker::ext::long_running::tracker::{LongRunningError, TaskTrackerToken};
 use core::fmt;
-use futures_timer::Delay;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -19,7 +18,8 @@ where
     #[pin]
     pub(super) future: F,
     #[pin]
-    pub(super) timeout: Option<Delay>,
+    #[cfg(feature = "sleep")]
+    pub(super) timeout: Option<futures_timer::Delay>,
     pub(super) max_duration: Option<Duration>,
     pub(super) token: TaskTrackerToken,
     pub(super) sender: Sender<F::Output>,
@@ -36,6 +36,7 @@ where
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
         // Check timeout if configured
+         #[cfg(feature = "sleep")]
         if let Some(timeout) = this.timeout.as_pin_mut() {
             if timeout.poll(cx).is_ready() {
                 let error = LongRunningError::Timeout {
