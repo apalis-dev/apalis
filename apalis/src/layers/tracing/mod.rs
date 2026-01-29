@@ -1,3 +1,4 @@
+mod contextual_span;
 mod make_span;
 mod on_failure;
 mod on_request;
@@ -14,6 +15,7 @@ use tower::Service;
 use tracing::{Level, Span};
 
 pub use self::{
+    contextual_span::{ContextualTaskSpan, TracingContext},
     make_span::{DefaultMakeSpan, MakeSpan},
     on_failure::{DefaultOnFailure, OnFailure},
     on_request::{DefaultOnRequest, OnRequest},

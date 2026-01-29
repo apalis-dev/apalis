@@ -1,6 +1,8 @@
 use anyhow::Result;
+use apalis::layers::tracing::{ContextualTaskSpan, TraceLayer, TracingContext};
 use apalis::layers::WorkerBuilderExt;
 use apalis::prelude::*;
+use futures::SinkExt;
 use std::error::Error;
 use std::fmt;
 use std::time::Duration;
@@ -30,7 +32,7 @@ async fn email_service(email: Email) -> Result<(), InvalidEmailError> {
     Err(InvalidEmailError { email: email.to })
 }
 
-async fn produce_jobs(storage: &mut MemoryStorage<Email>) -> Result<()> {
+async fn produce_task(storage: &mut MemoryStorage<Email>) -> Result<()> {
     storage
         .push(Email {
             to: "test@example".to_string(),
@@ -38,6 +40,23 @@ async fn produce_jobs(storage: &mut MemoryStorage<Email>) -> Result<()> {
             subject: "Welcome Sentry Email".to_string(),
         })
         .await?;
+    Ok(())
+}
+
+async fn produce_task_with_ctx(storage: &mut MemoryStorage<Email>) -> Result<()> {
+    let email = Email {
+        to: "test@example".to_string(),
+        text: "Test background job from apalis".to_string(),
+        subject: "Welcome Sentry Email".to_string(),
+    };
+    // This might come from a http request etc
+    let context = TracingContext::new()
+        .with_trace_id("1234567890abcdef")
+        .with_span_id("abcdef1234567890")
+        .with_trace_flags(1)
+        .with_trace_state("key=value");
+    let task = Task::builder(email).meta(context).build();
+    storage.send(task).await?;
     Ok(())
 }
 
@@ -55,13 +74,24 @@ async fn main() -> Result<()> {
         .init();
 
     let mut backend = MemoryStorage::new();
-    produce_jobs(&mut backend).await?;
+    produce_task(&mut backend).await?;
 
-    WorkerBuilder::new("tasty-avocado")
+    let avocado_worker = WorkerBuilder::new("tasty-avocado")
         .backend(backend)
         .enable_tracing()
         .build(email_service)
-        .run()
-        .await?;
+        .run();
+
+    let mut backend = MemoryStorage::new();
+    produce_task_with_ctx(&mut backend).await?;
+
+    let pear_worker = WorkerBuilder::new("tasty-pear")
+        .backend(backend)
+        .layer(TraceLayer::new().make_span_with(ContextualTaskSpan::new()))
+        .build(email_service)
+        .run();
+
+    tokio::try_join!(avocado_worker, pear_worker)?;
+
     Ok(())
 }
