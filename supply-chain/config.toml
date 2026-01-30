@@ -185,7 +185,7 @@ version = "1.5.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.cc]]
-version = "1.2.54"
+version = "1.2.55"
 criteria = "safe-to-deploy"
 
 [[exemptions.cfg-if]]
@@ -301,7 +301,7 @@ version = "2.3.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.find-msvc-tools]]
-version = "0.1.8"
+version = "0.1.9"
 criteria = "safe-to-deploy"
 
 [[exemptions.findshlibs]]
