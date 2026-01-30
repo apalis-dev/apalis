@@ -16,7 +16,7 @@ jobs:
   cargo-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v6
       - uses: actions-rs/audit-check@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -45,5 +45,5 @@ jobs:
   cargo-deny:
     runs-on: ubuntu-22.04
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - uses: EmbarkStudios/cargo-deny-action@v2
