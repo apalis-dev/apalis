@@ -46,11 +46,11 @@ let task: Task<String, ()> = TaskBuilder::new("my-task".to_string())
 Specific documentation for tasks can be found in the [`task`] and [`task::builder`] modules.
 
 ##### Relevant Guides:
-- [**Defining Task arguments**](https://docs.rs/apalis-core/1.0.0-rc.2/apalis_core/task_fn/guide/index.html) - Creating effective task arguments that are scalable and type-safe
+- [**Defining Task arguments**](https://docs.rs/apalis-core/1.0.0-rc.3/apalis_core/task_fn/guide/index.html) - Creating effective task arguments that are scalable and type-safe
 
 ### Backends
 
-The [`Backend`](https://docs.rs/apalis-core/1.0.0-rc.2/apalis_core/backend/trait.Backend.html) trait serves as the core abstraction for all task sources.
+The [`Backend`](https://docs.rs/apalis-core/1.0.0-rc.3/apalis_core/backend/trait.Backend.html) trait serves as the core abstraction for all task sources.
 It defines task polling mechanisms, streaming interfaces, and middleware integration points.
 
 <details>
@@ -67,16 +67,16 @@ It defines task polling mechanisms, streaming interfaces, and middleware integra
 </details>
 
 #### Inbuilt Implementations
-- [`MemoryStorage`](https://docs.rs/apalis-core/1.0.0-rc.2/apalis_core/backend/memory/struct.MemoryStorage.html) : In-memory storage based on channels
-- [`Pipe`](https://docs.rs/apalis-core/1.0.0-rc.2/apalis_core/backend/pipe/index.html) : Pipe-based backend for a stream-to-backend pipeline
-- [`CustomBackend`](https://docs.rs/apalis-core/1.0.0-rc.2/apalis_core/backend/custom/index.html) : Flexible backend composition allowing custom functions for task management
+- [`MemoryStorage`](https://docs.rs/apalis-core/1.0.0-rc.3/apalis_core/backend/memory/struct.MemoryStorage.html) : In-memory storage based on channels
+- [`Pipe`](https://docs.rs/apalis-core/1.0.0-rc.3/apalis_core/backend/pipe/index.html) : Pipe-based backend for a stream-to-backend pipeline
+- [`CustomBackend`](https://docs.rs/apalis-core/1.0.0-rc.3/apalis_core/backend/custom/index.html) : Flexible backend composition allowing custom functions for task management
 
 Backends handle task persistence, distribution, and reliability concerns while providing
 a uniform interface for worker consumption.
 
 ### Workers
 
-The [`Worker`](https://docs.rs/apalis-core/1.0.0-rc.2/apalis_core/worker/index.html) is the core runtime component responsible for task polling, execution, and lifecycle management:
+The [`Worker`](https://docs.rs/apalis-core/1.0.0-rc.3/apalis_core/worker/index.html) is the core runtime component responsible for task polling, execution, and lifecycle management:
 
 #### Worker Lifecycle
 
@@ -93,7 +93,7 @@ The following are the main components the worker module:
 - [`Worker`] - Actual worker implementation that processes tasks
 - [`WorkerContext`] - Runtime state including task counts and execution status
 - [`Event`] - Worker event enumeration (`Start`, `Engage`, `Idle`, `Error`, `Stop`)
-- [`Ext`](https://docs.rs/apalis-core/1.0.0-rc.2/apalis_core/worker/ext/index.html) - Extension traits and middleware for adding functionality to workers
+- [`Ext`](https://docs.rs/apalis-core/1.0.0-rc.3/apalis_core/worker/ext/index.html) - Extension traits and middleware for adding functionality to workers
 
 #### Example: Building and Running a Worker
 ```rust
@@ -126,11 +126,11 @@ Learn more about workers in the [`worker`](crate::worker) and [`worker::builder`
 
 ##### Relevant Tutorials:
 - [**Creating task handlers**](crate::task_fn::guide) - Defining task processing functions using the [`TaskFn`] trait
-- [**Testing task handlers with `TestWorker`**](https://docs.rs/apalis-core/1.0.0-rc.2/apalis_core/worker/test_worker/index.html) - Specialized worker implementation for unit and integration testing
+- [**Testing task handlers with `TestWorker`**](https://docs.rs/apalis-core/1.0.0-rc.3/apalis_core/worker/test_worker/index.html) - Specialized worker implementation for unit and integration testing
 
 ### Monitor
 
-The [`Monitor`](https://docs.rs/apalis-core/1.0.0-rc.2/apalis_core/monitor/struct.Monitor.html) helps manage and coordinate multiple workers:
+The [`Monitor`](https://docs.rs/apalis-core/1.0.0-rc.3/apalis_core/monitor/struct.Monitor.html) helps manage and coordinate multiple workers:
 
 **Main Features:**
 - **Worker Registry** - Keeps track of active workers
@@ -161,7 +161,7 @@ async fn main() {
 }
 ```
 
-Learn more about the monitor in the [`monitor` module](https://docs.rs/apalis-core/1.0.0-rc.2/apalis_core/monitor/index.html.
+Learn more about the monitor in the [`monitor` module](https://docs.rs/apalis-core/1.0.0-rc.3/apalis_core/monitor/index.html.
 
 ### Middleware
 

@@ -2,9 +2,9 @@
 # cargo-vet imports lock
 
 [[unpublished.apalis]]
-version = "1.0.0-rc.2"
-audited_as = "1.0.0-rc.1"
+version = "1.0.0-rc.3"
+audited_as = "1.0.0-rc.2"
 
 [[unpublished.apalis-sql]]
-version = "1.0.0-rc.2"
-audited_as = "1.0.0-rc.1"
+version = "1.0.0-rc.3"
+audited_as = "1.0.0-rc.2"
