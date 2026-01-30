@@ -13,7 +13,7 @@ jobs:
     name: Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98 # v5
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
@@ -36,7 +36,7 @@ jobs:
     name: Test Suite
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98 # v5
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
@@ -52,7 +52,7 @@ jobs:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98 # v5
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
@@ -68,7 +68,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98 # v5
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
@@ -84,7 +84,7 @@ jobs:
     runs-on: ubuntu-latest
     name: nightly / doc
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: true
       - name: Install nightly
@@ -97,7 +97,7 @@ jobs:
   udeps:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
       - run: rustup update
       - run: rustup install nightly
       - run: rustup show
