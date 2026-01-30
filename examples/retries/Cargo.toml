@@ -1,8 +1,10 @@
 [package]
 name = "retries-example"
 version = "0.1.0"
+license = "MIT"
 edition.workspace = true
 repository.workspace = true
+publish = false
 
 [dependencies]
 anyhow = "1"

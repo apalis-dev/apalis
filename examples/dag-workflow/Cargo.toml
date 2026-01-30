@@ -1,6 +1,8 @@
 [package]
-name = "dag"
+name = "dag-workflow"
 version = "0.1.0"
+license = "MIT"
+publish = false
 rust-version.workspace = true
 edition.workspace = true
 repository.workspace = true

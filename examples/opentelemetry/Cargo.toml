@@ -2,11 +2,12 @@
 name = "opentelemetry-example"
 version = "0.1.0"
 edition = "2018"
+license = "MIT"
 publish = false
 
 [dependencies]
 anyhow = "1"
-axum = { version = "0.8.4", features = [ "macros" ] }
+axum = { version = "0.8.8", features = [ "macros" ] }
 tokio = { version = "1.0", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

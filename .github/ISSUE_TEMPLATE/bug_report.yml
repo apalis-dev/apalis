@@ -1,0 +1,91 @@
+name: Bug Report
+description: File a bug report to help us improve
+title: "[Bug]: "
+labels: ["bug"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear and concise description of what the bug is.
+      placeholder: Tell us what you see!
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: A clear and concise description of what you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. Setup with '....'
+        2. Do '....'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: code
+    attributes:
+      label: Minimal code example
+      description: If applicable, add a minimal code example that reproduces the issue
+      render: rust
+
+  - type: dropdown
+    id: version
+    attributes:
+      label: Version
+      description: What version are you running?
+      options:
+        - 0.7.x
+        - 1.0.0-alpha.x
+        - 1.0.0-beta.x
+        - 1.0.0-rc.x
+        - main branch
+        - Other (specify in additional context)
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        Please provide information about your environment:
+        - OS: [e.g. Ubuntu 20.04, macOS 12.0, Windows 11]
+        - Rust version: [e.g. 1.70.0]
+        - Cargo version: [e.g. 1.70.0]
+      value: |
+        - OS: 
+        - Rust version: 
+        - Cargo version: 
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Please copy and paste any relevant log output. This will be automatically formatted into code, so no need for backticks.
+      render: shell
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add any other context about the problem here.

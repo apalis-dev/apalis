@@ -2,6 +2,8 @@
 name = "email-service"
 version = "0.1.0"
 edition = "2018"
+license = "MIT"
+publish = false
 
 [dependencies]
 apalis = { path = "../../apalis", default-features = false }

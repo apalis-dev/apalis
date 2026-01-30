@@ -22,7 +22,6 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           
   cargo-vet:
-    name: Vet Dependencies
     runs-on: ubuntu-latest
     env:
       CARGO_VET_VERSION: 0.10.1
@@ -43,3 +42,8 @@ jobs:
     - name: Invoke cargo-vet
       run: cargo vet --locked
 
+  cargo-deny:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v4
+    - uses: EmbarkStudios/cargo-deny-action@v2

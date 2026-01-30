@@ -39,10 +39,10 @@ async fn main() -> Result<()> {
         .route("/metrics", get(move || ready(recorder_handle.render())));
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     tracing::debug!("listening on {}", addr);
     let http = async {
-        axum::Server::bind(&addr)
-            .serve(app.into_make_service())
+        axum::serve(listener, app)
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::BrokenPipe, e))
     };
@@ -79,8 +79,8 @@ async fn show_form() -> Html<&'static str> {
 }
 
 async fn add_new_job<T>(
-    Form(input): Form<T>,
     Extension(mut storage): Extension<JsonStorage<T>>,
+    Form(input): Form<T>,
 ) -> impl IntoResponse
 where
     T: 'static + Debug + Serialize + DeserializeOwned + Unpin + Send + Sync,
