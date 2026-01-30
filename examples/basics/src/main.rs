@@ -9,7 +9,7 @@ use apalis::{layers::catch_panic::CatchPanicLayer, prelude::*};
 use email_service::Email;
 use layer::LogLayer;
 
-use tracing::{Instrument, Span, log::info};
+use tracing::{Instrument, Span, info};
 
 use crate::{cache::ValidEmailCache, expensive_client::EmailService};
 
