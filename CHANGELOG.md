@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- **feat**: introduce contextual tracing allowing passing previous span details ([#670](https://github.com/apalis-dev/apalis/pull/670))
 - **feat**: handle long running tasks with a result collector ([#669](https://github.com/apalis-dev/apalis/pull/669))
 - **chore**: add `DagCodec` trait which handles entry and output in dag nodes ([#668](https://github.com/apalis-dev/apalis/pull/668))
 - **chore**: bump to v1.0.0 rc.2 ([#660](https://github.com/geofmureithi/apalis/pull/660))
