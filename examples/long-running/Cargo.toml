@@ -1,6 +1,7 @@
 [package]
 name = "long-running"
 version = "0.1.0"
+license = "MIT"
 rust-version.workspace = true
 edition.workspace = true
 repository.workspace = true
@@ -12,8 +13,6 @@ apalis = { path = "../../apalis", features = ["limit", "catch-panic", "tracing"]
 serde = { version = "1", features = ["derive"] }
 tracing-subscriber = "0.3.20"
 futures = "0.3"
-reqwest = "0.12.28"
-image = "0.25.9"
 
 [dependencies.tracing]
 default-features = false

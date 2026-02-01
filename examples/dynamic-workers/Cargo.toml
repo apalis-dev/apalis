@@ -1,6 +1,7 @@
 [package]
 name = "dynamic-workers"
 version = "0.1.0"
+license = "MIT"
 rust-version.workspace = true
 edition.workspace = true
 repository.workspace = true
