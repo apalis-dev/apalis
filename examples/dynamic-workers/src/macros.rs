@@ -42,8 +42,6 @@ macro_rules! register_workers {
     }};
 }
 
-
-
 async fn handler_1(_: String) {}
 async fn handler_2(_: usize) {}
 async fn handler_3(_: u32) {}
