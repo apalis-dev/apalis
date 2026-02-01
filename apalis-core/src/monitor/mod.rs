@@ -160,9 +160,7 @@ use crate::{
 pub mod shutdown;
 
 type WorkerFactory = Box<
-    dyn Fn(usize) -> (WorkerContext, BoxFuture<'static, Result<(), WorkerError>>)
-        + 'static
-        + Send
+    dyn Fn(usize) -> (WorkerContext, BoxFuture<'static, Result<(), WorkerError>>) + 'static + Send,
 >;
 
 type ShouldRestart = Arc<

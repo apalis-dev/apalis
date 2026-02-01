@@ -60,50 +60,59 @@ pub struct TracingContext {
 #[cfg(feature = "tracing")]
 impl TracingContext {
     /// Create a new empty `TracingContext`.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Set the trace ID.
+    #[must_use]
     pub fn with_trace_id(mut self, trace_id: impl Into<String>) -> Self {
         self.trace_id = Some(trace_id.into());
         self
     }
 
     /// Set the span ID.
+    #[must_use]
     pub fn with_span_id(mut self, span_id: impl Into<String>) -> Self {
         self.span_id = Some(span_id.into());
         self
     }
 
     /// Set the trace flags.
+    #[must_use]
     pub fn with_trace_flags(mut self, trace_flags: u8) -> Self {
         self.trace_flags = Some(trace_flags);
         self
     }
 
     /// Set the trace state.
+    #[must_use]
     pub fn with_trace_state(mut self, trace_state: impl Into<String>) -> Self {
         self.trace_state = Some(trace_state.into());
         self
     }
 
     /// Get the trace ID.
+    #[must_use]
     pub fn trace_id(&self) -> &Option<String> {
         &self.trace_id
     }
 
     /// Get the span ID.
+    #[must_use]
     pub fn span_id(&self) -> &Option<String> {
         &self.span_id
     }
 
     /// Get the trace flags.
+    #[must_use]
     pub fn trace_flags(&self) -> &Option<u8> {
         &self.trace_flags
     }
 
     /// Get the trace state.
+    #[must_use]
     pub fn trace_state(&self) -> &Option<String> {
         &self.trace_state
     }
