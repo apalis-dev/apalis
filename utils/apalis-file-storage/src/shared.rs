@@ -110,7 +110,7 @@ impl<Args: DeserializeOwned + Unpin> Stream for SharedJsonStream<Args, JsonMapMe
 /// - Concurrent processing of multiple task types
 /// - In-memory storage with optional disk persistence
 /// - Metadata support for tasks
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SharedJsonStore {
     inner: JsonStorage<serde_json::Value>,
 }

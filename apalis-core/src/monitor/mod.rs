@@ -163,7 +163,6 @@ type WorkerFactory = Box<
     dyn Fn(usize) -> (WorkerContext, BoxFuture<'static, Result<(), WorkerError>>)
         + 'static
         + Send
-        + Sync,
 >;
 
 type ShouldRestart = Arc<
@@ -339,7 +338,7 @@ impl Monitor {
     #[must_use]
     pub fn register<Args, S, B, M>(
         mut self,
-        factory: impl Fn(usize) -> Worker<Args, B::Context, B, S, M> + 'static + Send + Sync,
+        factory: impl Fn(usize) -> Worker<Args, B::Context, B, S, M> + 'static + Send,
     ) -> Self
     where
         S: Service<Task<Args, B::Context, B::IdType>> + Send + 'static,

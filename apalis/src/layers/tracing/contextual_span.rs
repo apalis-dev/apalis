@@ -1,49 +1,12 @@
 use std::fmt::Display;
 
-use apalis_core::task::{Task, metadata::MetadataExt};
+use apalis_core::task::{
+    Task,
+    metadata::{MetadataExt, TracingContext},
+};
 use tracing::{Level, Span};
 
 use crate::layers::tracing::{DEFAULT_MESSAGE_LEVEL, MakeSpan};
-
-/// Context used for storing previous tracing state
-#[derive(Debug, Default, Clone)]
-pub struct TracingContext {
-    trace_id: Option<String>,
-    span_id: Option<String>,
-    trace_flags: Option<u8>,
-    trace_state: Option<String>,
-}
-
-impl TracingContext {
-    /// Create a new empty `TracingContext`.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set the trace ID.
-    pub fn with_trace_id(mut self, trace_id: impl Into<String>) -> Self {
-        self.trace_id = Some(trace_id.into());
-        self
-    }
-
-    /// Set the span ID.
-    pub fn with_span_id(mut self, span_id: impl Into<String>) -> Self {
-        self.span_id = Some(span_id.into());
-        self
-    }
-
-    /// Set the trace flags.
-    pub fn with_trace_flags(mut self, trace_flags: u8) -> Self {
-        self.trace_flags = Some(trace_flags);
-        self
-    }
-
-    /// Set the trace state.
-    pub fn with_trace_state(mut self, trace_state: impl Into<String>) -> Self {
-        self.trace_state = Some(trace_state.into());
-        self
-    }
-}
 
 /// A [`Span`]s whose context that was created in a previous operation now used in the current [`Trace`] context.
 /// This assumes that [`TracingContext`] was injected into the task during pushing using [`MetadataExt`]
@@ -105,10 +68,10 @@ where
                     "task",
                     task_id = task_id,
                     attempt = attempt.current(),
-                    trace_id = tracing_ctx.trace_id.as_deref(),
-                    span_id = tracing_ctx.span_id.as_deref(),
-                    trace_flags = tracing_ctx.trace_flags,
-                    trace_state = tracing_ctx.trace_state.as_deref(),
+                    trace_id = tracing_ctx.trace_id(),
+                    span_id = tracing_ctx.span_id(),
+                    trace_flags = tracing_ctx.trace_flags(),
+                    trace_state = tracing_ctx.trace_state(),
                 )
             };
         }

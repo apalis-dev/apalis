@@ -793,11 +793,11 @@ version = "0.3.32"
 criteria = "safe-to-deploy"
 
 [[exemptions.portable-atomic]]
-version = "1.13.0"
+version = "1.13.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.portable-atomic-util]]
-version = "0.2.4"
+version = "0.2.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.potential_utf]]
@@ -1045,7 +1045,7 @@ version = "0.3.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.slab]]
-version = "0.4.11"
+version = "0.4.12"
 criteria = "safe-to-deploy"
 
 [[exemptions.smallvec]]
@@ -1449,11 +1449,11 @@ version = "0.8.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.zerocopy]]
-version = "0.8.36"
+version = "0.8.37"
 criteria = "safe-to-deploy"
 
 [[exemptions.zerocopy-derive]]
-version = "0.8.36"
+version = "0.8.37"
 criteria = "safe-to-deploy"
 
 [[exemptions.zerofrom]]
@@ -1481,5 +1481,5 @@ version = "0.11.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.zmij]]
-version = "1.0.17"
+version = "1.0.18"
 criteria = "safe-to-deploy"
