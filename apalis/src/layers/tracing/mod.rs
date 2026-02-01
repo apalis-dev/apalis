@@ -15,12 +15,13 @@ use tower::Service;
 use tracing::{Level, Span};
 
 pub use self::{
-    contextual_span::{ContextualTaskSpan, TracingContext},
+    contextual_span::ContextualTaskSpan,
     make_span::{DefaultMakeSpan, MakeSpan},
     on_failure::{DefaultOnFailure, OnFailure},
     on_request::{DefaultOnRequest, OnRequest},
     on_response::{DefaultOnResponse, OnResponse},
 };
+pub use apalis_core::task::metadata::TracingContext;
 use tower::Layer;
 
 const DEFAULT_MESSAGE_LEVEL: Level = Level::DEBUG;

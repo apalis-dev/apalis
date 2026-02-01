@@ -173,6 +173,7 @@ where
     }
 
     /// Adds data to the context
+    ///
     /// This will be shared by all requests
     pub fn data<D>(self, data: D) -> WorkerBuilder<Args, Ctx, B, Stack<Data<D>, M>>
     where
