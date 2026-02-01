@@ -26,7 +26,7 @@ default = [
 ]
 
 ## Support Tracing 👀
-tracing = ["dep:tracing"]
+tracing = ["dep:tracing", "apalis-core/tracing"]
 
 ## Support for Sentry exception and performance monitoring
 sentry = ["dep:sentry-core", "dep:ulid", "ulid?/uuid", "dep:uuid"]
