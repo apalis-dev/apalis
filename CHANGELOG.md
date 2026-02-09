@@ -4,8 +4,9 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
-- **fix**: impl serde for tracing context ([#680](https://github.com/geofmureithi/apalis/pull/680))
-- **chore**: bump to v1.0.0 rc.3 ([#678](https://github.com/geofmureithi/apalis/pull/678))
+- **chore**: chore: expose TestWorker as stream ([#682](https://github.com/apalis-dev/apalis/pull/682))
+- **fix**: impl serde for tracing context ([#680](https://github.com/apalis-dev/apalis/pull/680))
+- **chore**: bump to v1.0.0 rc.3 ([#678](https://github.com/apalis-dev/apalis/pull/678))
 - **feat**: introduce contextual tracing allowing passing previous span details ([#670](https://github.com/apalis-dev/apalis/pull/670))
 - **feat**: handle long running tasks with a result collector ([#669](https://github.com/apalis-dev/apalis/pull/669))
 - **chore**: add `DagCodec` trait which handles entry and output in dag nodes ([#668](https://github.com/apalis-dev/apalis/pull/668))

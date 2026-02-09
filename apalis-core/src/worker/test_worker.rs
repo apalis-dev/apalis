@@ -235,6 +235,13 @@ impl<B, S, Res> TestWorker<B, S, Res, ()> {
     }
 }
 
+impl<B, S, Res, I> TestWorker<B, S, Res, I> {
+    /// Get the underlying stream
+    pub fn into_stream(self) -> TestStream<I, Res> {
+        self.stream
+    }
+}
+
 /// A generic service that emits the result of a test
 #[derive(Debug, Clone)]
 pub struct TestEmitService<S, Response, IdType> {
@@ -286,6 +293,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use futures_util::StreamExt;
+
     use crate::{
         backend::{TaskSink, memory::MemoryStorage},
         error::BoxDynError,
@@ -314,6 +323,29 @@ mod tests {
         });
         let mut worker = TestWorker::new(backend, service);
         while let Some(Ok((_, ret))) = worker.execute_next().await {
+            ret.unwrap();
+        }
+        println!("Worker run successfully");
+    }
+
+    #[tokio::test]
+    async fn basic_worker_as_stream() {
+        let mut backend = MemoryStorage::new();
+
+        for i in 0..=10 {
+            backend.push(i).await.unwrap();
+        }
+
+        let service = task_fn(|req: u32, w: WorkerContext| async move {
+            if req == 10 {
+                w.stop()?;
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            Ok::<_, BoxDynError>(req)
+        });
+        let worker = TestWorker::new(backend, service);
+        let mut result_stream = worker.into_stream();
+        while let Some(Ok((_, ret))) = result_stream.next().await {
             ret.unwrap();
         }
         println!("Worker run successfully");
