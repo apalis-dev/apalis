@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- **chore**: bump to v1.0.0 rc.4 ([#685](https://github.com/apalis-dev/apalis/pull/685))
 - **chore**: chore: expose TestWorker as stream ([#682](https://github.com/apalis-dev/apalis/pull/682))
 - **fix**: impl serde for tracing context ([#680](https://github.com/apalis-dev/apalis/pull/680))
 - **chore**: bump to v1.0.0 rc.3 ([#678](https://github.com/apalis-dev/apalis/pull/678))
