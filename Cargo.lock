@@ -253,7 +253,7 @@ checksum = "5f0e0fee31ef5ed1ba1316088939cea399010ed7731dba877ed44aeb407a75ea"
 
 [[package]]
 name = "apalis"
-version = "1.0.0-rc.3"
+version = "1.0.0-rc.4"
 dependencies = [
  "apalis-core",
  "apalis-file-storage",
@@ -276,7 +276,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-codec"
-version = "0.1.0-rc.3"
+version = "0.1.0-rc.4"
 dependencies = [
  "apalis-core",
  "bincode",
@@ -288,7 +288,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-core"
-version = "1.0.0-rc.3"
+version = "1.0.0-rc.4"
 dependencies = [
  "document-features",
  "futures-channel",
@@ -308,7 +308,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-file-storage"
-version = "0.1.0-rc.3"
+version = "0.1.0-rc.4"
 dependencies = [
  "apalis-codec",
  "apalis-core",
@@ -324,7 +324,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-sql"
-version = "1.0.0-rc.3"
+version = "1.0.0-rc.4"
 dependencies = [
  "apalis-core",
  "chrono",
@@ -336,7 +336,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-workflow"
-version = "0.1.0-rc.3"
+version = "0.1.0-rc.4"
 dependencies = [
  "apalis-core",
  "apalis-file-storage",

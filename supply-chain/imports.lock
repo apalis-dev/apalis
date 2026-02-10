@@ -5,6 +5,22 @@
 version = "1.0.0-rc.3"
 audited_as = "1.0.0-rc.2"
 
+[[unpublished.apalis]]
+version = "1.0.0-rc.4"
+audited_as = "1.0.0-rc.3"
+
+[[unpublished.apalis-core]]
+version = "1.0.0-rc.4"
+audited_as = "1.0.0-rc.3"
+
 [[unpublished.apalis-sql]]
 version = "1.0.0-rc.3"
 audited_as = "1.0.0-rc.2"
+
+[[unpublished.apalis-sql]]
+version = "1.0.0-rc.4"
+audited_as = "1.0.0-rc.3"
+
+[[unpublished.apalis-workflow]]
+version = "0.1.0-rc.4"
+audited_as = "0.1.0-rc.3"
