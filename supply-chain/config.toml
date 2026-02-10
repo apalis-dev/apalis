@@ -392,6 +392,10 @@ criteria = "safe-to-deploy"
 version = "0.3.4"
 criteria = "safe-to-deploy"
 
+[[exemptions.getrandom]]
+version = "0.4.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.gimli]]
 version = "0.32.3"
 criteria = "safe-to-deploy"
@@ -410,6 +414,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.hdrhistogram]]
 version = "7.5.4"
+criteria = "safe-to-deploy"
+
+[[exemptions.heck]]
+version = "0.5.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.hex]]
@@ -496,6 +504,10 @@ criteria = "safe-to-deploy"
 version = "2.1.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.id-arena]]
+version = "2.3.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.idna]]
 version = "1.1.0"
 criteria = "safe-to-deploy"
@@ -556,8 +568,12 @@ criteria = "safe-to-deploy"
 version = "1.5.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.leb128fmt]]
+version = "0.1.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.libc]]
-version = "0.2.180"
+version = "0.2.181"
 criteria = "safe-to-deploy"
 
 [[exemptions.linux-raw-sys]]
@@ -814,6 +830,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.ppv-lite86]]
 version = "0.2.21"
+criteria = "safe-to-deploy"
+
+[[exemptions.prettyplease]]
+version = "0.2.37"
 criteria = "safe-to-deploy"
 
 [[exemptions.proc-macro2]]
@@ -1085,7 +1105,7 @@ version = "0.13.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.tempfile]]
-version = "3.24.0"
+version = "3.25.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.thiserror]]
@@ -1284,6 +1304,10 @@ criteria = "safe-to-deploy"
 version = "1.0.2+wasi-0.2.9"
 criteria = "safe-to-deploy"
 
+[[exemptions.wasip3]]
+version = "0.4.0+wasi-0.3.0-rc-2026-01-06"
+criteria = "safe-to-deploy"
+
 [[exemptions.wasm-bindgen]]
 version = "0.2.108"
 criteria = "safe-to-deploy"
@@ -1302,6 +1326,18 @@ criteria = "safe-to-deploy"
 
 [[exemptions.wasm-bindgen-shared]]
 version = "0.2.108"
+criteria = "safe-to-deploy"
+
+[[exemptions.wasm-encoder]]
+version = "0.244.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.wasm-metadata]]
+version = "0.244.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.wasmparser]]
+version = "0.244.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.web-sys]]
@@ -1438,6 +1474,26 @@ criteria = "safe-to-deploy"
 
 [[exemptions.wit-bindgen]]
 version = "0.51.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.wit-bindgen-core]]
+version = "0.51.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.wit-bindgen-rust]]
+version = "0.51.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.wit-bindgen-rust-macro]]
+version = "0.51.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.wit-component]]
+version = "0.244.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.wit-parser]]
+version = "0.244.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.writeable]]
