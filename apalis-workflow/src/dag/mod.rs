@@ -415,7 +415,6 @@ pub enum DagState {
 #[cfg(test)]
 mod tests {
     use std::num::ParseIntError;
-
     use apalis_core::{
         error::BoxDynError,
         task_fn::task_fn,
@@ -578,6 +577,89 @@ mod tests {
             .build(dag);
         worker.run().await.unwrap();
     }
+
+    #[tokio::test]
+    async fn fan_in_completes_once_with_testworker() {
+        use crate::dag::response::DagExecutionResponse;
+        use apalis_core::error::WorkerError;
+        use apalis_core::task_fn::task_fn;
+        use apalis_core::worker::context::WorkerContext;
+        use apalis_core::worker::test_worker::{ExecuteNext, TestWorker};
+        use apalis_file_storage::JsonStorage;
+        use serde_json::Value;
+        use std::collections::BTreeMap;
+
+        let dag = DagFlow::new("fan-in-testworker");
+
+        let a = dag.add_node("a", task_fn(|t: u32| async move { t }));
+        let b = dag.add_node("b", task_fn(|t: u32| async move { t }));
+
+        let _fan_in = dag
+            .add_node(
+                "fan_in",
+                task_fn(|t: (u32, u32), w: WorkerContext| async move {
+                    w.stop().unwrap();
+                    t.0 + t.1
+                }),
+            )
+            .depends_on((&a, &b));
+
+        let mut backend: JsonStorage<Value> = JsonStorage::new_temp().unwrap();
+        backend.start_fan_out((1u32, 2u32)).await.unwrap();
+
+        let mut worker = TestWorker::new(backend, dag);
+
+        let mut trace: Vec<String> = Vec::new();
+        let mut complete: Vec<Value> = Vec::new();
+        let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
+
+        for step in 0..200 {
+            let Some(item) = worker.execute_next().await else {
+                eprintln!("[END] step={step}");
+                break;
+            };
+
+            let (task_id, resp) = match item {
+                Ok(v) => v,
+                Err(WorkerError::GracefulExit) => {
+                    eprintln!("[GRACEFUL_EXIT] step={step}");
+                    break;
+                }
+                Err(e) => panic!("worker error: {e:?}"),
+            };
+            let resp = resp.expect("task error");
+
+            let kind = match &resp {
+                DagExecutionResponse::EntryFanOut { .. } => "EntryFanOut",
+                DagExecutionResponse::FanOut { .. } => "FanOut",
+                DagExecutionResponse::EnqueuedNext { .. } => "EnqueuedNext",
+                DagExecutionResponse::WaitingForDependencies { .. } => "WaitingForDependencies",
+                DagExecutionResponse::Complete { .. } => "Complete",
+            };
+            *counts.entry(kind).or_insert(0) += 1;
+
+            trace.push(format!("{resp:?}"));
+            eprintln!("[STEP {step}] task_id={task_id:?} resp={resp:?}");
+
+            if let DagExecutionResponse::WaitingForDependencies { pending_dependencies } = &resp {
+                eprintln!("[STEP {step}] pending={pending_dependencies:?}");
+            }
+
+            if let DagExecutionResponse::Complete { result } = &resp {
+                complete.push(result.clone());
+                break;
+            }
+        }
+
+        eprintln!("[SUMMARY] complete={complete:?} counts={counts:?}");
+
+        assert_eq!(
+            complete,
+            vec![Value::from(3)],
+            "expected exactly one Complete(3). trace={trace:?}"
+        );
+    }
+
 
     #[tokio::test]
     async fn test_routed_workflow() {
