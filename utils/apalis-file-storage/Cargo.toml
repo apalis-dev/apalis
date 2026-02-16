@@ -23,7 +23,7 @@ apalis-core = { path = "../../apalis-core", version = "1.0.0-rc.4", default-feat
     "serde",
 ] }
 serde_json = "1"
-futures-channel = { version = "0.3.30", features = [
+futures-channel = { version = "0.3.32", features = [
     "sink",
     "std",
 ], default-features = false }
