@@ -28,7 +28,7 @@ futures-channel = { version = "0.3.30", features = [
     "std",
 ], default-features = false }
 futures-sink = { version = "0.3.30", default-features = false }
-futures-util = { version = "0.3.30", features = [
+futures-util = { version = "0.3.32", features = [
     "sink",
     "async-await",
     "async-await-macro",
