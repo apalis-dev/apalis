@@ -81,7 +81,7 @@ thiserror = "2.0.0"
 
 pin-project = "1"
 # Needed only for sentry reporting
-uuid = { version = "1.8", optional = true }
+uuid = { version = "1.21", optional = true }
 ulid = { version = "1", optional = true }
 
 [dependencies.tracing]
