@@ -414,7 +414,7 @@ pub enum DagState {
 
 #[cfg(test)]
 mod tests {
-    use std::num::ParseIntError;
+    use std::{collections::BTreeMap, num::ParseIntError};
 
     use apalis_core::{
         error::BoxDynError,
@@ -425,11 +425,12 @@ mod tests {
         },
     };
     use apalis_file_storage::JsonStorage;
+    use futures::StreamExt;
     use petgraph::graph::NodeIndex;
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
 
-    use crate::WorkflowSink;
+    use crate::{WorkflowSink, dag::response::DagExecutionResponse};
 
     use super::*;
 
@@ -577,6 +578,60 @@ mod tests {
             })
             .build(dag);
         worker.run().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn fan_in_completes_once_with_testworker() {
+        use apalis_core::task_fn::task_fn;
+        use apalis_core::worker::test_worker::TestWorker;
+        use apalis_file_storage::JsonStorage;
+        use serde_json::Value;
+
+        let dag = DagFlow::new("fan-in-testworker");
+
+        let a = dag.add_node("a", task_fn(|t: u32| async move { t }));
+        let b = dag.add_node("b", task_fn(|t: u32| async move { t }));
+
+        let _fan_in = dag
+            .add_node("fan_in", task_fn(|t: (u32, u32)| async move { t.0 + t.1 }))
+            .depends_on((&a, &b));
+
+        let mut backend: JsonStorage<Value> = JsonStorage::new_temp().unwrap();
+        backend.start_fan_out((1u32, 2u32)).await.unwrap();
+
+        let worker = TestWorker::new(backend, dag);
+        let stm = worker.into_stream();
+
+        let (res_map, final_res) = stm.take(5).collect::<Vec<_>>().await.into_iter().fold(
+            (BTreeMap::new(), None),
+            |(mut res_map, final_res), item| {
+                let (_, resp) = match item {
+                    Ok(v) => v,
+                    Err(e) => panic!("worker error: {e:?}"),
+                };
+                let resp = resp.expect("task error");
+
+                let kind = match &resp {
+                    DagExecutionResponse::EntryFanOut { .. } => "EntryFanOut",
+                    DagExecutionResponse::FanOut { .. } => "FanOut",
+                    DagExecutionResponse::EnqueuedNext { .. } => "EnqueuedNext",
+                    DagExecutionResponse::WaitingForDependencies { .. } => "WaitingForDependencies",
+                    DagExecutionResponse::Complete { .. } => "Complete",
+                };
+                *res_map.entry(kind).or_insert(0) += 1;
+
+                if let DagExecutionResponse::Complete { result } = resp {
+                    return (res_map, Some(result));
+                }
+                (res_map, final_res)
+            },
+        );
+
+        assert_eq!(final_res, Some(Value::from(3)));
+        assert_eq!(res_map["EntryFanOut"], 1); // Entry
+        assert_eq!(res_map["EnqueuedNext"], 2); // Node Results
+        assert_eq!(res_map["WaitingForDependencies"], 1); // Non Handler node
+        assert_eq!(res_map["Complete"], 1); // Handler Node
     }
 
     #[tokio::test]
