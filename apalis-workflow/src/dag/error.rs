@@ -19,7 +19,7 @@ pub enum DagFlowError {
 
     /// An error originating from the service.
     #[error("Service error: {0}")]
-    Service(#[source] BoxDynError),
+    Service(#[from] DagServiceError),
 
     /// An error related to codec operations.
     #[error("Codec error: {0}")]
@@ -64,4 +64,34 @@ pub enum DagFlowError {
     /// DAG contains cycles.
     #[error("DAG contains cycles involving nodes: {0:?}")]
     CyclicDAG(Cycle<NodeIndex>),
+}
+
+/// Error encountered by Service Error
+#[derive(Error, Debug)]
+pub enum DagServiceError {
+    /// DAG service poll error.
+    #[error("DAG encountered a poll error in a service: {0:?}")]
+    PollError(#[source] BoxDynError),
+    /// Missing previous node
+    #[error("Missing previous node")]
+    MissingPreviousNode,
+    /// Missing Fanin Handler
+    #[error("Missing Fanin Handler")]
+    MissingFaninHandler,
+    /// Missing next node
+    #[error("Missing next node")]
+    MissingNextNode,
+    /// Missing TaskId for incoming node
+    #[error("Missing TaskId for incoming node")]
+    MissingIncomingTaskId,
+    /// Missing result for TaskId
+    #[error("Missing result for TaskId {0}")]
+    MissingTaskIdResult(String),
+    /// Dependency task returned invalid response, which is unexpected during fan-in
+    #[error("Fan-in dependency task returned invalid response")]
+    InvalidFanInDependencyResult,
+
+    /// Dependency task failed
+    #[error("Dependency task failed: {0:?}")]
+    DependencyTaskFailed(#[source] BoxDynError),
 }

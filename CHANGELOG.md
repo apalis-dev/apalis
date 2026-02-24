@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- **chore (workflow)**: replace BoxDynError with concrete errors for better typing ([#695](https://github.com/apalis-dev/apalis/pull/695))
 - **fix (workflow)**: handle multiple fanin collection scenarios ([#694](https://github.com/apalis-dev/apalis/pull/694))
 - **chore**: bump to v1.0.0 rc.4 ([#685](https://github.com/apalis-dev/apalis/pull/685))
 - **chore**: chore: expose TestWorker as stream ([#682](https://github.com/apalis-dev/apalis/pull/682))
