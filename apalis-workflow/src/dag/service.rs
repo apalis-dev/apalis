@@ -150,7 +150,7 @@ where
 
                         let prev_node = context.prev_node.ok_or(BoxDynError::from("Missing Previous Node"))?;
 
-                        if !(*find_designated_fan_in_handler(&incoming_nodes)? == prev_node) {
+                        if *find_designated_fan_in_handler(&incoming_nodes)? != prev_node {
                             return Ok(DagExecutionResponse::WaitingForDependencies {
                                 pending_dependencies: dependency_task_ids,
                             });

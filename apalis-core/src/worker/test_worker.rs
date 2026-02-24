@@ -237,6 +237,7 @@ impl<B, S, Res> TestWorker<B, S, Res, ()> {
 
 impl<B, S, Res, I> TestWorker<B, S, Res, I> {
     /// Get the underlying stream
+    #[must_use]
     pub fn into_stream(self) -> TestStream<I, Res> {
         self.stream
     }
