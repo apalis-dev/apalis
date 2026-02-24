@@ -237,6 +237,7 @@ impl<B, S, Res> TestWorker<B, S, Res, ()> {
 
 impl<B, S, Res, I> TestWorker<B, S, Res, I> {
     /// Get the underlying stream
+    #[must_use]
     pub fn into_stream(self) -> TestStream<I, Res> {
         self.stream
     }
@@ -255,11 +256,11 @@ where
     S::Future: Send + 'static,
     Args: Send + 'static,
     Ctx: Send + 'static,
-    S::Response: Send + 'static,
+    S::Response: Send + Clone + 'static,
     S::Error: Into<BoxDynError> + Send,
     IdType: Send + 'static + Clone,
 {
-    type Response = ();
+    type Response = Res;
     type Error = String;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
@@ -277,8 +278,8 @@ where
             let res = fut.await;
             match res {
                 Ok(res) => {
-                    tx.send((task_id, Ok(res))).await.unwrap();
-                    Ok(())
+                    tx.send((task_id, Ok(res.clone()))).await.unwrap();
+                    Ok(res)
                 }
                 Err(err) => {
                     let e = err.into();

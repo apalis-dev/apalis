@@ -9,7 +9,7 @@ use apalis_core::{
     task::{Task, metadata::MetadataExt, task_id::TaskId},
 };
 use futures::future::BoxFuture;
-use futures::{FutureExt, Sink, SinkExt};
+use futures::{FutureExt, Sink, SinkExt, StreamExt};
 use petgraph::Direction;
 use petgraph::graph::NodeIndex;
 use std::collections::HashMap;
@@ -61,6 +61,12 @@ where
             backend: self.backend.clone(),
         }
     }
+}
+
+/// Determine if the previous node is the designated predecessor in a fan-in scenario
+fn find_designated_fan_in_handler(incoming_nodes: &[NodeIndex]) -> Result<&NodeIndex, BoxDynError> {
+    let designated_handler = incoming_nodes.iter().max_by_key(|n| n.index());
+    designated_handler.ok_or("Invalid Incoming nodes".into())
 }
 
 impl<B, Err, CdcErr, MetaError, IdType> Service<Task<B::Compact, B::Context, B::IdType>>
@@ -141,12 +147,23 @@ where
                             deps = ?dependency_task_ids,
                             "Fanning in from multiple dependencies",
                         );
+
+                        let prev_node = context.prev_node.ok_or(BoxDynError::from("Missing Previous Node"))?;
+
+                        if *find_designated_fan_in_handler(&incoming_nodes)? != prev_node {
+                            return Ok(DagExecutionResponse::WaitingForDependencies {
+                                pending_dependencies: dependency_task_ids,
+                            });
+                        }
+
                         let results = backend
-                            .check_status(
+                            .wait_for(
                                 dependency_task_ids.values().cloned().collect::<Vec<_>>(),
                             )
-                            .await?;
-                        // TODO(bug): The check of done is not a good one as it can be called more than once if the jobs a too quickly executed
+                            .collect::<Vec<_>>()
+                            .await
+                            .into_iter()
+                            .collect::<Result<Vec<_>, _>>()?;
                         if results.iter().all(|s| matches!(s.status, Status::Done)) {
                             let sorted_results = {
                                 // Match the order of incoming_nodes by matching NodeIndex
@@ -201,9 +218,7 @@ where
                             let response = executor.call(req).await?;
                             (response, context)
                         } else {
-                            return Ok(DagExecutionResponse::WaitingForDependencies {
-                                pending_dependencies: dependency_task_ids,
-                            });
+                            return Err(BoxDynError::from("An incoming node failed"));
                         }
                     }
                 }

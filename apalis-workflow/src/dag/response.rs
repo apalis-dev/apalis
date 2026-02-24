@@ -5,7 +5,7 @@ use petgraph::graph::NodeIndex;
 use serde::{Deserialize, Serialize};
 
 /// Response from DAG execution step
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum DagExecutionResponse<Compact, IdType> {
     /// Entry nodes have been fanned out
     EntryFanOut {
