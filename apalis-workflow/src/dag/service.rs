@@ -13,11 +13,12 @@ use futures::{FutureExt, Sink, SinkExt, StreamExt};
 use petgraph::Direction;
 use petgraph::graph::NodeIndex;
 use std::collections::HashMap;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use tower::Service;
 
 use crate::DagExecutor;
 use crate::dag::context::DagFlowContext;
+use crate::dag::error::{DagFlowError, DagServiceError};
 use crate::dag::response::DagExecutionResponse;
 use crate::id_generator::GenerateId;
 
@@ -64,9 +65,11 @@ where
 }
 
 /// Determine if the previous node is the designated predecessor in a fan-in scenario
-fn find_designated_fan_in_handler(incoming_nodes: &[NodeIndex]) -> Result<&NodeIndex, BoxDynError> {
+fn find_designated_fan_in_handler(
+    incoming_nodes: &[NodeIndex],
+) -> Result<&NodeIndex, DagFlowError> {
     let designated_handler = incoming_nodes.iter().max_by_key(|n| n.index());
-    designated_handler.ok_or("Invalid Incoming nodes".into())
+    designated_handler.ok_or(DagFlowError::Service(DagServiceError::MissingFaninHandler))
 }
 
 impl<B, Err, CdcErr, MetaError, IdType> Service<Task<B::Compact, B::Context, B::IdType>>
@@ -78,8 +81,8 @@ where
         + 'static
         + Clone
         + WaitForCompletion<DagExecutionResponse<B::Compact, IdType>>,
-    IdType: GenerateId + Send + Sync + 'static + PartialEq + Debug + Clone,
-    B::Compact: Send + Sync + 'static + Clone + Debug,
+    IdType: GenerateId + Send + Sync + 'static + PartialEq + Debug + Display + Clone,
+    B::Compact: Send + Sync + 'static + Clone + Display,
     B::Context:
         Send + Sync + Default + MetadataExt<DagFlowContext<B::IdType>, Error = MetaError> + 'static,
     Err: std::error::Error + Send + Sync + 'static,
@@ -91,14 +94,14 @@ where
     MetaError: Into<BoxDynError> + Send + Sync + 'static,
 {
     type Response = DagExecutionResponse<B::Compact, B::IdType>;
-    type Error = BoxDynError;
+    type Error = DagFlowError;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     fn poll_ready(
         &mut self,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Result<(), Self::Error>> {
-        self.executor.poll_ready(cx).map_err(|e| e.into())
+        self.executor.poll_ready(cx)
     }
 
     fn call(&mut self, mut req: Task<B::Compact, B::Context, B::IdType>) -> Self::Future {
@@ -107,9 +110,7 @@ where
         let start_nodes = executor.start_nodes.clone();
         let end_nodes = executor.end_nodes.clone();
         async move {
-            let ctx = req
-                .extract::<Meta<DagFlowContext<B::IdType>>>()
-                .await;
+            let ctx = req.extract::<Meta<DagFlowContext<B::IdType>>>().await;
             let (response, context) = if let Ok(Meta(context)) = ctx {
                 #[cfg(feature = "tracing")]
                 tracing::debug!(
@@ -138,8 +139,7 @@ where
                     }
                     // Multiple incoming nodes, fan-in scenario
                     _ => {
-                        let dependency_task_ids =
-                            context.get_dependency_task_ids(&incoming_nodes);
+                        let dependency_task_ids = context.get_dependency_task_ids(&incoming_nodes);
                         #[cfg(feature = "tracing")]
                         tracing::debug!(
                             prev_node = ?context.prev_node,
@@ -148,7 +148,9 @@ where
                             "Fanning in from multiple dependencies",
                         );
 
-                        let prev_node = context.prev_node.ok_or(BoxDynError::from("Missing Previous Node"))?;
+                        let prev_node = context
+                            .prev_node
+                            .ok_or(DagFlowError::Service(DagServiceError::MissingPreviousNode))?;
 
                         if *find_designated_fan_in_handler(&incoming_nodes)? != prev_node {
                             return Ok(DagExecutionResponse::WaitingForDependencies {
@@ -157,13 +159,12 @@ where
                         }
 
                         let results = backend
-                            .wait_for(
-                                dependency_task_ids.values().cloned().collect::<Vec<_>>(),
-                            )
+                            .wait_for(dependency_task_ids.values().cloned().collect::<Vec<_>>())
                             .collect::<Vec<_>>()
                             .await
                             .into_iter()
-                            .collect::<Result<Vec<_>, _>>()?;
+                            .collect::<Result<Vec<_>, _>>()
+                            .map_err(|e| DagFlowError::Backend(e.into()))?;
                         if results.iter().all(|s| matches!(s.status, Status::Done)) {
                             let sorted_results = {
                                 // Match the order of incoming_nodes by matching NodeIndex
@@ -171,62 +172,72 @@ where
                                     .iter()
                                     .rev()
                                     .map(|node_index| {
-                                        let task_id = context.node_task_ids
+                                        let task_id = context
+                                            .node_task_ids
                                             .iter()
                                             .find(|(n, _)| *n == node_index)
                                             .map(|(_, task_id)| task_id)
-                                            .ok_or(BoxDynError::from("TaskId for incoming node not found"))?;
-                                        let task_result = results.iter().find(|r| &r.task_id == task_id).ok_or(
-                                            BoxDynError::from(format!(
-                                                "TaskResult for task_id {task_id:?} not found"
-                                            )))?;
+                                            .ok_or(DagFlowError::Service(
+                                                DagServiceError::MissingIncomingTaskId,
+                                            ))?;
+                                        let task_result = results
+                                            .iter()
+                                            .find(|r| &r.task_id == task_id)
+                                            .ok_or(DagFlowError::Service(
+                                                DagServiceError::MissingTaskIdResult(
+                                                    task_id.inner().to_string(),
+                                                ),
+                                            ))?;
                                         Ok(task_result)
                                     })
-                                    .collect::<Result<Vec<_>, BoxDynError>>();
+                                    .collect::<Result<Vec<_>, DagFlowError>>();
                                 match res {
                                     Ok(v) => v,
-                                    Err(_) => return Ok(DagExecutionResponse::WaitingForDependencies { pending_dependencies: dependency_task_ids }),
+                                    Err(_) => {
+                                        return Ok(DagExecutionResponse::WaitingForDependencies {
+                                            pending_dependencies: dependency_task_ids,
+                                        });
+                                    }
                                 }
                             };
                             let res = sorted_results
-                                    .iter()
-                                    .map(|s| match &s.result {
-                                        Ok(val) => {
-                                            match val {
-                                                DagExecutionResponse::FanOut { response, .. } => {
-                                                    Ok(response.clone())
-                                                }
-                                                DagExecutionResponse::EnqueuedNext { result } | DagExecutionResponse::Complete { result } => {
-                                                    Ok(result.clone())
-                                                }
-                                                _ => Err("Dependency task returned invalid response, which is unexpected during fan-in".to_owned())
-                                            }
+                                .iter()
+                                .map(|s| match &s.result {
+                                    Ok(val) => match val {
+                                        DagExecutionResponse::FanOut { response, .. } => {
+                                            Ok(response.clone())
                                         }
-                                        Err(e) => {
-                                            Err(format!(
-                                                "Dependency task failed: {e:?}"
-                                            ))
+                                        DagExecutionResponse::EnqueuedNext { result }
+                                        | DagExecutionResponse::Complete { result } => {
+                                            Ok(result.clone())
                                         }
-                                    })
-                                    .collect::<Result<Vec<_>, String>>()?;
-                            let encoded_input = B::Codec::encode(
-                                &res
-                            )
-                            .map_err(|e| e.into())?;
+                                        _ => Err(DagFlowError::Service(
+                                            DagServiceError::InvalidFanInDependencyResult,
+                                        )),
+                                    },
+                                    Err(e) => Err(DagFlowError::Service(
+                                        DagServiceError::DependencyTaskFailed(e.as_str().into()),
+                                    )),
+                                })
+                                .collect::<Result<Vec<_>, _>>()?;
+                            let encoded_input = B::Codec::encode(&res)
+                                .map_err(|e| DagFlowError::Codec(e.into()))?;
 
                             let req = req.map(|_| encoded_input); // Replace args with fan-in input
                             let response = executor.call(req).await?;
                             (response, context)
                         } else {
-                            return Err(BoxDynError::from("An incoming node failed"));
+                            return Err(DagFlowError::Service(
+                                DagServiceError::DependencyTaskFailed(
+                                    "An adjacent node failed. Terminating".into(),
+                                ),
+                            ));
                         }
                     }
                 }
             } else {
                 #[cfg(feature = "tracing")]
-                tracing::debug!(
-                    "Extracting DagFlowContext for task without meta"
-                );
+                tracing::debug!("Extracting DagFlowContext for task without meta");
                 // if no metadata, we assume its an entry task
                 if start_nodes.len() == 1 {
                     #[cfg(feature = "tracing")]
@@ -235,7 +246,7 @@ where
                     req.parts
                         .ctx
                         .inject(context.clone())
-                        .map_err(|e| e.into())?;
+                        .map_err(|e| DagFlowError::Metadata(e.into()))?;
                     let response = executor.call(req).await?;
                     #[cfg(feature = "tracing")]
                     tracing::debug!(node = ?context.current_node, "Execution complete at node");
@@ -263,7 +274,10 @@ where
 
             match outgoing_nodes.len() {
                 0 => {
-                    assert!(end_nodes.contains(&current_node), "Current node is not an end node");
+                    assert!(
+                        end_nodes.contains(&current_node),
+                        "Current node is not an end node"
+                    );
                     // This was an end node
                     return Ok(DagExecutionResponse::Complete { result: response });
                 }
@@ -280,7 +294,10 @@ where
                         .with_task_id(TaskId::new(B::IdType::generate()))
                         .meta(new_context)
                         .build();
-                    backend.send(task).await.map_err(|e| BoxDynError::from(e))?;
+                    backend
+                        .send(task)
+                        .await
+                        .map_err(|e| DagFlowError::Backend(e.into()))?;
                 }
                 _ => {
                     // Multiple outgoing nodes, fan out
@@ -315,9 +332,9 @@ async fn fan_out_next_nodes<B, Err, CdcErr>(
     backend: &B,
     context: &DagFlowContext<B::IdType>,
     input: &B::Compact,
-) -> Result<HashMap<NodeIndex, TaskId<B::IdType>>, BoxDynError>
+) -> Result<HashMap<NodeIndex, TaskId<B::IdType>>, DagFlowError>
 where
-    B::IdType: GenerateId + Send + Sync + 'static + PartialEq + Debug,
+    B::IdType: GenerateId + Send + Sync + 'static + PartialEq + Display,
     B::Compact: Send + Sync + 'static + Clone,
     B::Context: Send + Sync + Default + MetadataExt<DagFlowContext<B::IdType>> + 'static,
     B: Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err> + Unpin,
@@ -336,7 +353,7 @@ where
     for outgoing_node in outgoing_nodes.into_iter() {
         let task_id = next_nodes
             .get(&outgoing_node)
-            .expect("TaskId for start node not found")
+            .ok_or(DagFlowError::Service(DagServiceError::MissingNextNode))?
             .clone();
         let task = TaskBuilder::new(input.clone())
             .with_task_id(task_id.clone())
@@ -353,8 +370,10 @@ where
         let mut b = backend.clone();
         enqueue_futures.push(
             async move {
-                b.send(task).await.map_err(|e| BoxDynError::from(e))?;
-                Ok::<(), BoxDynError>(())
+                b.send(task)
+                    .await
+                    .map_err(|e| DagFlowError::Backend(e.into()))?;
+                Ok::<(), DagFlowError>(())
             }
             .boxed(),
         );
@@ -368,7 +387,7 @@ async fn fan_out_entry_nodes<B, Err, CdcErr>(
     backend: &B,
     context: &DagFlowContext<B::IdType>,
     input: &B::Compact,
-) -> Result<HashMap<NodeIndex, TaskId<B::IdType>>, BoxDynError>
+) -> Result<HashMap<NodeIndex, TaskId<B::IdType>>, DagFlowError>
 where
     B::IdType: GenerateId + Send + Sync + 'static + PartialEq + Debug,
     B::Compact: Send + Sync + 'static + Clone,
@@ -379,14 +398,14 @@ where
     B::Codec: Codec<Vec<B::Compact>, Compact = B::Compact, Error = CdcErr>,
     CdcErr: Into<BoxDynError>,
 {
-    let values: Vec<B::Compact> = B::Codec::decode(input).map_err(|e: CdcErr| e.into())?;
+    let values: Vec<B::Compact> =
+        B::Codec::decode(input).map_err(|e: CdcErr| DagFlowError::Codec(e.into()))?;
     let start_nodes = executor.start_nodes.clone();
     if values.len() != start_nodes.len() {
-        return Err(BoxDynError::from(format!(
-            "Expected {} inputs for fan-in, got {}",
-            start_nodes.len(),
-            values.len()
-        )));
+        return Err(DagFlowError::InputCountMismatch {
+            expected: start_nodes.len(),
+            actual: values.len(),
+        });
     }
     let mut enqueue_futures = vec![];
     let next_nodes = start_nodes
@@ -398,8 +417,7 @@ where
     for (outgoing_node, input) in start_nodes.into_iter().zip(values) {
         let task_id = next_nodes
             .get(&outgoing_node)
-            .expect("TaskId for start node not found")
-            .clone();
+            .ok_or(DagFlowError::Service(DagServiceError::MissingNextNode))?;
         let task = TaskBuilder::new(input)
             .with_task_id(task_id.clone())
             .meta(DagFlowContext {
@@ -415,8 +433,10 @@ where
         let mut b = backend.clone();
         enqueue_futures.push(
             async move {
-                b.send(task).await.map_err(|e| BoxDynError::from(e))?;
-                Ok::<(), BoxDynError>(())
+                b.send(task)
+                    .await
+                    .map_err(|e| DagFlowError::Backend(BoxDynError::from(e)))?;
+                Ok::<(), DagFlowError>(())
             }
             .boxed(),
         );
