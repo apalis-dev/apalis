@@ -18,7 +18,7 @@ categories = ["database", "filesystem", "asynchronous", "data-structures"]
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
-apalis-core = { path = "../../apalis-core", version = "1.0.0-rc.4", default-features = false, features = [
+apalis-core = { path = "../../apalis-core", version = "1.0.0-rc.5", default-features = false, features = [
     "sleep",
     "serde",
 ] }
