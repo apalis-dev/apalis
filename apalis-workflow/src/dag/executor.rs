@@ -19,7 +19,10 @@ use tower::Service;
 
 use crate::{
     DagFlow, DagService,
-    dag::{DagFlowContext, RootDagService, error::DagFlowError},
+    dag::{
+        DagFlowContext, RootDagService,
+        error::{DagFlowError, DagServiceError},
+    },
     id_generator::GenerateId,
 };
 
@@ -91,8 +94,9 @@ where
                 if self
                     .graph
                     .node_weight_mut(self.not_ready[0])
-                    .unwrap()
+                    .ok_or(DagFlowError::MissingService(self.not_ready[0]))?
                     .poll_ready(cx)
+                    .map_err(DagServiceError::PollError)
                     .map_err(DagFlowError::Service)?
                     .is_pending()
                 {
