@@ -276,7 +276,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-codec"
-version = "0.1.0-rc.4"
+version = "0.1.0-rc.5"
 dependencies = [
  "apalis-core",
  "bincode",
@@ -308,7 +308,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-file-storage"
-version = "0.1.0-rc.4"
+version = "0.1.0-rc.5"
 dependencies = [
  "apalis-codec",
  "apalis-core",
@@ -336,7 +336,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-workflow"
-version = "0.1.0-rc.4"
+version = "0.1.0-rc.5"
 dependencies = [
  "apalis-core",
  "apalis-file-storage",
