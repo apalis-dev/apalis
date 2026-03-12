@@ -253,7 +253,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "apalis"
-version = "1.0.0-rc.5"
+version = "1.0.0-rc.6"
 dependencies = [
  "apalis-core",
  "apalis-file-storage",
@@ -276,7 +276,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-codec"
-version = "0.1.0-rc.5"
+version = "0.1.0-rc.6"
 dependencies = [
  "apalis-core",
  "bincode",
@@ -288,7 +288,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-core"
-version = "1.0.0-rc.5"
+version = "1.0.0-rc.6"
 dependencies = [
  "document-features",
  "futures-channel",
@@ -308,7 +308,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-file-storage"
-version = "0.1.0-rc.5"
+version = "0.1.0-rc.6"
 dependencies = [
  "apalis-codec",
  "apalis-core",
@@ -324,7 +324,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-sql"
-version = "1.0.0-rc.5"
+version = "1.0.0-rc.6"
 dependencies = [
  "apalis-core",
  "chrono",
@@ -336,7 +336,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-workflow"
-version = "0.1.0-rc.5"
+version = "0.1.0-rc.6"
 dependencies = [
  "apalis-core",
  "apalis-file-storage",
@@ -1973,9 +1973,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.21.3"
+version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
+checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "once_cell_polyfill"
