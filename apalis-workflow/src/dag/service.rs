@@ -13,7 +13,7 @@ use futures::{FutureExt, Sink, SinkExt, StreamExt};
 use petgraph::Direction;
 use petgraph::graph::NodeIndex;
 use std::collections::HashMap;
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use tower::Service;
 
 use crate::DagExecutor;
@@ -81,8 +81,8 @@ where
         + 'static
         + Clone
         + WaitForCompletion<DagExecutionResponse<B::Compact, IdType>>,
-    IdType: GenerateId + Send + Sync + 'static + PartialEq + Debug + Display + Clone,
-    B::Compact: Send + Sync + 'static + Clone + Display,
+    IdType: GenerateId + Send + Sync + 'static + PartialEq + Debug + Clone,
+    B::Compact: Send + Sync + 'static + Clone,
     B::Context:
         Send + Sync + Default + MetadataExt<DagFlowContext<B::IdType>, Error = MetaError> + 'static,
     Err: std::error::Error + Send + Sync + 'static,
@@ -184,9 +184,10 @@ where
                                             .iter()
                                             .find(|r| &r.task_id == task_id)
                                             .ok_or(DagFlowError::Service(
-                                                DagServiceError::MissingTaskIdResult(
-                                                    task_id.inner().to_string(),
-                                                ),
+                                                DagServiceError::MissingTaskIdResult(format!(
+                                                    "{:?}",
+                                                    task_id.inner()
+                                                )),
                                             ))?;
                                         Ok(task_result)
                                     })
@@ -334,7 +335,7 @@ async fn fan_out_next_nodes<B, Err, CdcErr>(
     input: &B::Compact,
 ) -> Result<HashMap<NodeIndex, TaskId<B::IdType>>, DagFlowError>
 where
-    B::IdType: GenerateId + Send + Sync + 'static + PartialEq + Display,
+    B::IdType: GenerateId + Send + Sync + 'static + PartialEq,
     B::Compact: Send + Sync + 'static + Clone,
     B::Context: Send + Sync + Default + MetadataExt<DagFlowContext<B::IdType>> + 'static,
     B: Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err> + Unpin,
@@ -356,7 +357,7 @@ where
             .ok_or(DagFlowError::Service(DagServiceError::MissingNextNode))?
             .clone();
         let task = TaskBuilder::new(input.clone())
-            .with_task_id(task_id.clone())
+            .with_task_id(task_id)
             .meta(DagFlowContext {
                 prev_node: context.prev_node,
                 current_node: outgoing_node,

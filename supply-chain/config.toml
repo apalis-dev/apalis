@@ -721,7 +721,7 @@ version = "1.70.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.openssl]]
-version = "0.10.75"
+version = "0.10.76"
 criteria = "safe-to-deploy"
 
 [[exemptions.openssl-macros]]
@@ -733,7 +733,7 @@ version = "0.2.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.openssl-sys]]
-version = "0.9.111"
+version = "0.9.112"
 criteria = "safe-to-deploy"
 
 [[exemptions.opentelemetry]]

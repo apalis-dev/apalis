@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- **fix (workflow)**: remove Display constraints in workflow service ([#704](https://github.com/apalis-dev/apalis/pull/704))
 - **chore**: bump to v1.0.0 rc.5 ([#703](https://github.com/apalis-dev/apalis/pull/703))
 - **chore (workflow)**: replace BoxDynError with concrete errors for better typing ([#695](https://github.com/apalis-dev/apalis/pull/695))
 - **fix (workflow)**: handle multiple fanin collection scenarios ([#694](https://github.com/apalis-dev/apalis/pull/694))
