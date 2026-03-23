@@ -18,6 +18,6 @@ futures = "0.3"
 email-service = { path = "../email-service" }
 opentelemetry = { version = "0.31.0", default-features = false, features = ["metrics"] }
 opentelemetry_sdk = { version = "0.31.0", features = ["metrics"], default-features = false }
-opentelemetry-otlp = { version = "0.31.0", default-features = false, features = ["metrics", "http-proto"] }
+opentelemetry-otlp = { version = "0.31.1", default-features = false, features = ["metrics", "http-proto"] }
 opentelemetry-prometheus = { version = "0.31.0", default-features = false }
 prometheus = { version = "0.14.0", default-features = false }
