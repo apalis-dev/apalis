@@ -12,7 +12,7 @@ serde = "1"
 env_logger = "0.11"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 sentry = "0.46.1"
-sentry-tower = "0.46.1"
+sentry-tower = "0.47.0"
 sentry-tracing = "0.46.1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 tokio = { version = "1", features = ["full"] }
