@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- **chore**: bump to v1.0.0 rc.7 ([#714](https://github.com/apalis-dev/apalis/pull/714))
 - **chore**: bump to v1.0.0 rc.6 ([#705](https://github.com/apalis-dev/apalis/pull/705))
 - **fix (workflow)**: remove Display constraints in workflow service ([#704](https://github.com/apalis-dev/apalis/pull/704))
 - **chore**: bump to v1.0.0 rc.5 ([#703](https://github.com/apalis-dev/apalis/pull/703))
