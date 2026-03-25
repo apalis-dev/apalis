@@ -296,6 +296,7 @@ dependencies = [
  "futures-sink",
  "futures-timer",
  "futures-util",
+ "opentelemetry",
  "pin-project",
  "serde",
  "thiserror 2.0.18",
@@ -304,6 +305,7 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+ "tracing-opentelemetry",
 ]
 
 [[package]]
@@ -3349,9 +3351,12 @@ dependencies = [
  "email-service",
  "env_logger",
  "futures",
+ "opentelemetry",
+ "opentelemetry_sdk",
  "serde",
  "tokio",
  "tracing",
+ "tracing-opentelemetry",
  "tracing-subscriber",
 ]
 
@@ -3364,6 +3369,20 @@ dependencies = [
  "log",
  "once_cell",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-opentelemetry"
+version = "0.32.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ac28f2d093c6c477eaa76b23525478f38de514fa9aeb1285738d4b97a9552fc"
+dependencies = [
+ "js-sys",
+ "opentelemetry",
+ "tracing",
+ "tracing-core",
+ "tracing-subscriber",
+ "web-time",
 ]
 
 [[package]]

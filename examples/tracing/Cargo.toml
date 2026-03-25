@@ -15,8 +15,12 @@ tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 email-service = { path = "../email-service" }
 futures = "0.3"
+opentelemetry = { version = "0.31.0", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.31.0", default-features = false, features = ["trace"] }
+tracing-opentelemetry = { version = "0.32.0", default-features = false }
 
 
 [dependencies.tracing]
 default-features = false
 version = "0.1"
+features = ["attributes"]

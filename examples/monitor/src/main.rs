@@ -50,12 +50,9 @@ async fn produce_task_with_ctx(storage: &mut JsonStorage<Email>) -> Result<()> {
         text: "Test background job from apalis".to_string(),
         subject: "Welcome Sentry Email".to_string(),
     };
-    // This might come from a http request etc
-    let context = TracingContext::new()
-        .with_trace_id("1234567890abcdef")
-        .with_span_id("abcdef1234567890")
-        .with_trace_flags(1)
-        .with_trace_state("key=value");
+    // Capture whichever tracing context is currently active.
+    let _guard = tracing::info_span!("enqueue-email").entered();
+    let context = TracingContext::current();
     let task = Task::builder(email).meta(context).build();
     storage.push_task(task).await?;
     Ok(())
