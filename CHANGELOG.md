@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- **deps(deps)**: bump sentry-* from 0.46.2 to 0.47.0 ([#715](https://github.com/apalis-dev/apalis/pull/715))
 - **chore**: bump to v1.0.0 rc.7 ([#714](https://github.com/apalis-dev/apalis/pull/714))
 - **chore**: bump to v1.0.0 rc.6 ([#705](https://github.com/apalis-dev/apalis/pull/705))
 - **fix (workflow)**: remove Display constraints in workflow service ([#704](https://github.com/apalis-dev/apalis/pull/704))

@@ -645,7 +645,7 @@ version = "0.50.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.num-conv]]
-version = "0.2.0"
+version = "0.2.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.num-traits]]
@@ -909,7 +909,7 @@ version = "0.8.10"
 criteria = "safe-to-deploy"
 
 [[exemptions.reqwest]]
-version = "0.12.28"
+version = "0.13.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.ring]]
@@ -981,43 +981,43 @@ version = "1.0.27"
 criteria = "safe-to-deploy"
 
 [[exemptions.sentry]]
-version = "0.46.2"
+version = "0.47.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.sentry-actix]]
-version = "0.46.2"
+version = "0.47.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.sentry-backtrace]]
-version = "0.46.2"
+version = "0.47.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.sentry-contexts]]
-version = "0.46.2"
+version = "0.47.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.sentry-core]]
-version = "0.46.2"
+version = "0.47.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.sentry-debug-images]]
-version = "0.46.2"
+version = "0.47.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.sentry-panic]]
-version = "0.46.2"
+version = "0.47.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.sentry-tower]]
-version = "0.46.2"
+version = "0.47.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.sentry-tracing]]
-version = "0.46.2"
+version = "0.47.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.sentry-types]]
-version = "0.46.2"
+version = "0.47.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.serde]]
@@ -1225,7 +1225,7 @@ version = "1.0.24"
 criteria = "safe-to-deploy"
 
 [[exemptions.unicode-segmentation]]
-version = "1.12.0"
+version = "1.13.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.unicode-xid]]
