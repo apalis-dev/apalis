@@ -33,8 +33,6 @@ pin-project = "1"
 thiserror = "2.0.0"
 futures-timer = { version = "3.0.3", optional = true }
 tracing = { version = "0.1.41", default-features = false, optional = true }
-opentelemetry = { version = "0.31.0", optional = true, default-features = false, features = ["trace"] }
-tracing-opentelemetry = { version = "0.32.0", default-features = false, optional = true }
 
 [dependencies.document-features]
 version = "0.2"
@@ -49,7 +47,7 @@ sleep = ["dep:futures-timer"]
 ## Enable serde support
 serde = ["dep:serde"]
 ## Enable tracing support
-tracing = ["dep:tracing", "dep:opentelemetry", "dep:tracing-opentelemetry"]
+tracing = ["dep:tracing"]
 ## Enable test utilities
 test-utils = []
 

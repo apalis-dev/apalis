@@ -46,97 +46,75 @@ impl<T, Args: Send + Sync, Ctx: MetadataExt<T> + Send + Sync, IdType: Send + Syn
     }
 }
 
-/// Metadata used specifically for storing the tracing context
+/// Metadata used specifically for storing tracing context.
 #[cfg(feature = "tracing")]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Default, Clone)]
 pub struct TracingContext {
-    traceparent: Option<String>,
-    tracestate: Option<String>,
+    trace_id: Option<String>,
+    span_id: Option<String>,
+    trace_flags: Option<u8>,
+    trace_state: Option<String>,
 }
 
 #[cfg(feature = "tracing")]
 impl TracingContext {
     /// Create a new empty `TracingContext`.
     #[must_use]
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self::default()
     }
 
-    /// Get the `traceparent` header value.
+    /// Set the trace ID.
     #[must_use]
-    pub fn traceparent(&self) -> Option<&str> {
-        self.traceparent.as_deref()
+    pub fn with_trace_id(mut self, trace_id: impl Into<String>) -> Self {
+        self.trace_id = Some(trace_id.into());
+        self
     }
 
-    /// Get the `tracestate` header value.
+    /// Set the span ID.
     #[must_use]
-    pub fn tracestate(&self) -> Option<&str> {
-        self.tracestate.as_deref()
+    pub fn with_span_id(mut self, span_id: impl Into<String>) -> Self {
+        self.span_id = Some(span_id.into());
+        self
     }
 
-    /// Capture tracing context from the currently active span.
-    ///
-    /// Returns `None` if no `traceparent` could be extracted from the current context.
+    /// Set the trace flags.
     #[must_use]
-    pub fn current() -> Self {
-        use tracing_opentelemetry::OpenTelemetrySpanExt as _;
-
-        let mut context = Self::new();
-        let current = tracing::Span::current().context();
-        opentelemetry::global::get_text_map_propagator(|propagator| {
-            propagator.inject_context(&current, &mut context);
-        });
-
-        context
+    pub fn with_trace_flags(mut self, trace_flags: u8) -> Self {
+        self.trace_flags = Some(trace_flags);
+        self
     }
 
-    /// Restore this context as the OpenTelemetry parent of the provided span.
-    pub fn restore(&self, span: &tracing::Span) {
-        use opentelemetry::trace::TraceContextExt as _;
-        use tracing_opentelemetry::OpenTelemetrySpanExt as _;
-
-        let parent_context =
-            opentelemetry::global::get_text_map_propagator(|propagator| propagator.extract(self));
-
-        if parent_context.span().span_context().is_valid() {
-            let _ = span.set_parent(parent_context);
-        }
-    }
-}
-
-#[cfg(feature = "tracing")]
-impl opentelemetry::propagation::Extractor for TracingContext {
-    fn get(&self, key: &str) -> Option<&str> {
-        if key.eq_ignore_ascii_case("traceparent") {
-            return self.traceparent();
-        }
-        if key.eq_ignore_ascii_case("tracestate") {
-            return self.tracestate();
-        }
-        None
+    /// Set the trace state.
+    #[must_use]
+    pub fn with_trace_state(mut self, trace_state: impl Into<String>) -> Self {
+        self.trace_state = Some(trace_state.into());
+        self
     }
 
-    fn keys(&self) -> Vec<&str> {
-        let mut keys = Vec::with_capacity(2);
-        if self.traceparent().is_some() {
-            keys.push("traceparent");
-        }
-        if self.tracestate.is_some() {
-            keys.push("tracestate");
-        }
-        keys
+    /// Get the trace ID.
+    #[must_use]
+    pub fn trace_id(&self) -> &Option<String> {
+        &self.trace_id
     }
-}
 
-#[cfg(feature = "tracing")]
-impl opentelemetry::propagation::Injector for TracingContext {
-    fn set(&mut self, key: &str, value: String) {
-        if key.eq_ignore_ascii_case("traceparent") {
-            self.traceparent = Some(value);
-        } else if key.eq_ignore_ascii_case("tracestate") {
-            self.tracestate = Some(value);
-        }
+    /// Get the span ID.
+    #[must_use]
+    pub fn span_id(&self) -> &Option<String> {
+        &self.span_id
+    }
+
+    /// Get the trace flags.
+    #[must_use]
+    pub fn trace_flags(&self) -> &Option<u8> {
+        &self.trace_flags
+    }
+
+    /// Get the trace state.
+    #[must_use]
+    pub fn trace_state(&self) -> &Option<String> {
+        &self.trace_state
     }
 }
 
@@ -208,20 +186,19 @@ mod tests {
 
     #[cfg(feature = "tracing")]
     #[test]
-    fn tracing_context_stores_otel_headers_via_injector() {
-        use opentelemetry::propagation::{Extractor as _, Injector as _};
-
-        let mut context = crate::task::metadata::TracingContext::new();
-        context.set(
-            "traceparent",
-            "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01".to_owned(),
-        );
-        context.set("tracestate", "vendor=acme".to_string());
+    fn tracing_context_keeps_explicit_fields() {
+        let context = crate::task::metadata::TracingContext::new()
+            .with_trace_id("4bf92f3577b34da6a3ce929d0e0e4736")
+            .with_span_id("00f067aa0ba902b7")
+            .with_trace_flags(1)
+            .with_trace_state("vendor=acme");
 
         assert_eq!(
-            context.get("traceparent"),
-            Some("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
+            context.trace_id(),
+            &Some("4bf92f3577b34da6a3ce929d0e0e4736".to_string())
         );
-        assert_eq!(context.get("tracestate"), Some("vendor=acme"));
+        assert_eq!(context.span_id(), &Some("00f067aa0ba902b7".to_string()));
+        assert_eq!(context.trace_flags(), &Some(1));
+        assert_eq!(context.trace_state(), &Some("vendor=acme".to_string()));
     }
 }

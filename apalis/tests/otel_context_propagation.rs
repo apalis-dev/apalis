@@ -1,14 +1,13 @@
 use std::sync::{Arc, Mutex, Once};
 
 use apalis::{
-    layers::tracing::{ContextualTaskSpan, TraceLayer, TracingContext},
+    layers::tracing::{ContextualTaskSpan, OtelTraceContext, TraceLayer, TracingContext},
     prelude::*,
 };
 use apalis_core::{error::BoxDynError, task::metadata::Meta};
 use futures::SinkExt;
 use opentelemetry::{
     global,
-    propagation::Injector as _,
     trace::{TraceContextExt as _, TracerProvider as _},
 };
 use opentelemetry_sdk::{propagation::TraceContextPropagator, trace::SdkTracerProvider};
@@ -57,7 +56,7 @@ async fn otel_context_propagates_producer_to_consumer() {
     let (_producer_guard, producer_observed, metadata) = {
         let _guard = producer.enter();
         let observed = current_span_context();
-        let metadata = TracingContext::current();
+        let metadata = TracingContext::from(OtelTraceContext::current());
         (_guard, observed, metadata)
     };
 
@@ -129,8 +128,10 @@ async fn otel_context_invalid_traceparent_is_ignored_safely() {
     init_otel_for_tests();
 
     let mut backend = MemoryStorage::new();
-    let mut invalid_context = TracingContext::default();
-    invalid_context.set("traceparent", "totally-invalid".to_owned());
+    let invalid_context = TracingContext::new()
+        .with_trace_id("not-a-valid-trace-id")
+        .with_span_id("invalid-span")
+        .with_trace_flags(1);
 
     backend
         .send(Task::builder(1_u8).meta(invalid_context).build())
@@ -163,8 +164,8 @@ async fn otel_tracestate_roundtrip_is_preserved() {
     init_otel_for_tests();
 
     let mut backend = MemoryStorage::new();
-    let mut metadata = TracingContext::current();
-    metadata.set("tracestate", "vendor=acme".to_owned());
+    let metadata =
+        TracingContext::from(OtelTraceContext::current()).with_trace_state("vendor=acme");
 
     backend
         .send(Task::builder(1_u8).meta(metadata).build())
@@ -182,7 +183,7 @@ async fn otel_tracestate_roundtrip_is_preserved() {
                 let observed_tracestate_clone = Arc::clone(&observed_tracestate_clone);
                 async move {
                     *observed_tracestate_clone.lock().unwrap() =
-                        Some(tracing_meta.tracestate().map(ToOwned::to_owned));
+                        Some(tracing_meta.trace_state().as_ref().map(ToOwned::to_owned));
                     worker.stop().unwrap();
                     Ok::<(), BoxDynError>(())
                 }

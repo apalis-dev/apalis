@@ -1,5 +1,5 @@
 use anyhow::Result;
-use apalis::layers::tracing::{ContextualTaskSpan, TraceLayer, TracingContext};
+use apalis::layers::tracing::{ContextualTaskSpan, OtelTraceContext, TraceLayer, TracingContext};
 use apalis::layers::WorkerBuilderExt;
 use apalis::prelude::*;
 use futures::SinkExt;
@@ -73,7 +73,9 @@ async fn produce_task_with_ctx(storage: &mut MemoryStorage<Email>) -> Result<()>
         text: "Test background job from apalis".to_string(),
         subject: "Welcome Sentry Email".to_string(),
     };
-    let task = Task::builder(email).meta(TracingContext::current()).build();
+    let task = Task::builder(email)
+        .meta(TracingContext::from(OtelTraceContext::current()))
+        .build();
     storage.send(task).await?;
     Ok(())
 }

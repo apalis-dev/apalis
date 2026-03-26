@@ -300,7 +300,6 @@ dependencies = [
  "futures-sink",
  "futures-timer",
  "futures-util",
- "opentelemetry",
  "pin-project",
  "serde",
  "thiserror 2.0.18",
@@ -309,7 +308,6 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
- "tracing-opentelemetry",
 ]
 
 [[package]]
