@@ -3,6 +3,8 @@ mod make_span;
 mod on_failure;
 mod on_request;
 mod on_response;
+#[cfg(feature = "opentelemetry")]
+mod otel_context;
 
 use apalis_core::task::Task;
 use std::{
@@ -22,6 +24,8 @@ pub use self::{
     on_response::{DefaultOnResponse, OnResponse},
 };
 pub use apalis_core::task::metadata::TracingContext;
+#[cfg(feature = "opentelemetry")]
+pub use otel_context::OtelTraceContext;
 use tower::Layer;
 
 const DEFAULT_MESSAGE_LEVEL: Level = Level::DEBUG;

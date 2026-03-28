@@ -46,7 +46,7 @@ impl<T, Args: Send + Sync, Ctx: MetadataExt<T> + Send + Sync, IdType: Send + Syn
     }
 }
 
-/// Metadata used specifically for storing the tracing context
+/// Metadata used specifically for storing tracing context.
 #[cfg(feature = "tracing")]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Default, Clone)]
@@ -182,5 +182,23 @@ mod tests {
                 svc.call(request).await
             })
         }
+    }
+
+    #[cfg(feature = "tracing")]
+    #[test]
+    fn tracing_context_keeps_explicit_fields() {
+        let context = crate::task::metadata::TracingContext::new()
+            .with_trace_id("4bf92f3577b34da6a3ce929d0e0e4736")
+            .with_span_id("00f067aa0ba902b7")
+            .with_trace_flags(1)
+            .with_trace_state("vendor=acme");
+
+        assert_eq!(
+            context.trace_id(),
+            &Some("4bf92f3577b34da6a3ce929d0e0e4736".to_string())
+        );
+        assert_eq!(context.span_id(), &Some("00f067aa0ba902b7".to_string()));
+        assert_eq!(context.trace_flags(), &Some(1));
+        assert_eq!(context.trace_state(), &Some("vendor=acme".to_string()));
     }
 }

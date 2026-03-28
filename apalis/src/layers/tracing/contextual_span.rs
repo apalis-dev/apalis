@@ -6,6 +6,8 @@ use apalis_core::task::{
 };
 use tracing::{Level, Span};
 
+#[cfg(feature = "opentelemetry")]
+use crate::layers::tracing::OtelTraceContext;
 use crate::layers::tracing::{DEFAULT_MESSAGE_LEVEL, MakeSpan};
 
 /// A [`Span`]s whose context that was created in a previous operation now used in the current [`Trace`] context.
@@ -56,7 +58,7 @@ where
             .as_ref()
             .expect("A task must have an ID")
             .to_string();
-        let tracing_ctx = req.parts.ctx.extract().unwrap_or_default();
+        let tracing_ctx: TracingContext = req.parts.ctx.extract().unwrap_or_default();
         let attempt = &req.parts.attempt;
         let span = Span::current();
 
@@ -68,20 +70,21 @@ where
                     "task",
                     task_id = task_id,
                     attempt = attempt.current(),
-                    trace_id = tracing_ctx.trace_id(),
-                    span_id = tracing_ctx.span_id(),
-                    trace_flags = tracing_ctx.trace_flags(),
-                    trace_state = tracing_ctx.trace_state(),
                 )
             };
         }
 
-        match self.level {
+        let span = match self.level {
             Level::ERROR => make_span!(Level::ERROR),
             Level::WARN => make_span!(Level::WARN),
             Level::INFO => make_span!(Level::INFO),
             Level::DEBUG => make_span!(Level::DEBUG),
             Level::TRACE => make_span!(Level::TRACE),
-        }
+        };
+
+        #[cfg(feature = "opentelemetry")]
+        OtelTraceContext::from(tracing_ctx).restore(&span);
+
+        span
     }
 }

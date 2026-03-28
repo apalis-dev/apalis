@@ -1,6 +1,6 @@
 use anyhow::Result;
 use apalis::layers::WorkerBuilderExt;
-use apalis::layers::tracing::{ContextualTaskSpan, TraceLayer, TracingContext};
+use apalis::layers::tracing::{ContextualTaskSpan, OtelTraceContext, TraceLayer, TracingContext};
 use apalis::prelude::*;
 use apalis_file_storage::JsonStorage;
 use std::error::Error;
@@ -50,12 +50,7 @@ async fn produce_task_with_ctx(storage: &mut JsonStorage<Email>) -> Result<()> {
         text: "Test background job from apalis".to_string(),
         subject: "Welcome Sentry Email".to_string(),
     };
-    // This might come from a http request etc
-    let context = TracingContext::new()
-        .with_trace_id("1234567890abcdef")
-        .with_span_id("abcdef1234567890")
-        .with_trace_flags(1)
-        .with_trace_state("key=value");
+    let context = TracingContext::from(OtelTraceContext::current());
     let task = Task::builder(email).meta(context).build();
     storage.push_task(task).await?;
     Ok(())

@@ -204,6 +204,10 @@ criteria = "safe-to-deploy"
 version = "0.1.57"
 criteria = "safe-to-deploy"
 
+[[exemptions.cmake]]
+version = "0.1.58"
+criteria = "safe-to-deploy"
+
 [[exemptions.colorchoice]]
 version = "1.0.5"
 criteria = "safe-to-deploy"
@@ -1208,6 +1212,10 @@ criteria = "safe-to-deploy"
 version = "0.3.23"
 criteria = "safe-to-deploy"
 
+[[exemptions.tracing-opentelemetry]]
+version = "0.32.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.try-lock]]
 version = "0.2.5"
 criteria = "safe-to-deploy"
@@ -1226,6 +1234,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.unicode-segmentation]]
 version = "1.13.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.unicode-segmentation]]
+version = "1.13.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.unicode-xid]]
@@ -1266,6 +1278,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.uuid]]
 version = "1.22.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.uuid]]
+version = "1.23.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.valuable]]
