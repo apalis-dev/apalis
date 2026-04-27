@@ -191,7 +191,7 @@ impl JsonStorage<Value> {
                             args: task.args.clone(),
                             ctx: task.parts.ctx.clone(),
                             result: None,
-                            idempotency_key: task.parts.idempotency_key.clone()
+                            idempotency_key: task.parts.idempotency_key.clone(),
                         },
                     )
                     .unwrap();

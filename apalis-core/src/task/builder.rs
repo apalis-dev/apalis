@@ -42,7 +42,7 @@ pub struct TaskBuilder<Args, Ctx, IdType> {
     pub(super) attempt: Option<Attempt>,
     pub(super) status: Option<Status>,
     pub(super) run_at: Option<u64>,
-    pub (super) idempotency_key: Option<String>,
+    pub(super) idempotency_key: Option<String>,
 }
 
 impl<Args, Ctx, IdType> TaskBuilder<Args, Ctx, IdType> {
@@ -60,7 +60,7 @@ impl<Args, Ctx, IdType> TaskBuilder<Args, Ctx, IdType> {
             attempt: None,
             status: None,
             run_at: None,
-            idempotency_key: Default::default()
+            idempotency_key: Default::default(),
         }
     }
 
@@ -193,7 +193,7 @@ impl<Args, Ctx, IdType> TaskBuilder<Args, Ctx, IdType> {
                 ctx: self.ctx,
                 status: self.status.unwrap_or(Status::Pending).into(),
                 run_at: self.run_at.unwrap_or_else(current_time),
-                idempotency_key: self.idempotency_key
+                idempotency_key: self.idempotency_key,
             },
         }
     }

@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- **feat**: idempotency for tasks ([#726](https://github.com/apalis-dev/apalis/pull/726))
 - **fix(tracing)**: improve OpenTelemetry context propagation across worker tracing layers ([#716](https://github.com/apalis-dev/apalis/pull/716))
 - **deps(deps)**: bump sentry-* from 0.46.2 to 0.47.0 ([#715](https://github.com/apalis-dev/apalis/pull/715))
 - **chore**: bump to v1.0.0 rc.7 ([#714](https://github.com/apalis-dev/apalis/pull/714))

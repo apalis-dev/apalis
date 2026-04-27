@@ -909,7 +909,7 @@ version = "0.8.10"
 criteria = "safe-to-deploy"
 
 [[exemptions.reqwest]]
-version = "0.13.2"
+version = "0.13.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.ring]]
