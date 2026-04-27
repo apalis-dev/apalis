@@ -42,6 +42,7 @@ pub struct TaskBuilder<Args, Ctx, IdType> {
     pub(super) attempt: Option<Attempt>,
     pub(super) status: Option<Status>,
     pub(super) run_at: Option<u64>,
+    pub (super) idempotency_key: Option<String>,
 }
 
 impl<Args, Ctx, IdType> TaskBuilder<Args, Ctx, IdType> {
@@ -59,6 +60,7 @@ impl<Args, Ctx, IdType> TaskBuilder<Args, Ctx, IdType> {
             attempt: None,
             status: None,
             run_at: None,
+            idempotency_key: Default::default()
         }
     }
 
@@ -165,6 +167,13 @@ impl<Args, Ctx, IdType> TaskBuilder<Args, Ctx, IdType> {
         self.run_after(Duration::from_secs(hours * 3600))
     }
 
+    /// Set the idempotency key
+    #[must_use]
+    pub fn with_idempotency_key<S: AsRef<str>>(mut self, idempotency_key: S) -> Self {
+        self.idempotency_key = Some(idempotency_key.as_ref().to_owned());
+        self
+    }
+
     /// Build the Task with default context
     #[must_use]
     pub fn build(self) -> Task<Args, Ctx, IdType> {
@@ -184,6 +193,7 @@ impl<Args, Ctx, IdType> TaskBuilder<Args, Ctx, IdType> {
                 ctx: self.ctx,
                 status: self.status.unwrap_or(Status::Pending).into(),
                 run_at: self.run_at.unwrap_or_else(current_time),
+                idempotency_key: self.idempotency_key
             },
         }
     }

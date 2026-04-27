@@ -1,0 +1,19 @@
+[package]
+name = "unique-jobs-example"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow = "1"
+apalis = { path = "../../apalis", features = ["retry", "limit"] }
+serde = "1"
+tracing-subscriber = "0.3.20"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+tokio = { version = "1", features = ["full"] }
+email-service = { path = "../email-service" }
+
+[dependencies.tracing]
+default-features = false
+version = "0.1"

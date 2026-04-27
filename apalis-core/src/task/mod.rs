@@ -165,6 +165,9 @@ pub struct Parts<Context, IdType> {
 
     /// The time a task should be run
     pub run_at: u64,
+
+    /// Adds a unique key to enforce job uniqueness when used
+    pub idempotency_key: Option<String>
 }
 
 impl<Ctx: Debug, IdType: Debug> Debug for Parts<Ctx, IdType> {
@@ -176,6 +179,7 @@ impl<Ctx: Debug, IdType: Debug> Debug for Parts<Ctx, IdType> {
             .field("ctx", &self.ctx)
             .field("status", &self.status.load())
             .field("run_at", &self.run_at)
+            .field("idempotency_key", &self.idempotency_key)
             .finish()
     }
 }
@@ -192,6 +196,7 @@ where
             ctx: self.ctx.clone(),
             status: self.status.clone(),
             run_at: self.run_at,
+            idempotency_key: self.idempotency_key.clone()
         }
     }
 }
@@ -221,6 +226,7 @@ impl<Args, Ctx, IdType> Task<Args, Ctx, IdType> {
                         now.duration_since(UNIX_EPOCH).expect("Time went backwards");
                     duration_since_epoch.as_secs()
                 },
+                idempotency_key: Default::default()
             },
         }
     }
@@ -241,6 +247,8 @@ impl<Args, Ctx, IdType> Task<Args, Ctx, IdType> {
                         now.duration_since(UNIX_EPOCH).expect("Time went backwards");
                     duration_since_epoch.as_secs()
                 },
+                idempotency_key: Default::default()
+
             },
         }
     }
@@ -267,6 +275,7 @@ impl<Args, Ctx, IdType> Task<Args, Ctx, IdType> {
             status: Some(self.parts.status.into()),
             run_at: Some(self.parts.run_at),
             task_id: self.parts.task_id,
+            idempotency_key: self.parts.idempotency_key
         }
     }
 }

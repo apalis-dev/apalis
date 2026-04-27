@@ -50,6 +50,7 @@ pub struct TaskWithMeta {
     pub(super) args: Value,
     pub(super) ctx: JsonMapMetadata,
     pub(super) result: Option<Value>,
+    pub(super) idempotency_key: Option<String>,
 }
 
 #[derive(Debug)]

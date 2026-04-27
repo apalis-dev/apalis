@@ -33,7 +33,7 @@
 ## Features
 
 - **Simple and predictable task handling** - [Task handlers](https://docs.rs/apalis-core/1.0.0-rc.7/apalis_core/task_fn/guide/index.html) are just async functions with a macro-free API
-- **Robust task execution** - Built-in support for retries, timeouts, and error handling
+- **Robust task execution** - Built-in support for retries, rate limits, timeouts, idempotency and error handling
 - **Multiple storage backends** - Support for Redis, PostgreSQL, SQLite, and in-memory storage
 - **Advanced task management** - Task prioritization, scheduling, metadata, and result tracking
 - **Scalable by design** - Distributed backends with configurable concurrency and multi-threaded execution

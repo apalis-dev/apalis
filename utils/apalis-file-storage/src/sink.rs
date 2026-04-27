@@ -18,8 +18,9 @@ use crate::{
     util::{TaskKey, TaskWithMeta},
 };
 
-impl<Args: Unpin + Serialize + for<'de> Deserialize<'de>>
-    Sink<Task<Value, JsonMapMetadata, RandomId>> for JsonStorage<Args>
+impl<Args> Sink<Task<Value, JsonMapMetadata, RandomId>> for JsonStorage<Args>
+where
+    Args: Unpin + Serialize + for<'de> Deserialize<'de>,
 {
     type Error = SendError;
 
@@ -33,16 +34,56 @@ impl<Args: Unpin + Serialize + for<'de> Deserialize<'de>>
     ) -> Result<(), Self::Error> {
         let this = Pin::get_mut(self);
 
-        this.buffer.push(item);
+        let task_id = item
+            .parts
+            .task_id
+            .clone()
+            .unwrap_or(TaskId::new(RandomId::default()));
+
+        let queue = std::any::type_name::<Args>().to_owned();
+        let idempotency_key = item.parts.idempotency_key.clone();
+
+        // Prevent duplicates already stored in tasks
+        if let Some(ref key) = idempotency_key {
+            let tasks = this.tasks.read().unwrap();
+
+            let exists = tasks.values().any(|task| {
+                task.idempotency_key
+                    .as_ref()
+                    .map(|existing| existing == key)
+                    .unwrap_or(false)
+            });
+
+            if exists {
+                return Ok(());
+            }
+        }
+
+        let task_key = TaskKey {
+            task_id,
+            queue,
+            status: apalis_core::task::status::Status::Pending,
+        };
+
+        this.tasks.write().unwrap().insert(
+            task_key,
+            TaskWithMeta {
+                args: item.args,
+                ctx: item.parts.ctx,
+                result: None,
+                idempotency_key,
+            },
+        );
+
         Ok(())
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let this = Pin::get_mut(self);
-        let tasks: Vec<_> = this.buffer.drain(..).collect();
-        for task in tasks {
-            use apalis_core::task::task_id::RandomId;
 
+        let tasks: Vec<_> = this.buffer.drain(..).collect();
+
+        for task in tasks {
             let task_id = task
                 .parts
                 .task_id
@@ -54,16 +95,19 @@ impl<Args: Unpin + Serialize + for<'de> Deserialize<'de>>
                 queue: std::any::type_name::<Args>().to_owned(),
                 status: apalis_core::task::status::Status::Pending,
             };
+
             this.insert(
                 &key,
                 TaskWithMeta {
                     args: task.args,
                     ctx: task.parts.ctx,
                     result: None,
+                    idempotency_key: task.parts.idempotency_key.clone(),
                 },
             )
             .unwrap();
         }
+
         Poll::Ready(Ok(()))
     }
 

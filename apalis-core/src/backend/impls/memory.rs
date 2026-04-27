@@ -52,10 +52,12 @@ use crate::{
 use futures_channel::mpsc::{SendError, unbounded};
 use futures_core::ready;
 use futures_sink::Sink;
+use futures_util::lock::Mutex;
 use futures_util::{
     FutureExt, SinkExt, Stream, StreamExt,
     stream::{self, BoxStream},
 };
+use std::collections::HashSet;
 use std::{
     pin::Pin,
     sync::Arc,
@@ -130,6 +132,7 @@ impl<Args: Send + 'static> MemoryStorage<Args, Extensions> {
         Self {
             sender: MemorySink {
                 inner: Arc::new(futures_util::lock::Mutex::new(sender)),
+                idempotency_keys: Default::default(),
             },
             receiver: receiver.boxed(),
         }
@@ -168,20 +171,26 @@ impl<Args, Ctx> Sink<Task<Args, Ctx, RandomId>> for MemoryStorage<Args, Ctx> {
 }
 
 type ArcMemorySink<Args, Ctx = Extensions> = Arc<
-    futures_util::lock::Mutex<
+    Mutex<
         Box<dyn Sink<Task<Args, Ctx, RandomId>, Error = SendError> + Send + Sync + Unpin + 'static>,
     >,
 >;
 
+type ArcIdempotencySet = Arc<Mutex<HashSet<String>>>;
+
 /// Memory sink for sending tasks to the in-memory backend
 pub struct MemorySink<Args, Ctx = Extensions> {
     pub(super) inner: ArcMemorySink<Args, Ctx>,
+    pub(super) idempotency_keys: ArcIdempotencySet,
 }
 
 impl<Args, Ctx> MemorySink<Args, Ctx> {
     /// Build a new memory sink given a sink
     pub fn new(sink: ArcMemorySink<Args, Ctx>) -> Self {
-        Self { inner: sink }
+        Self {
+            inner: sink,
+            idempotency_keys: Arc::new(Mutex::new(HashSet::new())),
+        }
     }
 }
 
@@ -189,6 +198,7 @@ impl<Args, Ctx> std::fmt::Debug for MemorySink<Args, Ctx> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MemorySink")
             .field("inner", &"<Sink>")
+            .field("idempotency_keys", &self.idempotency_keys.lock())
             .finish()
     }
 }
@@ -197,6 +207,7 @@ impl<Args, Ctx> Clone for MemorySink<Args, Ctx> {
     fn clone(&self) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
+            idempotency_keys: Arc::clone(&self.idempotency_keys),
         }
     }
 }
@@ -213,12 +224,25 @@ impl<Args, Ctx> Sink<Task<Args, Ctx, RandomId>> for MemorySink<Args, Ctx> {
         self: Pin<&mut Self>,
         mut item: Task<Args, Ctx, RandomId>,
     ) -> Result<(), Self::Error> {
-        let mut lock = self.inner.try_lock().unwrap();
-        // Ensure task has id
+        let this = self.get_mut();
+
+        // Ensure task id exists
         item.parts
             .task_id
             .get_or_insert_with(|| TaskId::new(RandomId::default()));
-        Pin::new(&mut *lock).start_send_unpin(item)
+
+        if let Some(key) = item.parts.idempotency_key.as_ref() {
+            let mut keys = this.idempotency_keys.try_lock().unwrap();
+
+            if keys.contains(key) {
+                return Ok(());
+            }
+
+            keys.insert(key.clone());
+        }
+
+        let mut sink = this.inner.try_lock().unwrap();
+        Pin::new(&mut *sink).start_send_unpin(item)
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {

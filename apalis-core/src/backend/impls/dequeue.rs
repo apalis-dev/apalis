@@ -275,20 +275,40 @@ where
             },
         )
         .sink(|db, _| {
-            Box::pin(sink::unfold(db.clone(), move |p, item| {
-                async move {
-                    let Some(mut db) = p.inner.try_lock() else {
-                        return Err(VecDequeError::PollError(Arc::new(
-                            "Failed to acquire lock".into(),
-                        )));
-                    };
-                    db.push_back(item);
-                    drop(db);
-                    Ok::<_, VecDequeError>(p)
-                }
-                .boxed()
-                .shared()
-            })) as _
+            Box::pin(sink::unfold(
+                db.clone(),
+                move |p, item: Task<T, (), RandomId>| {
+                    async move {
+                        let Some(mut db) = p.inner.try_lock() else {
+                            return Err(VecDequeError::PollError(Arc::new(
+                                "Failed to acquire lock".into(),
+                            )));
+                        };
+
+                        if let Some(ref key) = item.parts.idempotency_key {
+                            let exists = db.iter().any(|task| {
+                                task.parts
+                                    .idempotency_key
+                                    .as_ref()
+                                    .map(|existing| existing == key)
+                                    .unwrap_or(false)
+                            });
+
+                            if exists {
+                                drop(db);
+                                return Ok::<_, VecDequeError>(p);
+                            }
+                        }
+
+                        db.push_back(item);
+                        drop(db);
+
+                        Ok::<_, VecDequeError>(p)
+                    }
+                    .boxed()
+                    .shared()
+                },
+            )) as _
         })
         .build()
         .unwrap();
