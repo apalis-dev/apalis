@@ -74,7 +74,7 @@ optional = true
 tower = { version = "0.5.2", features = ["util"], default-features = false }
 sentry-core = { version = "0.47.0", optional = true, default-features = false }
 metrics = { version = "0.24.0", optional = true, default-features = false }
-metrics-exporter-prometheus = { version = "0.18.1", optional = true, default-features = false }
+metrics-exporter-prometheus = { version = "0.18.3", optional = true, default-features = false }
 opentelemetry = { version = "0.31.0", optional = true, default-features = false, features = ["metrics"] }
 tracing-opentelemetry = { version = "0.32.0", optional = true, default-features = false }
 futures-util = { version = "0.3.31", optional = true, default-features = false }
