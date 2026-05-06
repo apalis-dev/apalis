@@ -68,3 +68,7 @@ audited_as = "0.1.0-rc.5"
 [[unpublished.apalis-workflow]]
 version = "0.1.0-rc.7"
 audited_as = "0.1.0-rc.6"
+
+[[unpublished.apalis-workflow]]
+version = "0.1.0-rc.8"
+audited_as = "0.1.0-rc.7"
