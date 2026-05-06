@@ -76,18 +76,16 @@ async fn main() -> Result<()> {
 
     Monitor::new()
         .register(move |_run_id| {
-            let avocado_worker = WorkerBuilder::new("tasty-avocado")
+            WorkerBuilder::new("tasty-avocado")
                 .backend(avocado_backend.clone())
                 .enable_tracing()
-                .build(email_service);
-            avocado_worker
+                .build(email_service)
         })
         .register(move |_run_id| {
-            let pear_worker = WorkerBuilder::new("tasty-pear")
+            WorkerBuilder::new("tasty-pear")
                 .backend(pear_backend.clone())
                 .layer(TraceLayer::new().make_span_with(ContextualTaskSpan::new()))
-                .build(email_service);
-            pear_worker
+                .build(email_service)
         })
         // Collect all the events from all workers
         .on_event(|ctx, ev| {

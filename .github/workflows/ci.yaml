@@ -78,7 +78,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --workspace --all-features
+          args: --workspace --all-features --all -- -D warnings
 
   doc:
     runs-on: ubuntu-latest
