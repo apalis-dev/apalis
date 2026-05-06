@@ -58,6 +58,7 @@ where
             .as_ref()
             .expect("A task must have an ID")
             .to_string();
+        #[cfg(feature = "opentelemetry")]
         let tracing_ctx: TracingContext = req.parts.ctx.extract().unwrap_or_default();
         let attempt = &req.parts.attempt;
         let span = Span::current();

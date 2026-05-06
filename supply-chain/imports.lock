@@ -17,6 +17,10 @@ audited_as = "1.0.0-rc.5"
 version = "1.0.0-rc.7"
 audited_as = "1.0.0-rc.6"
 
+[[unpublished.apalis]]
+version = "1.0.0-rc.8"
+audited_as = "1.0.0-rc.7"
+
 [[unpublished.apalis-core]]
 version = "1.0.0-rc.5"
 audited_as = "1.0.0-rc.3"
@@ -28,6 +32,10 @@ audited_as = "1.0.0-rc.5"
 [[unpublished.apalis-core]]
 version = "1.0.0-rc.7"
 audited_as = "1.0.0-rc.6"
+
+[[unpublished.apalis-core]]
+version = "1.0.0-rc.8"
+audited_as = "1.0.0-rc.7"
 
 [[unpublished.apalis-sql]]
 version = "1.0.0-rc.3"
@@ -44,6 +52,10 @@ audited_as = "1.0.0-rc.5"
 [[unpublished.apalis-sql]]
 version = "1.0.0-rc.7"
 audited_as = "1.0.0-rc.6"
+
+[[unpublished.apalis-sql]]
+version = "1.0.0-rc.8"
+audited_as = "1.0.0-rc.7"
 
 [[unpublished.apalis-workflow]]
 version = "0.1.0-rc.5"

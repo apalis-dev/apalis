@@ -428,6 +428,8 @@ where
             }
         })
         .boxed();
+
+        #[allow(clippy::needless_continue)]
         let work_stream =
             futures_util::stream_select!(wait_for_exit, heartbeat, tasks).map(move |res| {
                 if let Ok(e) = &res {

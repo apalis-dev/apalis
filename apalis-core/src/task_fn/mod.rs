@@ -156,6 +156,7 @@ macro_rules! impl_service_fn {
                 let mut svc = self.f.clone();
                 #[allow(non_snake_case)]
                 let fut = async move {
+                    #[allow(clippy::double_parens)]
                     let results: Result<($($K),+), BoxDynError> = { Ok(($($K::from_request(&task).await.map_err(|e| Box::new(e) as BoxDynError)?),+)) };
                     match results {
                         Ok(($($K),+)) => {
