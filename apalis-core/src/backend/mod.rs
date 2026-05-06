@@ -35,6 +35,7 @@ pub mod pipe;
 pub mod poll_strategy;
 pub mod queue;
 pub mod shared;
+pub mod partition;
 
 mod expose;
 mod impls;
