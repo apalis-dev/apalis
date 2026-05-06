@@ -27,10 +27,7 @@ pub trait ListQueues: Backend {
 /// Allows listing all workers registered with the backend
 pub trait ListWorkers: Backend {
     /// List all registered workers in the current queue
-    fn list_workers(
-        &self,
-        queue: &str,
-    ) -> impl Future<Output = Result<Vec<RunningWorker>, Self::Error>> + Send;
+    fn list_workers(&self) -> impl Future<Output = Result<Vec<RunningWorker>, Self::Error>> + Send;
 
     /// List all registered workers in all queues
     fn list_all_workers(
@@ -43,7 +40,6 @@ pub trait ListTasks<Args>: Backend {
     #[allow(clippy::type_complexity)]
     fn list_tasks(
         &self,
-        queue: &str,
         filter: &Filter,
     ) -> impl Future<Output = Result<Vec<Task<Args, Self::Context, Self::IdType>>, Self::Error>> + Send;
 }
@@ -66,10 +62,7 @@ pub trait Metrics: Backend {
     fn global(&self) -> impl Future<Output = Result<Vec<Statistic>, Self::Error>> + Send;
 
     /// Collects and returns statistics for a specific queue
-    fn fetch_by_queue(
-        &self,
-        queue: &str,
-    ) -> impl Future<Output = Result<Vec<Statistic>, Self::Error>> + Send;
+    fn fetch_by_queue(&self) -> impl Future<Output = Result<Vec<Statistic>, Self::Error>> + Send;
 }
 
 /// Represents information about a specific queue in the backend

@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- **feat (api)!**: remove queue input in expose endpoints ([#737](https://github.com/geofmureithi/apalis/pull/737))
 - **feat**: idempotency for sql tasks ([#736](https://github.com/geofmureithi/apalis/pull/736))
 - **chore**: bump to v1.0.0 rc.8 ([#734](https://github.com/geofmureithi/apalis/pull/734))
 - **feat**: idempotency for tasks ([#726](https://github.com/apalis-dev/apalis/pull/726))

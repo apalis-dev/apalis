@@ -25,13 +25,12 @@ pub mod prelude {
     pub use crate::layers::WorkerBuilderExt;
     pub use apalis_core::{
         backend::{
-            Backend, FetchById, ListTasks, ListWorkers, Metrics, RegisterWorker, Reschedule,
-            ResumeAbandoned, ResumeById, TaskSink, Update, WaitForCompletion,
+            Backend, BackendExt, Expose, FetchById, Filter, ListAllTasks, ListQueues, ListTasks,
+            ListWorkers, Metrics, QueueInfo, RegisterWorker, Reschedule, ResumeAbandoned,
+            ResumeById, RunningWorker, StatType, Statistic, TaskResult, TaskSink, TaskSinkError,
+            TaskStream, Update, WaitForCompletion,
         },
-        backend::{
-            TaskResult, TaskStream, codec::*, custom::*, memory::MemoryStorage, pipe::*,
-            poll_strategy::*, shared::MakeShared,
-        },
+        backend::{codec::*, custom::*, memory::*, pipe::*, poll_strategy::*, shared::*},
         error::*,
         layers::*,
         monitor::{ExitError, Monitor, MonitorError, MonitoredWorkerError, shutdown::Shutdown},
