@@ -54,6 +54,8 @@ pub struct TaskRow {
     pub priority: Option<usize>,
     /// Additional metadata associated with the task, stored as JSON
     pub metadata: Option<serde_json::Value>,
+    /// Idempotency key for enforcing uniqueness
+    pub idempotency_key: Option<String>,
 }
 
 impl TaskRow {
@@ -89,7 +91,7 @@ impl TaskRow {
             .with_lock_at(self.lock_at.map(|dt| dt.to_unix_timestamp()));
 
         let args = D::decode(&self.job).map_err(|e| FromRowError::DecodeError(e.into()))?;
-        let task = TaskBuilder::new(args)
+        let mut task = TaskBuilder::new(args)
             .with_ctx(ctx)
             .with_attempt(Attempt::new_with_value(self.attempts))
             .with_status(
@@ -103,6 +105,10 @@ impl TaskRow {
                     .ok_or(FromRowError::ColumnNotFound("run_at".to_owned()))?
                     .to_unix_timestamp() as u64,
             );
+
+        if let Some(key) = self.idempotency_key {
+            task = task.with_idempotency_key(key);
+        }
         Ok(task.build())
     }
 
@@ -128,7 +134,7 @@ impl TaskRow {
             .with_queue(self.job_type)
             .with_lock_at(self.lock_at.map(|dt| dt.to_unix_timestamp()));
 
-        let task = TaskBuilder::new(self.job)
+        let mut task = TaskBuilder::new(self.job)
             .with_ctx(ctx)
             .with_attempt(Attempt::new_with_value(self.attempts))
             .with_status(
@@ -142,6 +148,10 @@ impl TaskRow {
                     .ok_or(FromRowError::ColumnNotFound("run_at".to_owned()))?
                     .to_unix_timestamp() as u64,
             );
+
+        if let Some(key) = self.idempotency_key {
+            task = task.with_idempotency_key(key);
+        }
         Ok(task.build())
     }
 }
