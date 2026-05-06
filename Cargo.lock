@@ -241,7 +241,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "apalis"
-version = "1.0.0-rc.8"
+version = "1.0.0-rc.9"
 dependencies = [
  "apalis-core",
  "apalis-file-storage",
@@ -268,7 +268,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-codec"
-version = "0.1.0-rc.8"
+version = "0.1.0-rc.9"
 dependencies = [
  "apalis-core",
  "bincode",
@@ -280,7 +280,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-core"
-version = "1.0.0-rc.8"
+version = "1.0.0-rc.9"
 dependencies = [
  "document-features",
  "futures-channel",
@@ -300,7 +300,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-file-storage"
-version = "0.1.0-rc.8"
+version = "0.1.0-rc.9"
 dependencies = [
  "apalis-codec",
  "apalis-core",
@@ -316,7 +316,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-sql"
-version = "1.0.0-rc.8"
+version = "1.0.0-rc.9"
 dependencies = [
  "apalis-core",
  "chrono",
@@ -328,7 +328,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-workflow"
-version = "0.1.0-rc.8"
+version = "0.1.0-rc.9"
 dependencies = [
  "apalis-core",
  "apalis-file-storage",
@@ -3333,9 +3333,9 @@ dependencies = [
 
 [[package]]
 name = "tower-http"
-version = "0.6.9"
+version = "0.6.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a28f0d049ccfaa566e14e9663d304d8577427b368cb4710a20528690287a738b"
+checksum = "68d6fdd9f81c2819c9a8b0e0cd91660e7746a8e6ea2ba7c6b2b057985f6bcb51"
 dependencies = [
  "bitflags",
  "bytes",

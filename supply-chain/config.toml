@@ -1193,7 +1193,7 @@ version = "0.5.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.tower-http]]
-version = "0.6.9"
+version = "0.6.10"
 criteria = "safe-to-deploy"
 
 [[exemptions.tower-layer]]
