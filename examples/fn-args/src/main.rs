@@ -1,4 +1,5 @@
 use std::{
+    io,
     ops::Deref,
     sync::{
         Arc,
@@ -10,6 +11,16 @@ use apalis::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
+#[derive(Debug)]
+pub struct ApiClient;
+
+impl<T: Sync> FromRequest<T> for ApiClient {
+    type Error = io::Error;
+    async fn from_request(_req: &T) -> Result<Self, Self::Error> {
+        Ok(ApiClient)
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct SimpleJob {}
 
@@ -20,10 +31,13 @@ async fn simple_job(
     task_id: TaskId<RandomId>, // The task id, added by storage
     attempt: Attempt, // The current attempt
     count: Data<Count>, // Our custom data added via layer
+    client: ApiClient, // Injected via `FromRequest`
 ) {
     // increment the counter
     let current = count.fetch_add(1, Ordering::Relaxed);
-    info!("worker: {worker:?}; task_id: {task_id:?}, attempt:{attempt:?} count: {current:?}");
+    info!(
+        "worker: {worker:?}; task_id: {task_id:?}, attempt:{attempt:?} count: {current:?} client: {client:?}"
+    );
 }
 
 async fn produce_jobs(storage: &mut MemoryStorage<SimpleJob>) {

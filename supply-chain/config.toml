@@ -117,11 +117,11 @@ version = "1.5.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.aws-lc-rs]]
-version = "1.16.3"
+version = "1.17.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.aws-lc-sys]]
-version = "0.40.0"
+version = "0.41.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.axum]]
@@ -181,7 +181,7 @@ version = "1.5.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.cc]]
-version = "1.2.61"
+version = "1.2.62"
 criteria = "safe-to-deploy"
 
 [[exemptions.cfg-if]]
@@ -417,7 +417,7 @@ version = "0.16.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.hashbrown]]
-version = "0.17.0"
+version = "0.17.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.hdrhistogram]]
@@ -561,7 +561,7 @@ version = "0.1.34"
 criteria = "safe-to-deploy"
 
 [[exemptions.js-sys]]
-version = "0.3.97"
+version = "0.3.98"
 criteria = "safe-to-deploy"
 
 [[exemptions.language-tags]]
@@ -625,7 +625,7 @@ version = "2.8.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.metrics]]
-version = "0.24.5"
+version = "0.24.6"
 criteria = "safe-to-deploy"
 
 [[exemptions.metrics-exporter-prometheus]]
@@ -633,7 +633,7 @@ version = "0.18.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.metrics-util]]
-version = "0.20.3"
+version = "0.20.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.mime]]
@@ -661,7 +661,7 @@ version = "0.50.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.num-conv]]
-version = "0.2.1"
+version = "0.2.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.num-traits]]
@@ -737,7 +737,7 @@ version = "1.70.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.openssl]]
-version = "0.10.79"
+version = "0.10.80"
 criteria = "safe-to-deploy"
 
 [[exemptions.openssl-macros]]
@@ -749,7 +749,7 @@ version = "0.2.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.openssl-sys]]
-version = "0.9.115"
+version = "0.9.116"
 criteria = "safe-to-deploy"
 
 [[exemptions.opentelemetry]]
@@ -801,11 +801,11 @@ version = "0.8.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.pin-project]]
-version = "1.1.12"
+version = "1.1.13"
 criteria = "safe-to-deploy"
 
 [[exemptions.pin-project-internal]]
-version = "1.1.12"
+version = "1.1.13"
 criteria = "safe-to-deploy"
 
 [[exemptions.pin-project-lite]]
@@ -1001,43 +1001,43 @@ version = "1.0.28"
 criteria = "safe-to-deploy"
 
 [[exemptions.sentry]]
-version = "0.48.1"
+version = "0.48.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.sentry-actix]]
-version = "0.48.1"
+version = "0.48.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.sentry-backtrace]]
-version = "0.48.1"
+version = "0.48.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.sentry-contexts]]
-version = "0.48.1"
+version = "0.48.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.sentry-core]]
-version = "0.48.1"
+version = "0.48.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.sentry-debug-images]]
-version = "0.48.1"
+version = "0.48.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.sentry-panic]]
-version = "0.48.1"
+version = "0.48.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.sentry-tower]]
-version = "0.48.1"
+version = "0.48.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.sentry-tracing]]
-version = "0.48.1"
+version = "0.48.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.sentry-types]]
-version = "0.48.1"
+version = "0.48.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.serde]]
@@ -1157,7 +1157,7 @@ version = "0.8.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.tokio]]
-version = "1.52.2"
+version = "1.52.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.tokio-macros]]
@@ -1181,11 +1181,11 @@ version = "0.7.18"
 criteria = "safe-to-deploy"
 
 [[exemptions.tonic]]
-version = "0.14.5"
+version = "0.14.6"
 criteria = "safe-to-deploy"
 
 [[exemptions.tonic-prost]]
-version = "0.14.5"
+version = "0.14.6"
 criteria = "safe-to-deploy"
 
 [[exemptions.tower]]
@@ -1193,7 +1193,7 @@ version = "0.5.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.tower-http]]
-version = "0.6.10"
+version = "0.6.11"
 criteria = "safe-to-deploy"
 
 [[exemptions.tower-layer]]
@@ -1321,23 +1321,23 @@ version = "0.4.0+wasi-0.3.0-rc-2026-01-06"
 criteria = "safe-to-deploy"
 
 [[exemptions.wasm-bindgen]]
-version = "0.2.120"
+version = "0.2.121"
 criteria = "safe-to-deploy"
 
 [[exemptions.wasm-bindgen-futures]]
-version = "0.4.70"
+version = "0.4.71"
 criteria = "safe-to-deploy"
 
 [[exemptions.wasm-bindgen-macro]]
-version = "0.2.120"
+version = "0.2.121"
 criteria = "safe-to-deploy"
 
 [[exemptions.wasm-bindgen-macro-support]]
-version = "0.2.120"
+version = "0.2.121"
 criteria = "safe-to-deploy"
 
 [[exemptions.wasm-bindgen-shared]]
-version = "0.2.120"
+version = "0.2.121"
 criteria = "safe-to-deploy"
 
 [[exemptions.wasm-encoder]]
@@ -1353,7 +1353,7 @@ version = "0.244.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.web-sys]]
-version = "0.3.97"
+version = "0.3.98"
 criteria = "safe-to-deploy"
 
 [[exemptions.web-time]]
@@ -1493,7 +1493,7 @@ version = "0.8.48"
 criteria = "safe-to-deploy"
 
 [[exemptions.zerofrom]]
-version = "0.1.7"
+version = "0.1.8"
 criteria = "safe-to-deploy"
 
 [[exemptions.zerofrom-derive]]

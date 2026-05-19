@@ -38,7 +38,7 @@ pub mod prelude {
         task::Task,
         task::attempt::Attempt,
         task::builder::TaskBuilder,
-        task::data::{AddExtension, Data},
+        task::data::{AddExtension, Data, MissingDataError},
         task::extensions::Extensions,
         task::metadata::MetadataExt,
         task::status::Status,

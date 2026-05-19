@@ -79,7 +79,7 @@ use crate::{task::Task, task_fn::FromRequest};
 /// ```
 
 #[derive(Debug, Clone, Copy)]
-pub struct Data<T>(T);
+pub struct Data<T>(pub T);
 impl<T> Data<T> {
     /// Build a new data entry
     pub fn new(inner: T) -> Self {

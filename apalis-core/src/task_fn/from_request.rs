@@ -81,3 +81,10 @@ pub trait FromRequest<Task>: Sized {
     /// Perform the extraction.
     fn from_request(req: &Task) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }
+
+impl<F: FromRequest<T>, T: Sync> FromRequest<T> for Option<F> {
+    type Error = F::Error;
+    async fn from_request(req: &T) -> Result<Self, Self::Error> {
+        Ok(F::from_request(req).await.ok())
+    }
+}
