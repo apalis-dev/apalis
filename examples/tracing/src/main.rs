@@ -74,7 +74,7 @@ async fn produce_task_with_ctx(storage: &mut MemoryStorage<Email>) -> Result<()>
         subject: "Welcome Sentry Email".to_string(),
     };
     let task = Task::builder(email)
-        .meta(TracingContext::from(OtelTraceContext::current()))
+        .meta(&TracingContext::from(OtelTraceContext::current()))
         .build();
     storage.send(task).await?;
     Ok(())

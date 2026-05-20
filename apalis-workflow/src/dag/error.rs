@@ -3,6 +3,8 @@ use petgraph::{algo::Cycle, graph::NodeIndex};
 use std::fmt::Debug;
 use thiserror::Error;
 
+use crate::dag::context::DagFlowContextError;
+
 /// Errors that can occur during DAG workflow execution.
 #[derive(Error, Debug)]
 pub enum DagFlowError {
@@ -64,6 +66,10 @@ pub enum DagFlowError {
     /// DAG contains cycles.
     #[error("DAG contains cycles involving nodes: {0:?}")]
     CyclicDAG(Cycle<NodeIndex>),
+
+    /// Metadata error
+    #[error("Metadata error: {0}")]
+    MetadataError(#[from] DagFlowContextError),
 }
 
 /// Error encountered by Service Error

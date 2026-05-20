@@ -27,7 +27,6 @@ use std::fmt;
 use std::hash::{BuildHasherDefault, Hasher};
 
 use crate::task::data::MissingDataError;
-use crate::task::metadata::MetadataExt;
 
 type AnyMap = HashMap<TypeId, Box<dyn AnyClone + Send + Sync>, BuildHasherDefault<IdHasher>>;
 
@@ -256,6 +255,53 @@ impl Extensions {
             }
         }
     }
+
+    /// Get a mutable reference to the value of type `T`,
+    /// inserting `value` if it does not already exist.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use apalis_core::task::extensions::Extensions;
+    /// let mut ext = Extensions::new();
+    ///
+    /// let value = ext.get_or_insert(String::from("Hello"));
+    /// value.push_str(" World");
+    ///
+    /// assert_eq!(ext.get::<String>().unwrap(), "Hello World");
+    /// ```
+    pub fn get_or_insert<T>(&mut self, value: T) -> &mut T
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        self.get_or_insert_with(|| value)
+    }
+
+    /// Get a mutable reference to the value of type `T`,
+    /// inserting the result of `f` if it does not already exist.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use apalis_core::task::extensions::Extensions;
+    /// let mut ext = Extensions::new();
+    ///
+    /// let value = ext.get_or_insert_with(|| String::from("Hello"));
+    /// value.push_str(" World");
+    ///
+    /// assert_eq!(ext.get::<String>().unwrap(), "Hello World");
+    /// ```
+    pub fn get_or_insert_with<T, F>(&mut self, f: F) -> &mut T
+    where
+        T: Clone + Send + Sync + 'static,
+        F: FnOnce() -> T,
+    {
+        if self.get::<T>().is_none() {
+            self.insert(f());
+        }
+
+        self.get_mut::<T>().expect("value was just inserted")
+    }
 }
 
 impl fmt::Debug for Extensions {
@@ -292,17 +338,6 @@ impl<T: Clone + Send + Sync + 'static> AnyClone for T {
 impl Clone for Box<dyn AnyClone + Send + Sync> {
     fn clone(&self) -> Self {
         (**self).clone_box()
-    }
-}
-
-impl<T: Clone + Send + Sync + 'static> MetadataExt<T> for Extensions {
-    type Error = MissingDataError;
-    fn inject(&mut self, value: T) -> Result<(), Self::Error> {
-        self.insert(value);
-        Ok(())
-    }
-    fn extract(&self) -> Result<T, Self::Error> {
-        Ok(self.get_checked::<T>()?.clone())
     }
 }
 

@@ -52,10 +52,9 @@ impl<B, Err, Input> Service<Task<B::Compact, B::Context, B::IdType>> for Workflo
 where
     B::Compact: Send + 'static,
     B: Sync,
-    B::Context: Send + Default + MetadataExt<WorkflowContext>,
+    B::Context: Send + Default + MetadataExt,
     Err: std::error::Error + Send + Sync + 'static,
     B::IdType: GenerateId + Send + 'static,
-    <B::Context as MetadataExt<WorkflowContext>>::Error: Into<BoxDynError>,
     B: Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err> + Unpin,
     B: Clone + Send + Sync + 'static + BackendExt<Error = Err>,
 {
@@ -119,7 +118,7 @@ where
         + BackendExt<Error = Err, Compact = Compact>
         + Send
         + Unpin,
-    B::Context: MetadataExt<WorkflowContext>,
+    B::Context: MetadataExt,
     B::Codec: Codec<N, Compact = Compact>,
     <B::Codec as Codec<N>>::Error: Into<BoxDynError>,
     Compact: 'static,
@@ -134,7 +133,7 @@ where
                 B::Codec::encode(&next).map_err(|e| TaskSinkError::CodecError(e.into()))?,
             )
             .with_task_id(task_id.clone())
-            .meta(WorkflowContext {
+            .meta(&WorkflowContext {
                 step_index: ctx.current_step + 1,
             })
             .build();
@@ -152,7 +151,7 @@ where
             )
             .run_after(delay)
             .with_task_id(task_id.clone())
-            .meta(WorkflowContext {
+            .meta(&WorkflowContext {
                 step_index: ctx.current_step + 1,
             })
             .build();

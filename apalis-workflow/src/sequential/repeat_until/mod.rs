@@ -1,14 +1,16 @@
-use std::convert::Infallible;
+use std::fmt::Display;
 use std::marker::PhantomData;
+use std::num::ParseIntError;
+use std::str::FromStr;
 use std::task::Context;
 
 use apalis_core::backend::TaskSinkError;
 use apalis_core::backend::codec::Codec;
 use apalis_core::error::BoxDynError;
 use apalis_core::task::builder::TaskBuilder;
-use apalis_core::task::metadata::MetadataExt;
+use apalis_core::task::metadata::{Metadata, MetadataError, MetadataExt, MetadataStore};
 use apalis_core::task::task_id::TaskId;
-use apalis_core::task_fn::{FromRequest, TaskFn, task_fn};
+use apalis_core::task_fn::{TaskFn, task_fn};
 use apalis_core::{backend::BackendExt, task::Task};
 use futures::future::BoxFuture;
 use futures::{FutureExt, Sink, SinkExt};
@@ -90,7 +92,7 @@ where
     }
 }
 
-impl<F, Res, B, Input, CodecError, MetaErr, Err> Service<Task<B::Compact, B::Context, B::IdType>>
+impl<F, Res, B, Input, CodecError, Err> Service<Task<B::Compact, B::Context, B::IdType>>
     for RepeatUntilService<F, B, Input, Res>
 where
     F: Service<Task<Input, B::Context, B::IdType>, Response = Option<Res>> + Send + 'static + Clone,
@@ -101,19 +103,15 @@ where
         + Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err>
         + Unpin
         + 'static,
-    B::Context: MetadataExt<RepeaterState<B::IdType>, Error = MetaErr>
-        + MetadataExt<WorkflowContext, Error = MetaErr>
-        + Send
-        + 'static,
+    B::Context: MetadataExt + Send + 'static,
     B::Codec: Codec<Input, Error = CodecError, Compact = B::Compact>
         + Codec<Res, Error = CodecError, Compact = B::Compact>
         + Codec<Option<Res>, Error = CodecError, Compact = B::Compact>
         + 'static,
-    B::IdType: GenerateId + Send + 'static,
+    B::IdType: GenerateId + Send + Display + FromStr + 'static,
     Err: std::error::Error + Send + Sync + 'static,
     CodecError: std::error::Error + Send + Sync + 'static,
     F::Error: Into<BoxDynError> + Send + 'static,
-    MetaErr: std::error::Error + Send + Sync + 'static,
     F::Future: Send + 'static,
     B::Compact: Send + 'static,
     Input: Send + 'static, // We don't need Clone because decoding just needs a reference
@@ -149,7 +147,7 @@ where
                     let task_id = TaskId::new(B::IdType::generate());
                     let next_step = TaskBuilder::new(B::Codec::encode(&res)?)
                         .with_task_id(task_id.clone())
-                        .meta(WorkflowContext {
+                        .meta(&WorkflowContext {
                             step_index: ctx.current_step + 1,
                         })
                         .build();
@@ -171,10 +169,10 @@ where
                     let next_step =
                         TaskBuilder::new(compact.take().expect("Compact args should be set"))
                             .with_task_id(task_id.clone())
-                            .meta(WorkflowContext {
+                            .meta(&WorkflowContext {
                                 step_index: ctx.current_step,
                             })
-                            .meta(RepeaterState {
+                            .meta(&RepeaterState {
                                 iterations: state.iterations + 1,
                                 prev_task_id,
                             })
@@ -194,7 +192,7 @@ where
     }
 }
 
-/// The state of the fold operation
+/// The state of the repeat operation
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RepeaterState<IdType> {
     iterations: usize,
@@ -222,21 +220,68 @@ impl<IdType> RepeaterState<IdType> {
     }
 }
 
-impl<Args: Sync, Ctx: MetadataExt<Self> + Sync, IdType: Sync> FromRequest<Task<Args, Ctx, IdType>>
-    for RepeaterState<IdType>
+/// An error representing an invalid [`RepeaterState`]
+#[derive(Debug, thiserror::Error)]
+pub enum RepeaterStateError {
+    /// Missing iterations key
+    #[error("the data for key {REPEATER_ITERATIONS_KEY} is missing")]
+    MissingIterations,
+
+    /// Could not parse iterations
+    #[error("could not parse key {REPEATER_ITERATIONS_KEY}")]
+    ParseIterations(#[from] ParseIntError),
+
+    /// Could not parse a task id
+    #[error("could not parse key {REPEATER_PREV_TASK_ID_KEY}")]
+    ParseTaskId,
+
+    /// Duplicate entry
+    #[error("Duplicate entry: {0}")]
+    DuplicateEntry(#[from] MetadataError),
+}
+
+const REPEATER_ITERATIONS_KEY: &str = "apalis_workflow.repeater.iterations";
+const REPEATER_PREV_TASK_ID_KEY: &str = "apalis_workflow.repeater.prev_task_id";
+
+impl<IdType: Display> Metadata for RepeaterState<IdType>
+where
+    IdType: std::str::FromStr + ToString,
 {
-    type Error = Infallible;
-    async fn from_request(task: &Task<Args, Ctx, IdType>) -> Result<Self, Infallible> {
-        let state: Self = task.parts.ctx.extract().unwrap_or_default();
+    type Error = RepeaterStateError;
+
+    fn extract(map: &MetadataStore) -> Result<Self, Self::Error> {
+        let iterations = map
+            .get(REPEATER_ITERATIONS_KEY)
+            .ok_or(RepeaterStateError::MissingIterations)?
+            .parse::<usize>()?;
+
+        let prev_task_id = map
+            .get(REPEATER_PREV_TASK_ID_KEY)
+            .map(|value| {
+                value
+                    .parse::<IdType>()
+                    .map(TaskId::new)
+                    .map_err(|_| RepeaterStateError::ParseTaskId)
+            })
+            .transpose()?;
+
         Ok(Self {
-            iterations: state.iterations,
-            prev_task_id: state.prev_task_id,
+            iterations,
+            prev_task_id,
         })
+    }
+
+    fn inject(&self, map: &mut MetadataStore) -> Result<(), RepeaterStateError> {
+        map.insert(REPEATER_ITERATIONS_KEY, self.iterations.to_string())?;
+
+        if let Some(task_id) = &self.prev_task_id {
+            map.insert(REPEATER_PREV_TASK_ID_KEY, task_id.to_string())?;
+        }
+        Ok(())
     }
 }
 
-impl<B, F, Input, Res, S, MetaErr, Err, CodecError> Step<Input, B>
-    for RepeatUntilStep<S, F, Input, Res>
+impl<B, F, Input, Res, S, Err, CodecError> Step<Input, B> for RepeatUntilStep<S, F, Input, Res>
 where
     F: Service<Task<Input, B::Context, B::IdType>, Response = Option<Res>>
         + Send
@@ -250,10 +295,7 @@ where
         + Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err>
         + Unpin
         + 'static,
-    B::Context: MetadataExt<RepeaterState<B::IdType>, Error = MetaErr>
-        + MetadataExt<WorkflowContext, Error = MetaErr>
-        + Send
-        + 'static,
+    B::Context: MetadataExt + Send + 'static,
     B::Codec: Codec<Input, Error = CodecError, Compact = B::Compact>
         + Codec<Res, Error = CodecError, Compact = B::Compact>
         + Codec<Option<Res>, Error = CodecError, Compact = B::Compact>
@@ -262,12 +304,12 @@ where
     Err: std::error::Error + Send + Sync + 'static,
     CodecError: std::error::Error + Send + Sync + 'static,
     F::Error: Into<BoxDynError> + Send + 'static,
-    MetaErr: std::error::Error + Send + Sync + 'static,
     F::Future: Send + 'static,
     B::Compact: Send + 'static,
     Input: Send + Sync + 'static, // We don't need Clone because decoding just needs a reference
     Res: Send + Sync + 'static,
     S: Step<Input, B> + Send + 'static,
+    B::IdType: FromStr + Display,
 {
     type Response = Res;
     type Error = F::Error;

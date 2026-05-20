@@ -23,6 +23,10 @@ pub mod layers;
 /// Common imports
 pub mod prelude {
     pub use crate::layers::WorkerBuilderExt;
+    #[cfg(feature = "retry")]
+    pub use crate::layers::retry::{
+        BackoffRetryPolicy, FromTaskConfigPolicy, RetryIfPolicy, RetryPolicy,
+    };
     pub use apalis_core::{
         backend::{
             Backend, BackendExt, Expose, FetchById, Filter, ListAllTasks, ListQueues, ListTasks,
@@ -40,7 +44,7 @@ pub mod prelude {
         task::builder::TaskBuilder,
         task::data::{AddExtension, Data, MissingDataError},
         task::extensions::Extensions,
-        task::metadata::MetadataExt,
+        task::metadata::{Meta, Metadata, MetadataError, MetadataExt, MetadataStore},
         task::status::Status,
         task::task_id::RandomId,
         task::task_id::TaskId,

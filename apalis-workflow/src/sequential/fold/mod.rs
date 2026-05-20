@@ -3,7 +3,12 @@ use std::{marker::PhantomData, task::Context};
 use apalis_core::{
     backend::{BackendExt, TaskSinkError, codec::Codec},
     error::BoxDynError,
-    task::{Task, builder::TaskBuilder, metadata::MetadataExt, task_id::TaskId},
+    task::{
+        Task,
+        builder::TaskBuilder,
+        metadata::{Metadata, MetadataError, MetadataExt, MetadataStore},
+        task_id::TaskId,
+    },
     task_fn::{TaskFn, task_fn},
 };
 use futures::{FutureExt, Sink, SinkExt, future::BoxFuture};
@@ -66,7 +71,7 @@ pub struct FoldStep<S, F, Init> {
     _marker: std::marker::PhantomData<Init>,
 }
 
-impl<S, F, Input, I: IntoIterator<Item = Input>, Init, B, MetaErr, Err, CodecError> Step<I, B>
+impl<S, F, Input, I: IntoIterator<Item = Input>, Init, B, Err, CodecError> Step<I, B>
     for FoldStep<S, F, Init>
 where
     F: Service<Task<(Init, Input), B::Context, B::IdType>, Response = Init>
@@ -83,10 +88,7 @@ where
         + Unpin
         + 'static,
     I: IntoIterator<Item = Input> + Send + Sync + 'static,
-    B::Context: MetadataExt<FoldState, Error = MetaErr>
-        + MetadataExt<WorkflowContext, Error = MetaErr>
-        + Send
-        + 'static,
+    B::Context: MetadataExt + Send + 'static,
     B::Codec: Codec<(Init, Vec<Input>), Error = CodecError, Compact = B::Compact>
         + Codec<Init, Error = CodecError, Compact = B::Compact>
         + Codec<I, Error = CodecError, Compact = B::Compact>
@@ -97,7 +99,6 @@ where
     Err: std::error::Error + Send + Sync + 'static,
     CodecError: std::error::Error + Send + Sync + 'static,
     F::Error: Into<BoxDynError> + Send + 'static,
-    MetaErr: std::error::Error + Send + Sync + 'static,
     F::Future: Send + 'static,
     B::Compact: Send + 'static,
     Input: Send + 'static,
@@ -141,8 +142,8 @@ impl<F, Init, I, B> FoldService<F, Init, I, B> {
     }
 }
 
-impl<F, Init, I, B, Input, CodecError, MetaErr, Err>
-    Service<Task<B::Compact, B::Context, B::IdType>> for FoldService<F, Init, I, B>
+impl<F, Init, I, B, Input, CodecError, Err> Service<Task<B::Compact, B::Context, B::IdType>>
+    for FoldService<F, Init, I, B>
 where
     F: Service<Task<(Init, Input), B::Context, B::IdType>, Response = Init>
         + Send
@@ -156,10 +157,7 @@ where
         + Unpin
         + 'static,
     I: IntoIterator<Item = Input> + Send + 'static,
-    B::Context: MetadataExt<FoldState, Error = MetaErr>
-        + MetadataExt<WorkflowContext, Error = MetaErr>
-        + Send
-        + 'static,
+    B::Context: MetadataExt + Send + 'static,
     B::Codec: Codec<(Init, Vec<Input>), Error = CodecError, Compact = B::Compact>
         + Codec<Init, Error = CodecError, Compact = B::Compact>
         + Codec<I, Error = CodecError, Compact = B::Compact>
@@ -170,7 +168,6 @@ where
     Err: std::error::Error + Send + Sync + 'static,
     CodecError: std::error::Error + Send + Sync + 'static,
     F::Error: Into<BoxDynError> + Send + 'static,
-    MetaErr: std::error::Error + Send + Sync + 'static,
     F::Future: Send + 'static,
     B::Compact: Send + 'static,
     Input: Send + 'static,
@@ -184,21 +181,21 @@ where
     }
 
     fn call(&mut self, task: Task<B::Compact, B::Context, B::IdType>) -> Self::Future {
-        let state = task.parts.ctx.extract().unwrap_or(FoldState::Unknown);
+        let state = task.parts.ctx.extract().unwrap_or(FoldState::Init);
         let mut ctx = task.parts.data.get::<StepContext<B>>().cloned().unwrap();
         let mut fold = self.fold.clone();
 
         match state {
-            FoldState::Unknown => async move {
+            FoldState::Init => async move {
                 let task_id = TaskId::new(B::IdType::generate());
                 let steps: Task<I, _, _> = task.try_map(|arg| B::Codec::decode(&arg))?;
                 let steps = steps.args.into_iter().collect::<Vec<_>>();
                 let task = TaskBuilder::new(B::Codec::encode(&(Init::default(), steps))?)
-                    .meta(WorkflowContext {
+                    .meta(&WorkflowContext {
                         step_index: ctx.current_step,
                     })
                     .with_task_id(task_id.clone())
-                    .meta(FoldState::Collection)
+                    .meta(&FoldState::Collection)
                     .build();
                 ctx.backend
                     .send(task)
@@ -226,7 +223,7 @@ where
                         let result = B::Codec::encode(&response)?;
                         let next_step = TaskBuilder::new(result)
                             .with_task_id(task_id.clone())
-                            .meta(WorkflowContext {
+                            .meta(&WorkflowContext {
                                 step_index: ctx.current_step + 1,
                             })
                             .build();
@@ -249,10 +246,10 @@ where
                         let result = B::Codec::encode(&response)?;
                         let steps = TaskBuilder::new(B::Codec::encode(&(response, rest))?)
                             .with_task_id(task_id.clone())
-                            .meta(WorkflowContext {
+                            .meta(&WorkflowContext {
                                 step_index: ctx.current_step,
                             })
-                            .meta(FoldState::Collection)
+                            .meta(&FoldState::Collection)
                             .build();
                         ctx.backend
                             .send(steps)
@@ -273,8 +270,44 @@ where
 /// The state of the fold operation
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum FoldState {
-    /// Unknown
-    Unknown,
+    /// Initializing state
+    Init,
     /// Collection has started
     Collection,
+}
+
+const FOLD_STATE_KEY: &str = "apalis_workflow.fold.state";
+
+/// An error representing an invalid [`FoldState`]
+#[derive(Debug, thiserror::Error)]
+pub enum FoldStateError {
+    /// The fold state key is missing
+    #[error("the data for key {FOLD_STATE_KEY} is missing")]
+    MissingKey,
+
+    /// Duplicate entry
+    #[error("Duplicate entry: {0}")]
+    DuplicateEntry(#[from] MetadataError),
+}
+
+impl Metadata for FoldState {
+    type Error = FoldStateError;
+
+    fn extract(map: &MetadataStore) -> Result<Self, Self::Error> {
+        let value = map.get(FOLD_STATE_KEY).ok_or(FoldStateError::MissingKey)?;
+
+        match value.as_str() {
+            "Collection" => Ok(Self::Collection),
+            _ => Ok(Self::Init),
+        }
+    }
+
+    fn inject(&self, map: &mut MetadataStore) -> Result<(), FoldStateError> {
+        let value = match self {
+            Self::Init => "Init",
+            Self::Collection => "Collection",
+        };
+        map.insert(FOLD_STATE_KEY, value)?;
+        Ok(())
+    }
 }

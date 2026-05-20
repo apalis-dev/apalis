@@ -13,7 +13,8 @@ use futures::{FutureExt, Sink, SinkExt, StreamExt};
 use petgraph::Direction;
 use petgraph::graph::NodeIndex;
 use std::collections::HashMap;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
+use std::str::FromStr;
 use tower::Service;
 
 use crate::DagExecutor;
@@ -72,8 +73,7 @@ fn find_designated_fan_in_handler(
     designated_handler.ok_or(DagFlowError::Service(DagServiceError::MissingFaninHandler))
 }
 
-impl<B, Err, CdcErr, MetaError, IdType> Service<Task<B::Compact, B::Context, B::IdType>>
-    for RootDagService<B>
+impl<B, Err, CdcErr, IdType> Service<Task<B::Compact, B::Context, B::IdType>> for RootDagService<B>
 where
     B: BackendExt<Error = Err, IdType = IdType>
         + Send
@@ -81,17 +81,16 @@ where
         + 'static
         + Clone
         + WaitForCompletion<DagExecutionResponse<B::Compact, IdType>>,
-    IdType: GenerateId + Send + Sync + 'static + PartialEq + Debug + Clone,
+    IdType: GenerateId + Send + Sync + 'static + PartialEq + Debug + Clone + FromStr + Display,
     B::Compact: Send + Sync + 'static + Clone,
-    B::Context:
-        Send + Sync + Default + MetadataExt<DagFlowContext<B::IdType>, Error = MetaError> + 'static,
+    B::Context: Send + Sync + Default + MetadataExt + 'static,
     Err: std::error::Error + Send + Sync + 'static,
     B: Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err> + Unpin,
     B::Codec: Codec<Vec<B::Compact>, Compact = B::Compact, Error = CdcErr>
         + 'static
         + Codec<DagExecutionResponse<B::Compact, B::IdType>, Compact = B::Compact, Error = CdcErr>,
     CdcErr: Into<BoxDynError>,
-    MetaError: Into<BoxDynError> + Send + Sync + 'static,
+    <IdType as FromStr>::Err: std::error::Error + Send + Sync + 'static,
 {
     type Response = DagExecutionResponse<B::Compact, B::IdType>;
     type Error = DagFlowError;
@@ -244,10 +243,7 @@ where
                     #[cfg(feature = "tracing")]
                     tracing::debug!("Single start node detected, proceeding with execution");
                     let context = DagFlowContext::new(req.parts.task_id.clone());
-                    req.parts
-                        .ctx
-                        .inject(context.clone())
-                        .map_err(|e| DagFlowError::Metadata(e.into()))?;
+                    req.parts.ctx.inject(&context)?;
                     let response = executor.call(req).await?;
                     #[cfg(feature = "tracing")]
                     tracing::debug!(node = ?context.current_node, "Execution complete at node");
@@ -293,7 +289,7 @@ where
 
                     let task = TaskBuilder::new(response.clone())
                         .with_task_id(TaskId::new(B::IdType::generate()))
-                        .meta(new_context)
+                        .meta(&new_context)
                         .build();
                     backend
                         .send(task)
@@ -337,12 +333,14 @@ async fn fan_out_next_nodes<B, Err, CdcErr>(
 where
     B::IdType: GenerateId + Send + Sync + 'static + PartialEq,
     B::Compact: Send + Sync + 'static + Clone,
-    B::Context: Send + Sync + Default + MetadataExt<DagFlowContext<B::IdType>> + 'static,
+    B::Context: Send + Sync + Default + MetadataExt + 'static,
     B: Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err> + Unpin,
     Err: std::error::Error + Send + Sync + 'static,
     B: BackendExt<Error = Err> + Send + Sync + 'static + Clone,
     B::Codec: Codec<Vec<B::Compact>, Compact = B::Compact, Error = CdcErr>,
     CdcErr: Into<BoxDynError>,
+    B::IdType: FromStr + Display,
+    <B::IdType as FromStr>::Err: std::error::Error + Send + Sync + 'static,
 {
     let mut enqueue_futures = vec![];
     let next_nodes = outgoing_nodes
@@ -358,7 +356,7 @@ where
             .clone();
         let task = TaskBuilder::new(input.clone())
             .with_task_id(task_id)
-            .meta(DagFlowContext {
+            .meta(&DagFlowContext {
                 prev_node: context.prev_node,
                 current_node: outgoing_node,
                 completed_nodes: context.completed_nodes.clone(),
@@ -392,12 +390,14 @@ async fn fan_out_entry_nodes<B, Err, CdcErr>(
 where
     B::IdType: GenerateId + Send + Sync + 'static + PartialEq + Debug,
     B::Compact: Send + Sync + 'static + Clone,
-    B::Context: Send + Sync + Default + MetadataExt<DagFlowContext<B::IdType>> + 'static,
+    B::Context: Send + Sync + Default + MetadataExt + 'static,
     B: Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err> + Unpin,
     Err: std::error::Error + Send + Sync + 'static,
     B: BackendExt<Error = Err> + Send + Sync + 'static + Clone,
     B::Codec: Codec<Vec<B::Compact>, Compact = B::Compact, Error = CdcErr>,
     CdcErr: Into<BoxDynError>,
+    B::IdType: FromStr + Display,
+    <B::IdType as FromStr>::Err: std::error::Error + Send + Sync + 'static,
 {
     let values: Vec<B::Compact> =
         B::Codec::decode(input).map_err(|e: CdcErr| DagFlowError::Codec(e.into()))?;
@@ -421,7 +421,7 @@ where
             .ok_or(DagFlowError::Service(DagServiceError::MissingNextNode))?;
         let task = TaskBuilder::new(input)
             .with_task_id(task_id.clone())
-            .meta(DagFlowContext {
+            .meta(&DagFlowContext {
                 prev_node: None,
                 current_node: outgoing_node,
                 completed_nodes: Default::default(),

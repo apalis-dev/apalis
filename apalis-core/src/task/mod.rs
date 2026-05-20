@@ -14,7 +14,7 @@
 //!
 //! The [`Task`] struct is generic over:
 //! - `Args`: The type of arguments or payload for the task.
-//! - `Ctx`: Ctxdata associated with the task, such as custom fields or backend-specific information.
+//! - `Ctx`: Data associated with the task, such as custom fields or backend-specific information.
 //! - `IdType`: The type used for uniquely identifying the task (defaults to [`RandomId`]).
 //!
 //! ## [`Parts`]
@@ -56,13 +56,35 @@
 //! ```rust
 //! # use apalis_core::task::{Task, Parts};
 //! # use apalis_core::task::builder::TaskBuilder;
-//! # use apalis_core::task::extensions::Extensions;
 //! # use apalis_core::task::task_id::RandomId;
+//! # use apalis_core::task::metadata::Metadata;
+//! # use apalis_core::task::metadata::MetadataStore;
+//! # use apalis_core::task::metadata::MetadataExt;
+//! # use apalis_core::backend::memory::MemoryContext;
+//! #
+//! #[derive(Debug, PartialEq)]
+//! struct RequestId(String);
 //!
-//! #[derive(Default, Clone)]
-//! struct MyCtx { priority: u8 }
-//! let task: Task<String, Extensions, RandomId> = TaskBuilder::new("important work".to_string())
-//!     .meta(MyCtx { priority: 5 })
+//! impl Metadata for RequestId {
+//!     type Error = std::convert::Infallible;
+//!
+//!     fn inject(&self, metadata: &mut MetadataStore) -> Result<(), Self::Error> {
+//!         let _ = metadata.insert("request_id", self.0.clone());
+//!         Ok(())
+//!     }
+//!
+//!     fn extract(metadata: &MetadataStore) -> Result<Self, Self::Error> {
+//!         Ok(Self(
+//!             metadata
+//!                 .get("request_id")
+//!                 .cloned()
+//!                 .unwrap_or_default(),
+//!         ))
+//!     }
+//! }
+//!
+//! let task: Task<String, MemoryContext, RandomId> = TaskBuilder::new("important work".to_string())
+//!     .meta(&RequestId("user_id".to_string()))
 //!     .build();
 //! ```
 //!

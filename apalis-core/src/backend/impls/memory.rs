@@ -40,7 +40,7 @@
 use crate::backend::BackendExt;
 use crate::backend::codec::IdentityCodec;
 use crate::features_table;
-use crate::task::extensions::Extensions;
+use crate::task::metadata::{MetadataExt, MetadataStore};
 use crate::{
     backend::{Backend, TaskStream},
     task::{
@@ -109,25 +109,44 @@ pub type BoxedReceiver<Args, Ctx> = Pin<Box<dyn Stream<Item = Task<Args, Ctx, Ra
     ListWorkers => not_supported("List all workers registered with the backend"),
     ListTasks => not_supported("List all tasks in the backend"),
 }]
-pub struct MemoryStorage<Args, Ctx = Extensions> {
+pub struct MemoryStorage<Args, Ctx = MemoryContext> {
     pub(super) sender: MemorySink<Args, Ctx>,
     pub(super) receiver: BoxedReceiver<Args, Ctx>,
 }
 
-impl<Args: Send + 'static> Default for MemoryStorage<Args, Extensions> {
+impl<Args: Send + 'static> Default for MemoryStorage<Args, MemoryContext> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Args: Send + 'static> MemoryStorage<Args, Extensions> {
+/// Store extra context related to task metadata
+#[derive(Debug, Clone, Default)]
+pub struct MemoryContext {
+    metadata: MetadataStore,
+}
+
+impl MetadataExt for MemoryContext {
+    fn metadata(&self) -> &MetadataStore {
+        &self.metadata
+    }
+
+    fn metadata_mut(&mut self) -> &mut MetadataStore {
+        &mut self.metadata
+    }
+}
+
+impl<Args: Send + 'static> MemoryStorage<Args, MemoryContext> {
     /// Create a new in-memory storage
     #[must_use]
     pub fn new() -> Self {
         let (sender, receiver) = unbounded();
         let sender = Box::new(sender)
             as Box<
-                dyn Sink<Task<Args, Extensions, RandomId>, Error = SendError> + Send + Sync + Unpin,
+                dyn Sink<Task<Args, MemoryContext, RandomId>, Error = SendError>
+                    + Send
+                    + Sync
+                    + Unpin,
             >;
         Self {
             sender: MemorySink {
@@ -170,7 +189,7 @@ impl<Args, Ctx> Sink<Task<Args, Ctx, RandomId>> for MemoryStorage<Args, Ctx> {
     }
 }
 
-type ArcMemorySink<Args, Ctx = Extensions> = Arc<
+type ArcMemorySink<Args, Ctx = MemoryContext> = Arc<
     Mutex<
         Box<dyn Sink<Task<Args, Ctx, RandomId>, Error = SendError> + Send + Sync + Unpin + 'static>,
     >,
@@ -179,7 +198,7 @@ type ArcMemorySink<Args, Ctx = Extensions> = Arc<
 type ArcIdempotencySet = Arc<Mutex<HashSet<String>>>;
 
 /// Memory sink for sending tasks to the in-memory backend
-pub struct MemorySink<Args, Ctx = Extensions> {
+pub struct MemorySink<Args, Ctx = MemoryContext> {
     pub(super) inner: ArcMemorySink<Args, Ctx>,
     pub(super) idempotency_keys: ArcIdempotencySet,
 }
@@ -225,6 +244,8 @@ impl<Args, Ctx> Sink<Task<Args, Ctx, RandomId>> for MemorySink<Args, Ctx> {
         mut item: Task<Args, Ctx, RandomId>,
     ) -> Result<(), Self::Error> {
         let this = self.get_mut();
+
+        let _ = item.parts.data.get_or_insert(MetadataStore::default());
 
         // Ensure task id exists
         item.parts

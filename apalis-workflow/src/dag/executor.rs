@@ -1,13 +1,13 @@
 use std::{
     collections::{HashMap, VecDeque},
-    fmt::Debug,
+    fmt::{Debug, Display},
     pin::Pin,
+    str::FromStr,
     task::{Context, Poll},
 };
 
 use apalis_core::{
     backend::{BackendExt, codec::RawDataBackend},
-    error::BoxDynError,
     task::{
         Task,
         metadata::{Meta, MetadataExt},
@@ -71,14 +71,13 @@ where
     }
 }
 
-impl<B, MetaError> Service<Task<B::Compact, B::Context, B::IdType>> for DagExecutor<B>
+impl<B> Service<Task<B::Compact, B::Context, B::IdType>> for DagExecutor<B>
 where
     B: BackendExt,
-    B::Context:
-        Send + Sync + 'static + MetadataExt<DagFlowContext<B::IdType>, Error = MetaError> + Default,
-    B::IdType: Clone + Send + Sync + 'static + GenerateId + Debug,
+    B::Context: Send + Sync + 'static + MetadataExt + Default,
+    B::IdType: Clone + Send + Sync + 'static + GenerateId + Debug + FromStr + Display,
     B::Compact: Send + Sync + 'static,
-    MetaError: Into<BoxDynError>,
+    <B::IdType as FromStr>::Err: std::error::Error + Send + Sync + 'static,
 {
     type Response = B::Compact;
     type Error = DagFlowError;
@@ -136,7 +135,7 @@ impl<B, Compact, Err> IntoWorkerService<B, RootDagService<B>, B::Compact, B::Con
 where
     B: BackendExt<Compact = Compact, Args = Compact, Error = Err> + Clone,
     Err: std::error::Error + Send + Sync + 'static,
-    B::Context: MetadataExt<DagFlowContext<B::IdType>> + Send + Sync + 'static,
+    B::Context: MetadataExt + Send + Sync + 'static,
     B::IdType: Send + Sync + 'static + Default + GenerateId + PartialEq + Debug,
     B::Compact: Send + Sync + 'static + Clone,
     RootDagService<B>: Service<Task<Compact, B::Context, B::IdType>>,

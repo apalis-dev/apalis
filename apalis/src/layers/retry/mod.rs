@@ -80,11 +80,12 @@ use apalis_core::error::AbortError;
 
 use apalis_core::task::Task;
 use apalis_core::task::builder::TaskBuilder;
-use apalis_core::task::metadata::MetadataExt;
+use apalis_core::task::metadata::{Metadata, MetadataError, MetadataExt, MetadataStore};
 use apalis_core::task::status::Status;
 use apalis_core::worker::context::WorkerContext;
 use std::any::Any;
 use std::fmt::Debug;
+use std::num::ParseIntError;
 use tower::retry::backoff::Backoff;
 
 /// Re-exports from [`tower::retry`]
@@ -304,6 +305,43 @@ pub struct RetryConfig {
     pub retries: usize,
 }
 
+/// An error that represents an invalid [`RetryConfig`]
+#[derive(Debug, thiserror::Error)]
+pub enum RetryConfigError {
+    /// The retry config key is missing
+    #[error("the data for key {RETRY_CONFIG_KEY} is missing")]
+    MissingKey,
+
+    /// Could not parse the retry config key
+    #[error("Could not parse key {RETRY_CONFIG_KEY}")]
+    Parse(#[from] ParseIntError),
+
+    /// Duplicate entry
+    #[error("Duplicate entry: {0}")]
+    DuplicateEntry(#[from] MetadataError),
+}
+
+const RETRY_CONFIG_KEY: &str = "apalis.retries.config";
+
+impl Metadata for RetryConfig {
+    type Error = RetryConfigError;
+
+    fn extract(map: &MetadataStore) -> Result<Self, Self::Error> {
+        let retries = map
+            .get(RETRY_CONFIG_KEY)
+            .ok_or(RetryConfigError::MissingKey)?
+            .parse::<usize>()
+            .map_err(RetryConfigError::Parse)?;
+
+        Ok(RetryConfig { retries })
+    }
+
+    fn inject(&self, map: &mut MetadataStore) -> Result<(), RetryConfigError> {
+        map.insert(RETRY_CONFIG_KEY, self.retries.to_string())?;
+        Ok(())
+    }
+}
+
 /// Retry the task based on the [`RetryConfig`] metadata
 #[derive(Debug, Clone)]
 pub struct FromTaskConfigPolicy<P> {
@@ -338,7 +376,7 @@ where
     T: Clone,
     Ctx: Clone,
     P: Policy<Task<T, Ctx, IdType>, Res, Err>,
-    Ctx: MetadataExt<RetryConfig>,
+    Ctx: MetadataExt,
 {
     type Future = P::Future;
 
@@ -356,7 +394,7 @@ where
             Err(_) => {
                 let attempt = req.parts.attempt.current();
                 // If we have a retry config, we need to respect it
-                if let Ok(cfg) = req.parts.ctx.extract() {
+                if let Ok(cfg) = req.parts.ctx.extract::<RetryConfig>() {
                     if cfg.retries <= attempt {
                         return None;
                     }
@@ -380,12 +418,11 @@ pub trait RetryMetadataExt {
 
 impl<Args, Ctx, IdType> RetryMetadataExt for TaskBuilder<Args, Ctx, IdType>
 where
-    Ctx: MetadataExt<RetryConfig>,
-    Ctx::Error: Debug,
+    Ctx: MetadataExt,
 {
     /// Set number of retries in the metadata
     fn retries(self, retries: usize) -> Self {
-        self.meta(RetryConfig { retries })
+        self.meta(&RetryConfig { retries })
     }
 }
 
@@ -411,7 +448,9 @@ mod tests {
     async fn basic_worker_retries() {
         let mut in_memory = MemoryStorage::new();
 
-        let task1 = TaskBuilder::new(1).meta(RetryConfig { retries: 3 }).build();
+        let task1 = TaskBuilder::new(1)
+            .meta(&RetryConfig { retries: 3 })
+            .build();
         let task2 = TaskBuilder::new(2).retries(5).build();
         let task3 = TaskBuilder::new(3).build();
 

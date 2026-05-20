@@ -15,7 +15,7 @@ use tower::{Service, ServiceBuilder, layer::layer_fn};
 use crate::{
     SteppedService,
     id_generator::GenerateId,
-    sequential::context::{StepContext, WorkflowContext},
+    sequential::context::StepContext,
     sequential::router::{GoTo, StepResult, WorkflowRouter},
     sequential::service::handle_step_result,
     sequential::step::{Layer, Stack, Step},
@@ -82,7 +82,7 @@ where
     B::IdType: GenerateId + Send + 'static,
     S::Response: Send + 'static,
     B::Compact: Send + 'static,
-    B::Context: Send + MetadataExt<WorkflowContext> + 'static,
+    B::Context: Send + MetadataExt + 'static,
     SinkError: std::error::Error + Send + Sync + 'static,
     F::Response: Send + 'static,
 {
@@ -150,7 +150,7 @@ where
     SinkError: std::error::Error + Send + Sync + 'static,
     Res: Send + 'static,
     B::Compact: Send + 'static,
-    B::Context: Send + MetadataExt<WorkflowContext> + 'static,
+    B::Context: Send + MetadataExt + 'static,
 {
     type Response = GoTo<StepResult<B::Compact, B::IdType>>;
     type Error = BoxDynError;

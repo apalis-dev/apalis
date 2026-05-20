@@ -1,9 +1,6 @@
 use std::fmt::Display;
 
-use apalis_core::task::{
-    Task,
-    metadata::{MetadataExt, TracingContext},
-};
+use apalis_core::task::{Task, metadata::MetadataExt};
 use tracing::{Level, Span};
 
 #[cfg(feature = "opentelemetry")]
@@ -48,7 +45,7 @@ impl Default for ContextualTaskSpan {
 
 impl<Args, Ctx, IdType> MakeSpan<Args, Ctx, IdType> for ContextualTaskSpan
 where
-    Ctx: MetadataExt<TracingContext>,
+    Ctx: MetadataExt,
     IdType: Display,
 {
     fn make_span(&mut self, req: &Task<Args, Ctx, IdType>) -> Span {
@@ -58,8 +55,10 @@ where
             .as_ref()
             .expect("A task must have an ID")
             .to_string();
+        println!("Fetching");
         #[cfg(feature = "opentelemetry")]
-        let tracing_ctx: TracingContext = req.parts.ctx.extract().unwrap_or_default();
+        let tracing_ctx: apalis_core::task::metadata::TracingContext =
+            req.parts.ctx.extract().unwrap_or_default();
         let attempt = &req.parts.attempt;
         let span = Span::current();
 

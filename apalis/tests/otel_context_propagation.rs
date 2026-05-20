@@ -61,7 +61,7 @@ async fn otel_context_propagates_producer_to_consumer() {
     };
 
     backend
-        .send(Task::builder(1_u8).meta(metadata).build())
+        .send(Task::builder(1_u8).meta(&metadata).build())
         .await
         .unwrap();
 
@@ -134,7 +134,7 @@ async fn otel_context_invalid_traceparent_is_ignored_safely() {
         .with_trace_flags(1);
 
     backend
-        .send(Task::builder(1_u8).meta(invalid_context).build())
+        .send(Task::builder(1_u8).meta(&invalid_context).build())
         .await
         .unwrap();
 
@@ -168,7 +168,7 @@ async fn otel_tracestate_roundtrip_is_preserved() {
         TracingContext::from(OtelTraceContext::current()).with_trace_state("vendor=acme");
 
     backend
-        .send(Task::builder(1_u8).meta(metadata).build())
+        .send(Task::builder(1_u8).meta(&metadata).build())
         .await
         .unwrap();
 

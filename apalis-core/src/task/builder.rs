@@ -25,10 +25,17 @@
 //! ```
 //!
 use crate::task::{
-    Parts, Task, attempt::Attempt, extensions::Extensions, metadata::MetadataExt, status::Status,
+    Parts, Task,
+    attempt::Attempt,
+    extensions::Extensions,
+    metadata::{Metadata, MetadataExt},
+    status::Status,
     task_id::TaskId,
 };
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{
+    fmt::Debug,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 /// Builder for creating [`Task`] instances with optional configuration
 #[derive(Debug)]
@@ -87,13 +94,13 @@ impl<Args, Ctx, IdType> TaskBuilder<Args, Ctx, IdType> {
 
     /// Insert a value into the task's ctx context
     #[must_use]
-    pub fn meta<M>(mut self, value: M) -> Self
+    pub fn meta<M>(mut self, value: &M) -> Self
     where
-        Ctx: MetadataExt<M>,
+        Ctx: MetadataExt,
+        M: Metadata,
+        M::Error: Debug,
     {
-        self.ctx
-            .inject(value)
-            .unwrap_or_else(|_| panic!("Failed to inject item into context"));
+        self.ctx.inject(value).expect("Could not add Metadata");
         self
     }
 

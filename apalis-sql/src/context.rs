@@ -1,16 +1,14 @@
 use std::convert::Infallible;
 
 use apalis_core::{
-    task::{Task, metadata::MetadataExt},
+    task::{
+        Task,
+        metadata::{MetadataExt, MetadataStore},
+    },
     task_fn::FromRequest,
 };
 
-type JsonMapMetadata = serde_json::Map<String, serde_json::Value>;
-
-use serde::{
-    Deserialize, Serialize,
-    de::{DeserializeOwned, Error},
-};
+use serde::{Deserialize, Serialize};
 
 /// The SQL context used for jobs stored in a SQL database
 #[derive(Debug, Serialize, Deserialize)]
@@ -22,7 +20,7 @@ pub struct SqlContext<Pool> {
     done_at: Option<i64>,
     priority: i32,
     queue: Option<String>,
-    meta: JsonMapMetadata,
+    meta: MetadataStore,
     // Marker to hold the Pool type
     // Used to associate the context with a specific database pool type
     _pool: std::marker::PhantomData<Pool>,
@@ -160,13 +158,13 @@ impl<Pool> SqlContext<Pool> {
 
     /// Get the metadata map
     #[must_use]
-    pub fn meta(&self) -> &JsonMapMetadata {
+    pub fn meta(&self) -> &MetadataStore {
         &self.meta
     }
 
     /// Set the metadata map
     #[must_use]
-    pub fn with_meta(mut self, meta: JsonMapMetadata) -> Self {
+    pub fn with_meta(mut self, meta: MetadataStore) -> Self {
         self.meta = meta;
         self
     }
@@ -181,19 +179,11 @@ impl<Args: Sync, IdType: Sync, Pool: Sync> FromRequest<Task<Args, Self, IdType>>
     }
 }
 
-impl<T: DeserializeOwned + Serialize, Pool> MetadataExt<T> for SqlContext<Pool> {
-    type Error = serde_json::Error;
-    fn extract(&self) -> Result<T, Self::Error> {
-        self.meta
-            .get(std::any::type_name::<T>())
-            .and_then(|v| T::deserialize(v).ok())
-            .ok_or(serde_json::Error::custom("Failed to extract metadata"))
+impl<Pool> MetadataExt for SqlContext<Pool> {
+    fn metadata(&self) -> &MetadataStore {
+        &self.meta
     }
-    fn inject(&mut self, value: T) -> Result<(), Self::Error> {
-        self.meta.insert(
-            std::any::type_name::<T>().to_owned(),
-            serde_json::to_value(&value).unwrap(),
-        );
-        Ok(())
+    fn metadata_mut(&mut self) -> &mut MetadataStore {
+        &mut self.meta
     }
 }

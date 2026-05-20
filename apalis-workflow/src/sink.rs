@@ -1,3 +1,5 @@
+use std::{fmt::Display, str::FromStr};
+
 use apalis_core::{
     backend::{BackendExt, TaskSinkError, codec::Codec},
     error::BoxDynError,
@@ -57,20 +59,18 @@ where
     ) -> impl Future<Output = Result<(), TaskSinkError<Self::Error>>> + Send;
 }
 
-impl<S: Send, Args: Send, Compact, Err, MetaErr> WorkflowSink<Args> for S
+impl<S: Send, Args: Send, Compact, Err> WorkflowSink<Args> for S
 where
     S: Sink<Task<Compact, S::Context, S::IdType>, Error = Err>
         + BackendExt<Error = Err, Compact = Compact>
         + Unpin,
-    S::IdType: GenerateId + Send,
+    S::IdType: GenerateId + Send + FromStr + Display,
     S::Codec: Codec<Args, Compact = Compact>,
-    S::Context: MetadataExt<WorkflowContext, Error = MetaErr>
-        + MetadataExt<DagFlowContext<S::IdType>, Error = MetaErr>
-        + Send,
+    S::Context: MetadataExt + Send,
     Err: std::error::Error + Send + Sync + 'static,
     <S::Codec as Codec<Args>>::Error: Into<BoxDynError> + Send + Sync + 'static,
-    MetaErr: Into<BoxDynError> + Send + Sync + 'static,
     Compact: Send + 'static,
+    <S::IdType as FromStr>::Err: std::error::Error + Send + Sync + 'static,
 {
     async fn push_start(&mut self, args: Args) -> Result<(), TaskSinkError<Self::Error>> {
         use futures::SinkExt;
@@ -110,7 +110,7 @@ where
         let task_id = TaskId::new(S::IdType::generate());
         let compact = S::Codec::encode(&step).map_err(|e| TaskSinkError::CodecError(e.into()))?;
         let task = TaskBuilder::new(compact)
-            .meta(WorkflowContext { step_index: index })
+            .meta(&WorkflowContext { step_index: index })
             .with_task_id(task_id.clone())
             .build();
         self.send(task)
@@ -127,7 +127,7 @@ where
         let task_id = TaskId::new(S::IdType::generate());
         let compact = S::Codec::encode(&node).map_err(|e| TaskSinkError::CodecError(e.into()))?;
         let task = TaskBuilder::new(compact)
-            .meta(DagFlowContext {
+            .meta(&DagFlowContext {
                 current_node: index,
                 completed_nodes: Default::default(),
                 current_position: index.index(),

@@ -38,6 +38,7 @@ mod tests {
     use apalis_core::{
         task::{
             builder::TaskBuilder,
+            metadata::Meta,
             task_id::{RandomId, TaskId},
         },
         task_fn::task_fn,
@@ -56,13 +57,14 @@ mod tests {
 
     #[tokio::test]
     async fn basic_workflow() {
+        type RepeatUntilState = Meta<RepeaterState<RandomId>>;
         let workflow = Workflow::new("and-then-workflow")
             .and_then(async |input: u32| (input) as usize)
             .delay_for(Duration::from_secs(1))
             .and_then(async |input: usize| (input) as usize)
             .delay_for(Duration::from_secs(1))
             .delay_with(|_| Duration::from_secs(1))
-            .repeat_until(|res: usize, state: RepeaterState<RandomId>| async move {
+            .repeat_until(|res: usize, state: RepeatUntilState| async move {
                 println!("Iteration {}: got result {}", state.iterations(), res);
                 // Repeat until we have iterated 3 times
                 // Of course, in a real-world scenario, the condition would be based on `res`

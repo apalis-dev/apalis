@@ -4,14 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
-- **chore**: improve `FromRequest` api adding `Option<T>` ([#745](https://github.com/geofmureithi/apalis/pull/745))
+- **chore (api)!**: metadata as a key-value store ([#747](https://github.com/geofmureithi/apalis/pull/747))
+- **chore**: improve `FromRequest` api adding `Option<T>` ([#746](https://github.com/geofmureithi/apalis/pull/746))
 - **chore**: bump to v1.0.0 rc.9 ([#744](https://github.com/geofmureithi/apalis/pull/744))
 - **feat (api)!**: remove queue input in expose endpoints ([#741](https://github.com/geofmureithi/apalis/pull/741))
 - **feat**: idempotency for sql tasks ([#736](https://github.com/geofmureithi/apalis/pull/736))
 - **chore**: bump to v1.0.0 rc.8 ([#734](https://github.com/geofmureithi/apalis/pull/734))
 - **feat**: idempotency for tasks ([#726](https://github.com/apalis-dev/apalis/pull/726))
 - **fix(tracing)**: improve OpenTelemetry context propagation across worker tracing layers ([#716](https://github.com/apalis-dev/apalis/pull/716))
-- **deps(deps)**: bump sentry-* from 0.46.2 to 0.47.0 ([#715](https://github.com/apalis-dev/apalis/pull/715))
+- **deps(deps)**: bump sentry-\* from 0.46.2 to 0.47.0 ([#715](https://github.com/apalis-dev/apalis/pull/715))
 - **chore**: bump to v1.0.0 rc.7 ([#714](https://github.com/apalis-dev/apalis/pull/714))
 - **chore**: bump to v1.0.0 rc.6 ([#705](https://github.com/apalis-dev/apalis/pull/705))
 - **fix (workflow)**: remove Display constraints in workflow service ([#704](https://github.com/apalis-dev/apalis/pull/704))

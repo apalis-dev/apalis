@@ -3,7 +3,10 @@ use std::str::FromStr;
 use apalis_core::{
     backend::codec::Codec,
     error::BoxDynError,
-    task::{Task, attempt::Attempt, builder::TaskBuilder, status::Status, task_id::TaskId},
+    task::{
+        Task, attempt::Attempt, builder::TaskBuilder, metadata::MetadataStore, status::Status,
+        task_id::TaskId,
+    },
 };
 
 use crate::context::SqlContext;
@@ -53,7 +56,7 @@ pub struct TaskRow {
     /// Priority level of the task (higher values indicate higher priority)
     pub priority: Option<usize>,
     /// Additional metadata associated with the task, stored as JSON
-    pub metadata: Option<serde_json::Value>,
+    pub metadata: Option<MetadataStore>,
     /// Idempotency key for enforcing uniqueness
     pub idempotency_key: Option<String>,
 }
@@ -76,17 +79,7 @@ impl TaskRow {
             .with_max_attempts(self.max_attempts.unwrap_or(25) as i32)
             .with_last_result(self.last_result)
             .with_priority(self.priority.unwrap_or(0) as i32)
-            .with_meta(
-                self.metadata
-                    .map(|m| {
-                        serde_json::to_value(&m)
-                            .unwrap_or_default()
-                            .as_object()
-                            .cloned()
-                            .unwrap_or_default()
-                    })
-                    .unwrap_or_default(),
-            )
+            .with_meta(self.metadata.unwrap_or_default())
             .with_queue(self.job_type)
             .with_lock_at(self.lock_at.map(|dt| dt.to_unix_timestamp()));
 
@@ -126,11 +119,7 @@ impl TaskRow {
             .with_max_attempts(self.max_attempts.unwrap_or(25) as i32)
             .with_last_result(self.last_result)
             .with_priority(self.priority.unwrap_or(0) as i32)
-            .with_meta(
-                self.metadata
-                    .map(|m| m.as_object().cloned().unwrap())
-                    .unwrap_or_default(),
-            )
+            .with_meta(self.metadata.unwrap_or_default())
             .with_queue(self.job_type)
             .with_lock_at(self.lock_at.map(|dt| dt.to_unix_timestamp()));
 

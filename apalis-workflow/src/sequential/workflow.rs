@@ -10,7 +10,6 @@ use futures::Sink;
 
 use crate::{
     id_generator::GenerateId,
-    sequential::context::WorkflowContext,
     sequential::router::WorkflowRouter,
     sequential::service::WorkflowService,
     sequential::step::{Identity, Layer, Stack, Step},
@@ -111,11 +110,10 @@ where
         + Unpin
         + Clone,
     Err: std::error::Error + Send + Sync + 'static,
-    B::Context: MetadataExt<WorkflowContext> + Send + Sync + 'static,
+    B::Context: MetadataExt + Send + Sync + 'static,
     B::IdType: Send + 'static + Default + GenerateId,
     B: Sync + Backend<Args = Compact, Error = Err>,
     B::Compact: Send + Sync + 'static,
-    <B::Context as MetadataExt<WorkflowContext>>::Error: Into<BoxDynError>,
     L: Layer<RootStep<Current>>,
     L::Step: Step<Output, B>,
 {

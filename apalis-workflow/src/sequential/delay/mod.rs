@@ -59,7 +59,7 @@ where
     S::Response: Send + 'static,
     B::Codec: Codec<Duration, Compact = B::Compact> + Codec<Input, Compact = B::Compact> + 'static,
     <B::Codec as Codec<Duration>>::Error: Into<BoxDynError>,
-    B::Context: Send + 'static + MetadataExt<WorkflowContext>,
+    B::Context: Send + 'static + MetadataExt,
     Input: Send + Sync + 'static,
     <B::Codec as Codec<Input>>::Error: Into<BoxDynError>,
     B: BackendExt,
@@ -133,7 +133,7 @@ where
     S::Response: Send + 'static,
     B::Codec: Codec<Duration, Compact = B::Compact> + Codec<Input, Compact = B::Compact> + 'static,
     <B::Codec as Codec<Duration>>::Error: Into<BoxDynError>,
-    B::Context: Send + 'static + MetadataExt<WorkflowContext>,
+    B::Context: Send + 'static + MetadataExt,
     Input: Send + Sync + 'static,
     <B::Codec as Codec<Input>>::Error: Into<BoxDynError>,
     B: BackendExt,
@@ -166,7 +166,7 @@ where
     B::Codec: Codec<Duration, Compact = B::Compact> + Codec<Input, Compact = B::Compact> + 'static,
     <B::Codec as Codec<Duration>>::Error: Into<BoxDynError>,
     <B::Codec as Codec<Input>>::Error: Into<BoxDynError>,
-    B::Context: Send + 'static + MetadataExt<WorkflowContext>,
+    B::Context: Send + 'static + MetadataExt,
 {
     type Response = GoTo<StepResult<B::Compact, B::IdType>>;
     type Error = BoxDynError;
@@ -194,7 +194,7 @@ where
             });
             let task = TaskBuilder::new(args)
                 .with_task_id(task_id.clone())
-                .meta(WorkflowContext {
+                .meta(&WorkflowContext {
                     step_index: ctx.current_step + 1,
                 })
                 .run_after(delay_duration)
