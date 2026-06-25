@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 /// A simple wrapper around a JSON map to represent task metadata
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct JsonMapMetadata(MetadataStore);
+pub struct JsonMapMetadata(pub MetadataStore);
 
 impl MetadataExt for JsonMapMetadata {
     fn metadata(&self) -> &MetadataStore {

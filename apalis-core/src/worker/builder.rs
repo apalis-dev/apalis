@@ -196,12 +196,10 @@ where
     B: Backend<Args = Args, Context = Ctx>,
 {
     /// Consumes the builder and a service to construct the final worker
-    pub fn build<W: IntoWorkerServiceExt<Args, Ctx, Svc, B, M>, Svc>(
-        self,
-        service: W,
-    ) -> Worker<Args, Ctx, W::Backend, Svc, M>
+    pub fn build<W, Svc>(self, service: W) -> Worker<Args, Ctx, W::Backend, Svc, M>
     where
         Svc: Service<Task<Args, Ctx, B::IdType>>,
+        W: IntoWorkerServiceExt<Args, Ctx, Svc, B, M>,
     {
         service.build_with(self)
     }

@@ -4,12 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
-- **chore (api)!**: metadata as a key-value store ([#747](https://github.com/geofmureithi/apalis/pull/747))
-- **chore**: improve `FromRequest` api adding `Option<T>` ([#746](https://github.com/geofmureithi/apalis/pull/746))
-- **chore**: bump to v1.0.0 rc.9 ([#744](https://github.com/geofmureithi/apalis/pull/744))
-- **feat (api)!**: remove queue input in expose endpoints ([#741](https://github.com/geofmureithi/apalis/pull/741))
-- **feat**: idempotency for sql tasks ([#736](https://github.com/geofmureithi/apalis/pull/736))
-- **chore**: bump to v1.0.0 rc.8 ([#734](https://github.com/geofmureithi/apalis/pull/734))
+- **refactor**: improve file storage adding csv functionality ([#748](https://github.com/apalis-dev/apalis/pull/748))
+- **chore (api)!**: metadata as a key-value store ([#747](https://github.com/apalis-dev/apalis/pull/747))
+- **chore**: improve `FromRequest` api adding `Option<T>` ([#746](https://github.com/apalis-dev/apalis/pull/746))
+- **chore**: bump to v1.0.0 rc.9 ([#744](https://github.com/apalis-dev/apalis/pull/744))
+- **feat (api)!**: remove queue input in expose endpoints ([#741](https://github.com/apalis-dev/apalis/pull/741))
+- **feat**: idempotency for sql tasks ([#736](https://github.com/apalis-dev/apalis/pull/736))
+- **chore**: bump to v1.0.0 rc.8 ([#734](https://github.com/apalis-dev/apalis/pull/734))
 - **feat**: idempotency for tasks ([#726](https://github.com/apalis-dev/apalis/pull/726))
 - **fix(tracing)**: improve OpenTelemetry context propagation across worker tracing layers ([#716](https://github.com/apalis-dev/apalis/pull/716))
 - **deps(deps)**: bump sentry-\* from 0.46.2 to 0.47.0 ([#715](https://github.com/apalis-dev/apalis/pull/715))
@@ -26,28 +27,28 @@ All notable changes to this project are documented in this file.
 - **feat**: introduce contextual tracing allowing passing previous span details ([#670](https://github.com/apalis-dev/apalis/pull/670))
 - **feat**: handle long running tasks with a result collector ([#669](https://github.com/apalis-dev/apalis/pull/669))
 - **chore**: add `DagCodec` trait which handles entry and output in dag nodes ([#668](https://github.com/apalis-dev/apalis/pull/668))
-- **chore**: bump to v1.0.0 rc.2 ([#660](https://github.com/geofmureithi/apalis/pull/660))
+- **chore**: bump to v1.0.0 rc.2 ([#660](https://github.com/apalis-dev/apalis/pull/660))
 - **refactor(apalis-sql)**: refactor `SqlDateTime` and `SqlDateTimeExt` to remove the `Sql` prefix ([#659](https://github.com/apalis-dev/apalis/pull/659))
 - **chore**: chore: add file storage backend docs ([#658](https://github.com/apalis-dev/apalis/pull/658))
 - **feat(apalis-sql)**: add `SqlDateTimeExt` trait for unified datetime handling with `time` crate support ([#655](https://github.com/apalis-dev/apalis/pull/655))
-- **chore**: chore: prep codec and filestorage crates ([#653](https://github.com/geofmureithi/apalis/pull/653))
-- **chore**: bump: introducing rc.1 ([#646](https://github.com/geofmureithi/apalis/pull/646))
-- **chore**: feat: refactor and granulize traits ([#586](https://github.com/geofmureithi/apalis/pull/586))
-- **refactor**: refactor: crates, workflow and BackendExt ([#623](https://github.com/geofmureithi/apalis/pull/623))
-- **chore**: bump to v1.0.0 beta.1 ([#624](https://github.com/geofmureithi/apalis/pull/624))
-- **chore(deps)**: update actions/checkout digest to 93cb6ef ([#628](https://github.com/geofmureithi/apalis/pull/628))
-- **fix(deps)**: update rust crate sentry-core to 0.45.0 ([#633](https://github.com/geofmureithi/apalis/pull/633))
-- **chore(deps)**: update actions/checkout action to v5 ([#634](https://github.com/geofmureithi/apalis/pull/634))
-- **chore**: introduce `cargo audit` and `cargo vet` ([#640](https://github.com/geofmureithi/apalis/pull/640))
-- **chore**: add cargo udeps ([#641](https://github.com/geofmureithi/apalis/pull/641))
-- **fix**: TaskId<T> must be explicit to prevent defaulting to RandomId ([#643](https://github.com/geofmureithi/apalis/pull/643))
-- **chore**: bump to v1.0.0 beta.2 ([#624](https://github.com/geofmureithi/apalis/pull/644))
+- **chore**: chore: prep codec and filestorage crates ([#653](https://github.com/apalis-dev/apalis/pull/653))
+- **chore**: bump: introducing rc.1 ([#646](https://github.com/apalis-dev/apalis/pull/646))
+- **chore**: feat: refactor and granulize traits ([#586](https://github.com/apalis-dev/apalis/pull/586))
+- **refactor**: refactor: crates, workflow and BackendExt ([#623](https://github.com/apalis-dev/apalis/pull/623))
+- **chore**: bump to v1.0.0 beta.1 ([#624](https://github.com/apalis-dev/apalis/pull/624))
+- **chore(deps)**: update actions/checkout digest to 93cb6ef ([#628](https://github.com/apalis-dev/apalis/pull/628))
+- **fix(deps)**: update rust crate sentry-core to 0.45.0 ([#633](https://github.com/apalis-dev/apalis/pull/633))
+- **chore(deps)**: update actions/checkout action to v5 ([#634](https://github.com/apalis-dev/apalis/pull/634))
+- **chore**: introduce `cargo audit` and `cargo vet` ([#640](https://github.com/apalis-dev/apalis/pull/640))
+- **chore**: add cargo udeps ([#641](https://github.com/apalis-dev/apalis/pull/641))
+- **fix**: TaskId<T> must be explicit to prevent defaulting to RandomId ([#643](https://github.com/apalis-dev/apalis/pull/643))
+- **chore**: bump to v1.0.0 beta.2 ([#624](https://github.com/apalis-dev/apalis/pull/644))
 - **fix(worker)**: fix pause/resume functionality ([#651](https://github.com/apalis-dev/apalis/pull/651))
 
 ### Breaking Changes
 
-- **crates**: Moved backend crates to respective repos ([#586](https://github.com/geofmureithi/apalis/pull/586))
-- **api**: `Backend` must be the second input in `WorkerBuilder` ([#586](https://github.com/geofmureithi/apalis/pull/586))
+- **crates**: Moved backend crates to respective repos ([#586](https://github.com/apalis-dev/apalis/pull/586))
+- **api**: `Backend` must be the second input in `WorkerBuilder` ([#586](https://github.com/apalis-dev/apalis/pull/586))
 
 ```rust
 let worker = WorkerBuilder::new("tasty-banana")
@@ -58,7 +59,7 @@ let worker = WorkerBuilder::new("tasty-banana")
     .build(task_fn);
 ```
 
-- **api**: `Monitor` supports restarts and factory() becomes factory(usize) ([#586](https://github.com/geofmureithi/apalis/pull/586))
+- **api**: `Monitor` supports restarts and factory() becomes factory(usize) ([#586](https://github.com/apalis-dev/apalis/pull/586))
 
 ```rust
     Monitor::new()
@@ -76,14 +77,14 @@ Monitor::new()
                 ...
 ```
 
-- **api**: `WorkerContext::id()` becomes `WorkerContext::name()` ([#586](https://github.com/geofmureithi/apalis/pull/586))
-- **api**: `service_fn` becomes `taskfn` ([#586](https://github.com/geofmureithi/apalis/pull/586))
-- **api**: `Pipe::pipe_to_storage` becomes `PipeExt::pipe_to` ([#586](https://github.com/geofmureithi/apalis/pull/586))
+- **api**: `WorkerContext::id()` becomes `WorkerContext::name()` ([#586](https://github.com/apalis-dev/apalis/pull/586))
+- **api**: `service_fn` becomes `taskfn` ([#586](https://github.com/apalis-dev/apalis/pull/586))
+- **api**: `Pipe::pipe_to_storage` becomes `PipeExt::pipe_to` ([#586](https://github.com/apalis-dev/apalis/pull/586))
 
 ### Added
 
 - **opentelemetry layer**: monitor tasks with [OpenTelemetry](https://docs.rs/opentelemetry/latest/opentelemetry/) metrics ([#663](https://github.com/apalis-dev/apalis/pull/663))
-- **api**: `Monitor::should_restart` for controlling worker restarts ([#586](https://github.com/geofmureithi/apalis/pull/586))
+- **api**: `Monitor::should_restart` for controlling worker restarts ([#586](https://github.com/apalis-dev/apalis/pull/586))
 
 ```rs
 Monitor::new()
@@ -94,215 +95,215 @@ Monitor::new()
     })
 ```
 
-## [0.7.4](https://github.com/geofmureithi/apalis/releases/tag/v0.7.4)
+## [0.7.4](https://github.com/apalis-dev/apalis/releases/tag/v0.7.4)
 
 ### Fixed
 
-- **MySQLStorage**: update MySQL query to correctly handle `last_seen` field ([#618](https://github.com/geofmureithi/apalis/pull/618))
-- **fix**: buggy delay with stepped tasks ([#630](https://github.com/geofmureithi/apalis/pull/630))
+- **MySQLStorage**: update MySQL query to correctly handle `last_seen` field ([#618](https://github.com/apalis-dev/apalis/pull/618))
+- **fix**: buggy delay with stepped tasks ([#630](https://github.com/apalis-dev/apalis/pull/630))
 
-## [0.7.3](https://github.com/geofmureithi/apalis/releases/tag/v0.7.3)
+## [0.7.3](https://github.com/apalis-dev/apalis/releases/tag/v0.7.3)
 
 ### Fixed
 
-- **deps**: update rust crate redis to `0.32` ([#584](https://github.com/geofmureithi/apalis/pull/584))
-- **deps**: update rust crate sentry-core to 0.42.0 ([#585](https://github.com/geofmureithi/apalis/pull/585))
-- **deps**: update rust crate criterion to 0.7.0 ([#591](https://github.com/geofmureithi/apalis/pull/591))
-- **deps**: update actions/checkout digest to 08eba0b ([#592](https://github.com/geofmureithi/apalis/pull/592))
-- **deps**: update actions/checkout action to v5 ([#593](https://github.com/geofmureithi/apalis/pull/593))
+- **deps**: update rust crate redis to `0.32` ([#584](https://github.com/apalis-dev/apalis/pull/584))
+- **deps**: update rust crate sentry-core to 0.42.0 ([#585](https://github.com/apalis-dev/apalis/pull/585))
+- **deps**: update rust crate criterion to 0.7.0 ([#591](https://github.com/apalis-dev/apalis/pull/591))
+- **deps**: update actions/checkout digest to 08eba0b ([#592](https://github.com/apalis-dev/apalis/pull/592))
+- **deps**: update actions/checkout action to v5 ([#593](https://github.com/apalis-dev/apalis/pull/593))
 
-## [0.7.2](https://github.com/geofmureithi/apalis/releases/tag/v0.7.2)
+## [0.7.2](https://github.com/apalis-dev/apalis/releases/tag/v0.7.2)
 
 ### Fixed
 
 - **RedisStorage** the `stats` script is now compatible with dragonfly
-- **examples** Prometheus example ([#562](https://github.com/geofmureithi/apalis/pull/562))
-- **SqliteStorage** Event::Idle never trigger ([#571](https://github.com/geofmureithi/apalis/pull/571))
-- **deps** : update rust crate redis to 0.31 ([#555](https://github.com/geofmureithi/apalis/pull/555))
-- **deps** : update rust crate sentry-core to 0.38.0 ([#569](https://github.com/geofmureithi/apalis/pull/569))
-- **deps** : update rust crate criterion to 0.6.0 ([#574](https://github.com/geofmureithi/apalis/pull/574))
-- **error-handling** : ease the error type that is returned by a worker function ([#577](https://github.com/geofmureithi/apalis/pull/577))
-- **PostgresStorage**: fix type error when updating jobs ([#539](https://github.com/geofmureithi/apalis/issues/539))
-- **workflows** : improve permissions for github workflows ([#578](https://github.com/geofmureithi/apalis/issues/578))
-- **deps** : update rust crate pprof to 0.15 ([#579](https://github.com/geofmureithi/apalis/issues/579))
+- **examples** Prometheus example ([#562](https://github.com/apalis-dev/apalis/pull/562))
+- **SqliteStorage** Event::Idle never trigger ([#571](https://github.com/apalis-dev/apalis/pull/571))
+- **deps** : update rust crate redis to 0.31 ([#555](https://github.com/apalis-dev/apalis/pull/555))
+- **deps** : update rust crate sentry-core to 0.38.0 ([#569](https://github.com/apalis-dev/apalis/pull/569))
+- **deps** : update rust crate criterion to 0.6.0 ([#574](https://github.com/apalis-dev/apalis/pull/574))
+- **error-handling** : ease the error type that is returned by a worker function ([#577](https://github.com/apalis-dev/apalis/pull/577))
+- **PostgresStorage**: fix type error when updating jobs ([#539](https://github.com/apalis-dev/apalis/issues/539))
+- **workflows** : improve permissions for github workflows ([#578](https://github.com/apalis-dev/apalis/issues/578))
+- **deps** : update rust crate pprof to 0.15 ([#579](https://github.com/apalis-dev/apalis/issues/579))
 
-## [0.7.1](https://github.com/geofmureithi/apalis/releases/tag/v0.7.1)
+## [0.7.1](https://github.com/apalis-dev/apalis/releases/tag/v0.7.1)
 
 ### Changed
 
-- **SqliteStorage**: Consistent state fetch via returning update query and remove transactions ([#549](https://github.com/geofmureithi/apalis/pull/549))
+- **SqliteStorage**: Consistent state fetch via returning update query and remove transactions ([#549](https://github.com/apalis-dev/apalis/pull/549))
 
 ### Fixed
 
-- **PostgresStorage**: remove old, conflicting apalis.push_job database function ([#543](https://github.com/geofmureithi/apalis/pull/543))
-- **deps**: update rust crate sentry-core to `0.37.0` ([#542](https://github.com/geofmureithi/apalis/pull/542))
-- **apalis-sql**: Fix schedule job on sqlite and mysql + tests ([#556](https://github.com/geofmureithi/apalis/issues/556))
-- **deps**: update rust crate metrics-exporter-prometheus to 0.17 ([#550](https://github.com/geofmureithi/apalis/issues/550))
+- **PostgresStorage**: remove old, conflicting apalis.push_job database function ([#543](https://github.com/apalis-dev/apalis/pull/543))
+- **deps**: update rust crate sentry-core to `0.37.0` ([#542](https://github.com/apalis-dev/apalis/pull/542))
+- **apalis-sql**: Fix schedule job on sqlite and mysql + tests ([#556](https://github.com/apalis-dev/apalis/issues/556))
+- **deps**: update rust crate metrics-exporter-prometheus to 0.17 ([#550](https://github.com/apalis-dev/apalis/issues/550))
 
 ### Tests
 
-- **execute_next**: fix(tests): avoid execute_next timeout ([#548](https://github.com/geofmureithi/apalis/pull/548))
+- **execute_next**: fix(tests): avoid execute_next timeout ([#548](https://github.com/apalis-dev/apalis/pull/548))
 
-## [0.7.0](https://github.com/geofmureithi/apalis/releases/tag/v0.7.0)
+## [0.7.0](https://github.com/apalis-dev/apalis/releases/tag/v0.7.0)
 
 ### Added
 
-- **api** add associated types to the Backend trait ([#516](https://github.com/geofmureithi/apalis/pull/516))
-- **retry layer**: Integrate retry logic with task handling ([#512](https://github.com/geofmureithi/apalis/pull/512))
-- **generic retry**: Persist check for tasks ([#498](https://github.com/geofmureithi/apalis/pull/498))
-- **native TLS**: Add `async-std-comp-native-tls` and `tokio-comp-native-tls` features ([#525](https://github.com/geofmureithi/apalis/pull/525))
-- **cron** : Introduce CronContext ([#488](https://github.com/geofmureithi/apalis/pull/488))
-- **stepped tasks** : adds ability to execute stepped tasks ([#478](https://github.com/geofmureithi/apalis/pull/478))
-- **SQL** : add support for job priority to SQL storages ([#533](https://github.com/geofmureithi/apalis/pull/533/))
+- **api** add associated types to the Backend trait ([#516](https://github.com/apalis-dev/apalis/pull/516))
+- **retry layer**: Integrate retry logic with task handling ([#512](https://github.com/apalis-dev/apalis/pull/512))
+- **generic retry**: Persist check for tasks ([#498](https://github.com/apalis-dev/apalis/pull/498))
+- **native TLS**: Add `async-std-comp-native-tls` and `tokio-comp-native-tls` features ([#525](https://github.com/apalis-dev/apalis/pull/525))
+- **cron** : Introduce CronContext ([#488](https://github.com/apalis-dev/apalis/pull/488))
+- **stepped tasks** : adds ability to execute stepped tasks ([#478](https://github.com/apalis-dev/apalis/pull/478))
+- **SQL** : add support for job priority to SQL storages ([#533](https://github.com/apalis-dev/apalis/pull/533/))
 
 ### Fixed
 
-- **PostgresStorage**: PostgresStorage get_jobs status conditional ([#524](https://github.com/geofmureithi/apalis/pull/524))
-- **cron heartbeat**: Refactor and fix cron heartbeat ([#513](https://github.com/geofmureithi/apalis/pull/513))
-- **RedisStorage**: Correct `running_count` statistic ([#506](https://github.com/geofmureithi/apalis/pull/506))
-- **orphaned tasks**: Re-enqueue orphaned jobs before starting streaming ([#507](https://github.com/geofmureithi/apalis/pull/507))
-- **deps**: Update Rust crate `redis` to `0.28` ([#495](https://github.com/geofmureithi/apalis/pull/495))
-- **deps**: Update Rust crate `redis` to `0.29` and `deadpool-redis` to `0.20` ([#527](https://github.com/geofmureithi/apalis/pull/527))
-- **features**: fix: ease apalis-core default features ([538](https://github.com/geofmureithi/apalis/pull/538))
+- **PostgresStorage**: PostgresStorage get_jobs status conditional ([#524](https://github.com/apalis-dev/apalis/pull/524))
+- **cron heartbeat**: Refactor and fix cron heartbeat ([#513](https://github.com/apalis-dev/apalis/pull/513))
+- **RedisStorage**: Correct `running_count` statistic ([#506](https://github.com/apalis-dev/apalis/pull/506))
+- **orphaned tasks**: Re-enqueue orphaned jobs before starting streaming ([#507](https://github.com/apalis-dev/apalis/pull/507))
+- **deps**: Update Rust crate `redis` to `0.28` ([#495](https://github.com/apalis-dev/apalis/pull/495))
+- **deps**: Update Rust crate `redis` to `0.29` and `deadpool-redis` to `0.20` ([#527](https://github.com/apalis-dev/apalis/pull/527))
+- **features**: fix: ease apalis-core default features ([538](https://github.com/apalis-dev/apalis/pull/538))
 
 ### Tests
 
-- **Integration tests**: Aborting jobs and panicking workers ([#508](https://github.com/geofmureithi/apalis/pull/508))
-- **Worker tests**: Run a real worker in `testrunner` ([#509](https://github.com/geofmureithi/apalis/pull/509))
+- **Integration tests**: Aborting jobs and panicking workers ([#508](https://github.com/apalis-dev/apalis/pull/508))
+- **Worker tests**: Run a real worker in `testrunner` ([#509](https://github.com/apalis-dev/apalis/pull/509))
 
 ---
 
-## [0.6.4](https://github.com/geofmureithi/apalis/releases/tag/v0.6.4)
+## [0.6.4](https://github.com/apalis-dev/apalis/releases/tag/v0.6.4)
 
 ### Changed
 
-- **Version bump**: Increment to `v0.6.4` ([#500](https://github.com/geofmureithi/apalis/pull/500))
+- **Version bump**: Increment to `v0.6.4` ([#500](https://github.com/apalis-dev/apalis/pull/500))
 
 ### Fixed
 
-- **deps**: Update Rust crate `cron` to `0.15.0` ([#499](https://github.com/geofmureithi/apalis/pull/499))
-- **deps**: Update Rust crate `sentry-core` to `0.36.0` ([#493](https://github.com/geofmureithi/apalis/pull/493))
-- **vacuuming**: Handle vacuuming correctly for backends ([#491](https://github.com/geofmureithi/apalis/pull/491))
+- **deps**: Update Rust crate `cron` to `0.15.0` ([#499](https://github.com/apalis-dev/apalis/pull/499))
+- **deps**: Update Rust crate `sentry-core` to `0.36.0` ([#493](https://github.com/apalis-dev/apalis/pull/493))
+- **vacuuming**: Handle vacuuming correctly for backends ([#491](https://github.com/apalis-dev/apalis/pull/491))
 
 ### Added
 
-- **Redis keep_alive**: Prevent permanent failure after Redis restarts ([#492](https://github.com/geofmureithi/apalis/pull/492))
+- **Redis keep_alive**: Prevent permanent failure after Redis restarts ([#492](https://github.com/apalis-dev/apalis/pull/492))
 
 ---
 
-## [0.6.3](https://github.com/geofmureithi/apalis/releases/tag/v0.6.3)
+## [0.6.3](https://github.com/apalis-dev/apalis/releases/tag/v0.6.3)
 
 ### Changed
 
-- **Version bump**: Increment to `v0.6.3` ([#490](https://github.com/geofmureithi/apalis/pull/490))
+- **Version bump**: Increment to `v0.6.3` ([#490](https://github.com/apalis-dev/apalis/pull/490))
 
 ### Fixed
 
-- **deps**: Update Rust crate `cron` to `0.14.0` ([#486](https://github.com/geofmureithi/apalis/pull/486))
+- **deps**: Update Rust crate `cron` to `0.14.0` ([#486](https://github.com/apalis-dev/apalis/pull/486))
 - **deps**: Update Rust crate `sentry-core` to `0.35.0`
-- **examples**: Several improvements and fixes ([#484](https://github.com/geofmureithi/apalis/pull/484), [#489](https://github.com/geofmureithi/apalis/pull/489))
+- **examples**: Several improvements and fixes ([#484](https://github.com/apalis-dev/apalis/pull/484), [#489](https://github.com/apalis-dev/apalis/pull/489))
 
 ---
 
-## [0.6.2](https://github.com/geofmureithi/apalis/releases/tag/v0.6.2)
+## [0.6.2](https://github.com/apalis-dev/apalis/releases/tag/v0.6.2)
 
 ### Changed
 
-- **Version bump**: Increment to `v0.6.2` ([#482](https://github.com/geofmureithi/apalis/pull/482))
+- **Version bump**: Increment to `v0.6.2` ([#482](https://github.com/apalis-dev/apalis/pull/482))
 
 ### Fixed
 
-- **Waker**: Handle only the latest waker ([#481](https://github.com/geofmureithi/apalis/pull/481))
+- **Waker**: Handle only the latest waker ([#481](https://github.com/apalis-dev/apalis/pull/481))
 
 ---
 
-## [0.6.1](https://github.com/geofmureithi/apalis/releases/tag/v0.6.1)
+## [0.6.1](https://github.com/apalis-dev/apalis/releases/tag/v0.6.1)
 
 ### Changed
 
-- **Version bump**: Increment to `v0.6.1` ([#479](https://github.com/geofmureithi/apalis/pull/479))
+- **Version bump**: Increment to `v0.6.1` ([#479](https://github.com/apalis-dev/apalis/pull/479))
 
 ### Fixed
 
-- **Redis MQ**: Restore missing `message_id` ([#475](https://github.com/geofmureithi/apalis/pull/475))
-- **Worker readiness**: Allow polling only when the worker is ready ([#472](https://github.com/geofmureithi/apalis/pull/472))
+- **Redis MQ**: Restore missing `message_id` ([#475](https://github.com/apalis-dev/apalis/pull/475))
+- **Worker readiness**: Allow polling only when the worker is ready ([#472](https://github.com/apalis-dev/apalis/pull/472))
 
 ---
 
-## [0.6.0](https://github.com/geofmureithi/apalis/releases/tag/v0.6.0)
+## [0.6.0](https://github.com/apalis-dev/apalis/releases/tag/v0.6.0)
 
 ### Changed
 
-- **Version bump**: Introduce `v0.6.0` ([#459](https://github.com/geofmureithi/apalis/pull/459))
-- **Branch name**: Rename `master` to `main` ([#456](https://github.com/geofmureithi/apalis/pull/456))
+- **Version bump**: Introduce `v0.6.0` ([#459](https://github.com/apalis-dev/apalis/pull/459))
+- **Branch name**: Rename `master` to `main` ([#456](https://github.com/apalis-dev/apalis/pull/456))
 - **deps**: Various dependency updates (e.g., `tower` to `0.5`, `thiserror` to `v2`, etc.)
 
 ### Fixed
 
-- **Redis**: Minor ACK bug ([#463](https://github.com/geofmureithi/apalis/pull/463))
+- **Redis**: Minor ACK bug ([#463](https://github.com/apalis-dev/apalis/pull/463))
 
 ---
 
-## [0.5.5](https://github.com/geofmureithi/apalis/releases/tag/v0.5.5)
+## [0.5.5](https://github.com/apalis-dev/apalis/releases/tag/v0.5.5)
 
 ### Changed
 
-- **Version bump**: `v0.5.5` ([#408](https://github.com/geofmureithi/apalis/pull/408))
+- **Version bump**: `v0.5.5` ([#408](https://github.com/apalis-dev/apalis/pull/408))
 
 ### Fixed
 
-- **tower**: Adjust for breaking changes ([#407](https://github.com/geofmureithi/apalis/pull/407))
+- **tower**: Adjust for breaking changes ([#407](https://github.com/apalis-dev/apalis/pull/407))
 
 ---
 
-## [0.5.4](https://github.com/geofmureithi/apalis/releases/tag/v0.5.4)
+## [0.5.4](https://github.com/apalis-dev/apalis/releases/tag/v0.5.4)
 
 ### Changed
 
-- **Version bump**: `v0.5.4` ([#405](https://github.com/geofmureithi/apalis/pull/405))
+- **Version bump**: `v0.5.4` ([#405](https://github.com/apalis-dev/apalis/pull/405))
 
 ### Fixed
 
-- **deps**: Update Rust crate `tower` to `0.5` ([#396](https://github.com/geofmureithi/apalis/pull/396))
-- **sqlx**: Update to `0.8.1` ([#403](https://github.com/geofmureithi/apalis/pull/403))
+- **deps**: Update Rust crate `tower` to `0.5` ([#396](https://github.com/apalis-dev/apalis/pull/396))
+- **sqlx**: Update to `0.8.1` ([#403](https://github.com/apalis-dev/apalis/pull/403))
 
 ---
 
-## [0.5.3](https://github.com/geofmureithi/apalis/releases/tag/v0.5.3)
+## [0.5.3](https://github.com/apalis-dev/apalis/releases/tag/v0.5.3)
 
 ### Changed
 
-- **Version bump**: `v0.5.3` ([#328](https://github.com/geofmureithi/apalis/pull/328))
-- **Repository metadata**: Add repository information ([#345](https://github.com/geofmureithi/apalis/pull/345))
+- **Version bump**: `v0.5.3` ([#328](https://github.com/apalis-dev/apalis/pull/328))
+- **Repository metadata**: Add repository information ([#345](https://github.com/apalis-dev/apalis/pull/345))
 
 ### Fixed
 
-- **Job context**: Ensure job context is tracked properly ([#289](https://github.com/geofmureithi/apalis/pull/289))
+- **Job context**: Ensure job context is tracked properly ([#289](https://github.com/apalis-dev/apalis/pull/289))
 
 ---
 
-## [0.5.2](https://github.com/geofmureithi/apalis/releases/tag/v0.5.2)
+## [0.5.2](https://github.com/apalis-dev/apalis/releases/tag/v0.5.2)
 
 ### Changed
 
-- **Version bump**: `v0.5.2` ([#322](https://github.com/geofmureithi/apalis/pull/322))
+- **Version bump**: `v0.5.2` ([#322](https://github.com/apalis-dev/apalis/pull/322))
 
 ### Fixed
 
-- **Timestamp**: Correct timestamp type for Postgres ([#321](https://github.com/geofmureithi/apalis/pull/321))
-- **SQL config**: Allow SQL config values to be modified ([#320](https://github.com/geofmureithi/apalis/pull/320))
+- **Timestamp**: Correct timestamp type for Postgres ([#321](https://github.com/apalis-dev/apalis/pull/321))
+- **SQL config**: Allow SQL config values to be modified ([#320](https://github.com/apalis-dev/apalis/pull/320))
 
 ---
 
-## [0.5.1](https://github.com/geofmureithi/apalis/releases/tag/v0.5.1)
+## [0.5.1](https://github.com/apalis-dev/apalis/releases/tag/v0.5.1)
 
 ### Changed
 
-- **Version bump**: `v0.5.1` ([#265](https://github.com/geofmureithi/apalis/pull/265))
+- **Version bump**: `v0.5.1` ([#265](https://github.com/apalis-dev/apalis/pull/265))
 
 ### Added
 
-- **Shutdown terminator**: Graceful shutdown improvements ([#263](https://github.com/geofmureithi/apalis/pull/263))
+- **Shutdown terminator**: Graceful shutdown improvements ([#263](https://github.com/apalis-dev/apalis/pull/263))
 
 ### Fixed
 
@@ -311,76 +312,76 @@ Monitor::new()
 
 ---
 
-## [0.5.0](https://github.com/geofmureithi/apalis/releases/tag/v0.5.0)
+## [0.5.0](https://github.com/apalis-dev/apalis/releases/tag/v0.5.0)
 
 ### Changed
 
-- **Version bump**: `v0.5.0` ([#247](https://github.com/geofmureithi/apalis/pull/247))
+- **Version bump**: `v0.5.0` ([#247](https://github.com/apalis-dev/apalis/pull/247))
 - **Tokio**: Update to `1.36.0`
 
 ### Fixed
 
-- **Examples**: Fix missing data in example ([#245](https://github.com/geofmureithi/apalis/pull/245))
+- **Examples**: Fix missing data in example ([#245](https://github.com/apalis-dev/apalis/pull/245))
 
 ---
 
-## [0.4.9](https://github.com/geofmureithi/apalis/releases/tag/v0.4.9)
+## [0.4.9](https://github.com/apalis-dev/apalis/releases/tag/v0.4.9)
 
 ### Changed
 
-- **Version bump**: `v0.4.9` ([#232](https://github.com/geofmureithi/apalis/pull/232))
+- **Version bump**: `v0.4.9` ([#232](https://github.com/apalis-dev/apalis/pull/232))
 
 ### Fixed
 
-- **deps**: Update Rust crate `futures-lite` to `2.2.0` ([#230](https://github.com/geofmureithi/apalis/pull/230))
-- **MQ builder**: Various bug fixes and improvements ([#231](https://github.com/geofmureithi/apalis/pull/231))
+- **deps**: Update Rust crate `futures-lite` to `2.2.0` ([#230](https://github.com/apalis-dev/apalis/pull/230))
+- **MQ builder**: Various bug fixes and improvements ([#231](https://github.com/apalis-dev/apalis/pull/231))
 
 ---
 
-## [0.4.8](https://github.com/geofmureithi/apalis/releases/tag/v0.4.8)
+## [0.4.8](https://github.com/apalis-dev/apalis/releases/tag/v0.4.8)
 
 ### Changed
 
-- **Version bump**: `v0.4.8` ([#229](https://github.com/geofmureithi/apalis/pull/229))
+- **Version bump**: `v0.4.8` ([#229](https://github.com/apalis-dev/apalis/pull/229))
 
 ### Added
 
-- **Configurable concurrency** per worker ([#222](https://github.com/geofmureithi/apalis/pull/222))
+- **Configurable concurrency** per worker ([#222](https://github.com/apalis-dev/apalis/pull/222))
 
 ### Fixed
 
-- **deps**: Update Rust crate `smol` to `v2` ([#228](https://github.com/geofmureithi/apalis/pull/228))
-- **deps**: Update Rust crate `async-trait` to `0.1.77` ([#225](https://github.com/geofmureithi/apalis/pull/225))
+- **deps**: Update Rust crate `smol` to `v2` ([#228](https://github.com/apalis-dev/apalis/pull/228))
+- **deps**: Update Rust crate `async-trait` to `0.1.77` ([#225](https://github.com/apalis-dev/apalis/pull/225))
 
 ---
 
-## [0.4.6](https://github.com/geofmureithi/apalis/releases/tag/v0.4.6)
+## [0.4.6](https://github.com/apalis-dev/apalis/releases/tag/v0.4.6)
 
 ### Changed
 
-- **Version bump**: `v0.4.6` ([#197](https://github.com/geofmureithi/apalis/pull/197))
+- **Version bump**: `v0.4.6` ([#197](https://github.com/apalis-dev/apalis/pull/197))
 
 ### Fixed
 
-- **features**: Prevent forcing unintended dependencies by default ([#196](https://github.com/geofmureithi/apalis/pull/196))
-- **worker spawn**: Use `executor.spawn` from within worker to start heartbeat tasks ([#195](https://github.com/geofmureithi/apalis/pull/195))
+- **features**: Prevent forcing unintended dependencies by default ([#196](https://github.com/apalis-dev/apalis/pull/196))
+- **worker spawn**: Use `executor.spawn` from within worker to start heartbeat tasks ([#195](https://github.com/apalis-dev/apalis/pull/195))
 
 ---
 
-## [0.4.5](https://github.com/geofmureithi/apalis/releases/tag/v0.4.5)
+## [0.4.5](https://github.com/apalis-dev/apalis/releases/tag/v0.4.5)
 
 ### Changed
 
-- **Version bump**: `v0.4.5` ([#181](https://github.com/geofmureithi/apalis/pull/181))
+- **Version bump**: `v0.4.5` ([#181](https://github.com/apalis-dev/apalis/pull/181))
 
 ### Fixed
 
-- **deps**: Update Rust crate `tokio` to `1.33.0` ([#180](https://github.com/geofmureithi/apalis/pull/180))
-- **expose migrations**: Expose migrations for Postgres and SQLite ([#179](https://github.com/geofmureithi/apalis/pull/179))
+- **deps**: Update Rust crate `tokio` to `1.33.0` ([#180](https://github.com/apalis-dev/apalis/pull/180))
+- **expose migrations**: Expose migrations for Postgres and SQLite ([#179](https://github.com/apalis-dev/apalis/pull/179))
 
 ---
 
-## [0.4.4](https://github.com/geofmureithi/apalis/releases/tag/v0.4.4)
+## [0.4.4](https://github.com/apalis-dev/apalis/releases/tag/v0.4.4)
 
 ### Changed
 
@@ -390,7 +391,7 @@ Monitor::new()
 
 ---
 
-## [0.4.3](https://github.com/geofmureithi/apalis/releases/tag/v0.4.3)
+## [0.4.3](https://github.com/apalis-dev/apalis/releases/tag/v0.4.3)
 
 ### Changed
 
@@ -399,7 +400,7 @@ Monitor::new()
 
 ---
 
-## [0.4.2](https://github.com/geofmureithi/apalis/releases/tag/v0.4.2)
+## [0.4.2](https://github.com/apalis-dev/apalis/releases/tag/v0.4.2)
 
 ### Changed
 
@@ -412,7 +413,7 @@ Monitor::new()
 
 ---
 
-## [0.4.1](https://github.com/geofmureithi/apalis/releases/tag/v0.4.1)
+## [0.4.1](https://github.com/apalis-dev/apalis/releases/tag/v0.4.1)
 
 ### Changed
 
@@ -424,7 +425,7 @@ Monitor::new()
 
 ---
 
-## [0.3.6](https://github.com/geofmureithi/apalis/releases/tag/v0.3.6)
+## [0.3.6](https://github.com/apalis-dev/apalis/releases/tag/v0.3.6)
 
 ### Changed
 
@@ -433,7 +434,7 @@ Monitor::new()
 
 ---
 
-## [0.3.5](https://github.com/geofmureithi/apalis/releases/tag/v0.3.5)
+## [0.3.5](https://github.com/apalis-dev/apalis/releases/tag/v0.3.5)
 
 ### Changed
 
@@ -446,7 +447,7 @@ Monitor::new()
 
 ---
 
-## [0.3.4](https://github.com/geofmureithi/apalis/releases/tag/v0.3.4)
+## [0.3.4](https://github.com/apalis-dev/apalis/releases/tag/v0.3.4)
 
 ### Changed
 
@@ -455,7 +456,7 @@ Monitor::new()
 
 ---
 
-## [0.3.3](https://github.com/geofmureithi/apalis/releases/tag/v0.3.3)
+## [0.3.3](https://github.com/apalis-dev/apalis/releases/tag/v0.3.3)
 
 ### Changed
 
@@ -464,7 +465,7 @@ Monitor::new()
 
 ---
 
-## [0.3.1](https://github.com/geofmureithi/apalis/releases/tag/v0.3.1)
+## [0.3.1](https://github.com/apalis-dev/apalis/releases/tag/v0.3.1)
 
 ### Changed
 
@@ -473,7 +474,7 @@ Monitor::new()
 
 ---
 
-## [0.3.0](https://github.com/geofmureithi/apalis/releases/tag/v0.3.0)
+## [0.3.0](https://github.com/apalis-dev/apalis/releases/tag/v0.3.0)
 
 ### Changed
 

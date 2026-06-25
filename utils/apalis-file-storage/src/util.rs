@@ -1,240 +1,250 @@
-use std::{cmp::Ordering, collections::BTreeMap, fmt::Debug};
-
-use futures_util::FutureExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::{collections::BTreeMap, fmt::Debug};
 
-use apalis_core::{
-    error::BoxDynError,
-    task::{
-        status::Status,
-        task_id::{RandomId, TaskId},
-    },
-    worker::ext::ack::Acknowledge,
-};
+use apalis_core::task::task_id::{RandomId, TaskId};
 
-use crate::{JsonMapMetadata, JsonStorage};
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-pub struct TaskKey {
-    pub(super) task_id: TaskId<RandomId>,
-    pub(super) queue: String,
-    pub(super) status: Status,
-}
-
-impl PartialEq for TaskKey {
-    fn eq(&self, other: &Self) -> bool {
-        self.task_id == other.task_id && self.queue == other.queue
-    }
-}
-
-impl Eq for TaskKey {}
-
-impl PartialOrd for TaskKey {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for TaskKey {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match self.task_id.cmp(&other.task_id) {
-            Ordering::Equal => self.queue.cmp(&other.queue),
-            ord => ord,
-        }
-    }
-}
+use crate::JsonMapMetadata;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskWithMeta {
-    pub(super) args: Value,
+pub struct RawTask {
+    pub(super) task_id: Option<TaskId<RandomId>>,
+    pub(super) args: serde_json::Value,
     pub(super) ctx: JsonMapMetadata,
-    pub(super) result: Option<Value>,
+    pub(super) result: Option<serde_json::Value>,
     pub(super) idempotency_key: Option<String>,
 }
 
-#[derive(Debug)]
-pub struct JsonAck<Args> {
-    pub(crate) inner: JsonStorage<Args>,
-}
+/// Flattens a `serde_json::Value` into a `BTreeMap<String, String>`.
+///
+/// Arrays and objects are flattened using dot notation.
+///
+/// `prefix` is prepended to every generated key.
+///
+/// Example:
+///
+/// prefix = Some("root")
+///
+/// {
+///   "user": {
+///     "name": "John"
+///   }
+/// }
+///
+/// becomes:
+///
+/// root.user.name => "John"
+///
+pub(crate) fn from_value(prefix: Option<&str>, value: &Value) -> BTreeMap<String, String> {
+    fn recurse(prefix: Option<String>, value: &Value, output: &mut BTreeMap<String, String>) {
+        match value {
+            Value::Object(map) => {
+                for (key, value) in map {
+                    let path = match &prefix {
+                        Some(prefix) => format!("{prefix}.{key}"),
+                        None => key.clone(),
+                    };
 
-impl<Args> Clone for JsonAck<Args> {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
-    }
-}
-
-impl<Args: Send + 'static + Debug, Res: Serialize, Ctx: Sync> Acknowledge<Res, Ctx, RandomId>
-    for JsonAck<Args>
-{
-    type Error = serde_json::Error;
-
-    type Future = futures_core::future::BoxFuture<'static, Result<(), Self::Error>>;
-
-    fn ack(
-        &mut self,
-        res: &Result<Res, BoxDynError>,
-        ctx: &apalis_core::task::Parts<Ctx, RandomId>,
-    ) -> Self::Future {
-        let store = self.inner.clone();
-        let val = serde_json::to_value(res.as_ref().map_err(|e| e.to_string())).unwrap();
-        let task_id = ctx.task_id.clone().unwrap();
-        async move {
-            let key = TaskKey {
-                task_id: task_id.clone(),
-                queue: std::any::type_name::<Args>().to_owned(),
-                status: Status::Running,
-            };
-
-            let _ = store.update_result(&key, Status::Done, val).unwrap();
-
-            store.persist_to_disk().unwrap();
-
-            Ok(())
-        }
-        .boxed()
-    }
-}
-
-impl<Res: 'static + serde::de::DeserializeOwned + Send, Args: 'static + Sync>
-    apalis_core::backend::WaitForCompletion<Res> for JsonStorage<Args>
-where
-    Args: Send + serde::de::DeserializeOwned + 'static + Unpin + Serialize,
-{
-    type ResultStream = futures_core::stream::BoxStream<
-        'static,
-        Result<apalis_core::backend::TaskResult<Res, RandomId>, futures_channel::mpsc::SendError>,
-    >;
-    fn wait_for(
-        &self,
-        task_ids: impl IntoIterator<Item = TaskId<Self::IdType>>,
-    ) -> Self::ResultStream {
-        use futures_util::StreamExt;
-        use std::{collections::HashSet, time::Duration};
-
-        let task_ids: HashSet<_> = task_ids.into_iter().collect();
-        struct PollState<T, Compact> {
-            vault: JsonStorage<Compact>,
-            pending_tasks: HashSet<TaskId<RandomId>>,
-            queue: String,
-            poll_interval: Duration,
-            _phantom: std::marker::PhantomData<T>,
-        }
-        let state = PollState {
-            vault: self.clone(),
-            pending_tasks: task_ids,
-            queue: std::any::type_name::<Args>().to_owned(),
-            poll_interval: Duration::from_millis(100),
-            _phantom: std::marker::PhantomData,
-        };
-        futures_util::stream::unfold(state, |mut state: PollState<Res, Args>| {
-            async move {
-                // panic!( "{}", state.pending_tasks.len());
-                // If no pending tasks, we're done
-                if state.pending_tasks.is_empty() {
-                    return None;
+                    recurse(Some(path), value, output);
                 }
+            }
 
-                loop {
-                    // Check for completed tasks
-                    let vault = &state.vault;
-                    let completed_task = state.pending_tasks.iter().find_map(|task_id| {
-                        let key = TaskKey {
-                            task_id: task_id.clone(),
-                            queue: state.queue.clone(),
-                            status: Status::Pending,
-                        };
+            Value::Array(values) => {
+                for (index, value) in values.iter().enumerate() {
+                    let path = match &prefix {
+                        Some(prefix) => format!("{prefix}.{index}"),
+                        None => index.to_string(),
+                    };
 
-                        vault
-                            .get(&key)
-                            .and_then(|value| Some((task_id.clone(), value.result?)))
-                    });
+                    recurse(Some(path), value, output);
+                }
+            }
 
-                    if let Some((task_id, result)) = completed_task {
-                        state.pending_tasks.remove(&task_id);
-                        let result: Result<Res, String> = serde_json::from_value(result).unwrap();
-                        return Some((
-                            Ok(apalis_core::backend::TaskResult {
-                                task_id,
-                                status: Status::Done,
-                                result,
-                            }),
-                            state,
-                        ));
+            Value::Null => {
+                if let Some(prefix) = prefix {
+                    output.insert(prefix, "null".to_owned());
+                }
+            }
+
+            Value::Bool(v) => {
+                if let Some(prefix) = prefix {
+                    output.insert(prefix, v.to_string());
+                }
+            }
+
+            Value::Number(v) => {
+                if let Some(prefix) = prefix {
+                    output.insert(prefix, v.to_string());
+                }
+            }
+
+            Value::String(v) => {
+                if let Some(prefix) = prefix {
+                    output.insert(prefix, v.clone());
+                }
+            }
+        }
+    }
+
+    let mut output = BTreeMap::new();
+
+    recurse(prefix.map(|s| s.to_owned()), value, &mut output);
+
+    output
+}
+
+/// Reconstructs a nested `serde_json::Value` from a flattened
+/// `BTreeMap<String, String>`.
+///
+/// If `prefix` is provided, only matching keys are used and the prefix
+/// is stripped before reconstruction.
+///
+/// Example:
+///
+/// root.user.name => "John"
+///
+/// with prefix Some("root")
+///
+/// becomes:
+///
+/// {
+///   "user": {
+///     "name": "John"
+///   }
+/// }
+///
+pub(crate) fn to_value(prefix: Option<&str>, map: &BTreeMap<String, String>) -> Value {
+    fn parse_scalar(value: &str) -> Value {
+        if value == "null" {
+            Value::Null
+        } else if value == "true" {
+            Value::Bool(true)
+        } else if value == "false" {
+            Value::Bool(false)
+        } else if let Ok(n) = value.parse::<i64>() {
+            Value::Number(n.into())
+        } else if let Ok(n) = value.parse::<f64>() {
+            serde_json::Number::from_f64(n)
+                .map(Value::Number)
+                .unwrap_or_else(|| Value::String(value.to_owned()))
+        } else {
+            Value::String(value.to_owned())
+        }
+    }
+
+    fn insert_path(root: &mut Value, parts: &[&str], value: Value) {
+        if parts.is_empty() {
+            *root = value;
+            return;
+        }
+
+        let current = parts[0];
+        let is_index = current.parse::<usize>().is_ok();
+
+        if parts.len() == 1 {
+            match (is_index, root) {
+                (true, Value::Array(arr)) => {
+                    let idx = current.parse::<usize>().unwrap();
+
+                    if arr.len() <= idx {
+                        arr.resize(idx + 1, Value::Null);
                     }
 
-                    // No completed tasks, wait and try again
-                    apalis_core::timer::sleep(state.poll_interval).await;
+                    arr[idx] = value;
+                }
+
+                (false, Value::Object(map)) => {
+                    map.insert(current.to_owned(), value);
+                }
+
+                (true, slot) => {
+                    let idx = current.parse::<usize>().unwrap();
+
+                    let mut arr = Vec::new();
+                    arr.resize(idx + 1, Value::Null);
+                    arr[idx] = value;
+
+                    *slot = Value::Array(arr);
+                }
+
+                (false, slot) => {
+                    let mut map = serde_json::Map::new();
+                    map.insert(current.to_owned(), value);
+                    *slot = Value::Object(map);
                 }
             }
-        })
-        .boxed()
+
+            return;
+        }
+
+        match (is_index, root) {
+            (true, Value::Array(arr)) => {
+                let idx = current.parse::<usize>().unwrap();
+
+                if arr.len() <= idx {
+                    arr.resize(idx + 1, Value::Null);
+                }
+
+                insert_path(&mut arr[idx], &parts[1..], value);
+            }
+
+            (false, Value::Object(map)) => {
+                let next = map.entry(current.to_owned()).or_insert(Value::Null);
+
+                insert_path(next, &parts[1..], value);
+            }
+
+            (true, slot) => {
+                let idx = current.parse::<usize>().unwrap();
+
+                let mut arr = Vec::new();
+                arr.resize(idx + 1, Value::Null);
+
+                *slot = Value::Array(arr);
+
+                if let Value::Array(arr) = slot {
+                    insert_path(&mut arr[idx], &parts[1..], value);
+                }
+            }
+
+            (false, slot) => {
+                *slot = Value::Object(serde_json::Map::new());
+
+                if let Value::Object(map) = slot {
+                    let next = map.entry(current.to_owned()).or_insert(Value::Null);
+
+                    insert_path(next, &parts[1..], value);
+                }
+            }
+        }
     }
 
-    async fn check_status(
-        &self,
-        task_ids: impl IntoIterator<Item = TaskId<Self::IdType>> + Send,
-    ) -> Result<Vec<apalis_core::backend::TaskResult<Res, RandomId>>, Self::Error> {
-        use apalis_core::task::status::Status;
-        use std::collections::HashSet;
-        let task_ids: HashSet<_> = task_ids.into_iter().collect();
-        let mut results = Vec::new();
-        for task_id in task_ids {
-            let key = TaskKey {
-                task_id: task_id.clone(),
-                queue: std::any::type_name::<Args>().to_owned(),
-                status: Status::Pending,
-            };
-            if let Some(value) = self.get(&key) {
-                if value.result.is_none() {
-                    results.push(apalis_core::backend::TaskResult {
-                        task_id: task_id.clone(),
-                        status: Status::Pending,
-                        result: Err("Task not completed yet".to_owned()),
-                    });
+    let mut root = Value::Object(serde_json::Map::new());
+
+    for (key, value) in map {
+        let stripped = match prefix {
+            Some(prefix) => {
+                if key == prefix {
+                    ""
+                } else if let Some(rest) = key.strip_prefix(&format!("{prefix}.")) {
+                    rest
+                } else {
                     continue;
                 }
-                let result =
-                    match serde_json::from_value::<Result<Res, String>>(value.result.unwrap()) {
-                        Ok(result) => apalis_core::backend::TaskResult {
-                            task_id: task_id.clone(),
-                            status: Status::Done,
-                            result,
-                        },
-                        Err(e) => apalis_core::backend::TaskResult {
-                            task_id: task_id.clone(),
-                            status: Status::Failed,
-                            result: Err(format!("Deserialization error: {e}")),
-                        },
-                    };
-                results.push(result);
             }
-        }
-        Ok(results)
-    }
-}
 
-/// Find the first item that meets the requirements
-pub(super) trait FindFirstWith<K, V> {
-    fn find_first_with<F>(&self, predicate: F) -> Option<(&K, &V)>
-    where
-        F: FnMut(&K, &V) -> bool;
-}
+            None => key.as_str(),
+        };
 
-impl<K, V> FindFirstWith<K, V> for BTreeMap<K, V>
-where
-    K: Ord + Clone,
-{
-    fn find_first_with<F>(&self, mut predicate: F) -> Option<(&K, &V)>
-    where
-        F: FnMut(&K, &V) -> bool,
-    {
-        if let Some(key) = self.iter().find(|(k, v)| predicate(k, v)).map(|(k, _)| k) {
-            self.get_key_value(key)
-        } else {
-            None
+        if stripped.is_empty() {
+            root = parse_scalar(value);
+            continue;
         }
+
+        let parts: Vec<&str> = stripped.split('.').collect();
+
+        insert_path(&mut root, &parts, parse_scalar(value));
     }
+
+    root
 }

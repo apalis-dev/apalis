@@ -140,7 +140,7 @@ mod random_id {
         let count = COUNTER.fetch_add(1, Ordering::Relaxed);
         let rand_part = encode_base64(xorshift64(timestamp ^ count), RANDOM_LEN);
 
-        format!("{time_str}{rand_part}")
+        format!("{time_str}{rand_part}{count}")
     }
 
     /// Returns current time in milliseconds since UNIX epoch.

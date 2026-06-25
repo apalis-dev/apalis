@@ -14,6 +14,7 @@ use crate::task::Task;
 use crate::task_fn::FromRequest;
 use std::collections::HashMap;
 use std::convert::Infallible;
+#[cfg(feature = "tracing")]
 use std::fmt;
 use std::ops::Deref;
 #[cfg(feature = "tracing")]
@@ -452,8 +453,15 @@ impl MetadataStore {
     }
 
     /// Get a typed metadata entry.
+    #[must_use = "Extracted metadata should be used or handled"]
     pub fn extract_as<M: Metadata>(&self) -> Result<M, M::Error> {
         M::extract(self)
+    }
+
+    /// Create a `MetadataStore` from a `HashMap<String, String>`.
+    #[must_use]
+    pub fn from_map(map: HashMap<String, String>) -> Self {
+        Self(map)
     }
 }
 

@@ -13,7 +13,7 @@ Currently only supports JSON.
 
 ## Usage Example
 
-```rust
+```rust,no_run
 use apalis_file_storage::JsonStorage;
 use apalis_core::worker::builder::WorkerBuilder;
 use std::time::Duration;

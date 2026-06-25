@@ -1,5 +1,5 @@
 use apalis::prelude::*;
-use apalis_file_storage::JsonStorage;
+use apalis_file_storage::CsvStorage;
 use apalis_workflow::{DagFlow, WorkflowSink};
 use tracing::info;
 
@@ -30,7 +30,8 @@ async fn main() -> Result<(), BoxDynError> {
         std::env::set_var("RUST_LOG", "debug");
     };
     tracing_subscriber::fmt::init();
-    let mut backend = JsonStorage::new_temp().unwrap();
+    let mut backend = CsvStorage::new_temp().unwrap();
+
     backend.push_start(vec![42, 43, 44]).await.unwrap();
 
     let dag_flow = DagFlow::new("user-info-workflow");

@@ -39,6 +39,7 @@
 //! - [`WorkerContext`]
 use crate::backend::BackendExt;
 use crate::backend::codec::IdentityCodec;
+use crate::error::BoxDynError;
 use crate::features_table;
 use crate::task::metadata::{MetadataExt, MetadataStore};
 use crate::{
@@ -136,14 +137,25 @@ impl MetadataExt for MemoryContext {
     }
 }
 
+/// Error type for MemoryStorage operations
+#[derive(Debug, thiserror::Error)]
+pub enum MemoryStorageError {
+    /// Error occurred while sending a task to the in-memory channel
+    #[error("Failed to send task: {0}")]
+    SendError(#[from] SendError),
+    /// Error occurred while flushing the in-memory channel
+    #[error("Failed to add task to storage: {0}")]
+    Other(BoxDynError),
+}
+
 impl<Args: Send + 'static> MemoryStorage<Args, MemoryContext> {
     /// Create a new in-memory storage
     #[must_use]
     pub fn new() -> Self {
         let (sender, receiver) = unbounded();
-        let sender = Box::new(sender)
+        let sender = Box::new(sender.sink_map_err(|e| e.into()))
             as Box<
-                dyn Sink<Task<Args, MemoryContext, RandomId>, Error = SendError>
+                dyn Sink<Task<Args, MemoryContext, RandomId>, Error = MemoryStorageError>
                     + Send
                     + Sync
                     + Unpin,
@@ -167,7 +179,7 @@ impl<Args: Send + 'static, Ctx> MemoryStorage<Args, Ctx> {
 }
 
 impl<Args, Ctx> Sink<Task<Args, Ctx, RandomId>> for MemoryStorage<Args, Ctx> {
-    type Error = SendError;
+    type Error = MemoryStorageError;
 
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.as_mut().sender.poll_ready_unpin(cx)
@@ -191,7 +203,13 @@ impl<Args, Ctx> Sink<Task<Args, Ctx, RandomId>> for MemoryStorage<Args, Ctx> {
 
 type ArcMemorySink<Args, Ctx = MemoryContext> = Arc<
     Mutex<
-        Box<dyn Sink<Task<Args, Ctx, RandomId>, Error = SendError> + Send + Sync + Unpin + 'static>,
+        Box<
+            dyn Sink<Task<Args, Ctx, RandomId>, Error = MemoryStorageError>
+                + Send
+                + Sync
+                + Unpin
+                + 'static,
+        >,
     >,
 >;
 
@@ -232,7 +250,7 @@ impl<Args, Ctx> Clone for MemorySink<Args, Ctx> {
 }
 
 impl<Args, Ctx> Sink<Task<Args, Ctx, RandomId>> for MemorySink<Args, Ctx> {
-    type Error = SendError;
+    type Error = MemoryStorageError;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let mut lock = ready!(self.inner.lock().poll_unpin(cx));
@@ -301,8 +319,8 @@ impl<Args: 'static + Clone + Send, Ctx: 'static + Default> Backend for MemorySto
 
     type Context = Ctx;
 
-    type Error = SendError;
-    type Stream = TaskStream<Task<Args, Ctx, RandomId>, SendError>;
+    type Error = MemoryStorageError;
+    type Stream = TaskStream<Task<Args, Ctx, RandomId>, MemoryStorageError>;
     type Layer = Identity;
     type Beat = BoxStream<'static, Result<(), Self::Error>>;
 

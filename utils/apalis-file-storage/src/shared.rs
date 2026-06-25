@@ -1,3 +1,8 @@
+use futures_core::stream::BoxStream;
+use futures_sink::Sink;
+use futures_util::{SinkExt, StreamExt};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 /// Sharable JSON based backend.
 ///
 /// The [`SharedJsonStore`] allows multiple task types to be stored
@@ -42,67 +47,17 @@
 /// ```
 ///
 /// See the tests for more advanced usage with multiple types and event listeners.
-use std::{
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
-};
-
-use futures_channel::mpsc::SendError;
-use futures_core::{Stream, stream::BoxStream};
-use futures_sink::Sink;
-use futures_util::{SinkExt, StreamExt};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use serde_json::Value;
+use std::{fmt::Debug, sync::Arc};
 
 use apalis_core::{
-    backend::memory::{MemorySink, MemoryStorage},
-    task::{
-        Task,
-        status::Status,
-        task_id::{RandomId, TaskId},
+    backend::{
+        memory::{MemorySink, MemoryStorage, MemoryStorageError},
+        shared::MakeShared,
     },
+    task::{Task, builder::TaskBuilder, task_id::RandomId},
 };
 
-use crate::{
-    JsonMapMetadata, JsonStorage,
-    util::{FindFirstWith, TaskKey, TaskWithMeta},
-};
-
-#[derive(Debug)]
-struct SharedJsonStream<T, Ctx> {
-    inner: JsonStorage<Value>,
-    req_type: std::marker::PhantomData<(T, Ctx)>,
-}
-
-impl<Args: DeserializeOwned + Unpin> Stream for SharedJsonStream<Args, JsonMapMetadata> {
-    type Item = Task<Args, JsonMapMetadata, RandomId>;
-    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        use apalis_core::task::builder::TaskBuilder;
-        let map = self.inner.tasks.try_read().expect("Failed to read tasks");
-        if let Some((key, _)) = map.find_first_with(|k, _| {
-            k.queue == std::any::type_name::<Args>() && k.status == Status::Pending
-        }) {
-            let task = map.get(key).unwrap();
-            let Ok(args) = Args::deserialize(&task.args) else {
-                return Poll::Pending;
-            };
-            let task = TaskBuilder::new(args)
-                .with_task_id(key.task_id.clone())
-                .with_ctx(task.ctx.clone())
-                .build();
-            let key = key.clone();
-            drop(map);
-            let this = &mut self.get_mut().inner;
-            this.update_status(&key, Status::Running)
-                .expect("Failed to update status");
-            this.persist_to_disk().expect("Failed to persist to disk");
-            Poll::Ready(Some(task))
-        } else {
-            Poll::Pending
-        }
-    }
-}
+use crate::{JsonMapMetadata, JsonStorage};
 /// Sharable JSON based backend.
 ///
 /// # Features
@@ -112,7 +67,7 @@ impl<Args: DeserializeOwned + Unpin> Stream for SharedJsonStream<Args, JsonMapMe
 /// - Metadata support for tasks
 #[derive(Debug, Clone)]
 pub struct SharedJsonStore {
-    inner: JsonStorage<serde_json::Value>,
+    inner: JsonStorage<Value>,
 }
 
 impl Default for SharedJsonStore {
@@ -131,87 +86,97 @@ impl SharedJsonStore {
     }
 }
 
-impl<Args: Send + Serialize + for<'de> Deserialize<'de> + Unpin + 'static>
-    apalis_core::backend::shared::MakeShared<Args> for SharedJsonStore
+impl<Args: Send + Serialize + for<'de> Deserialize<'de> + Unpin + 'static> MakeShared<Args>
+    for SharedJsonStore
 {
     type Backend = MemoryStorage<Args, JsonMapMetadata>;
 
-    type Config = ();
+    type Config = String;
 
-    type MakeError = String;
+    type MakeError = MemoryStorageError;
+
+    fn make_shared(&mut self) -> Result<Self::Backend, Self::MakeError>
+    where
+        Self::Config: Default,
+    {
+        self.make_shared_with_config(std::any::type_name::<Args>().to_owned())
+    }
 
     fn make_shared_with_config(
         &mut self,
-        _: Self::Config,
+        queue: Self::Config,
     ) -> Result<Self::Backend, Self::MakeError> {
-        let (sender, receiver) = self.inner.create_channel::<Args>();
+        let (sender, receiver) = self.create_channel::<Args>(&queue);
         let sender = MemorySink::new(Arc::new(futures_util::lock::Mutex::new(sender)));
         Ok(MemoryStorage::new_with(sender, receiver))
     }
 }
 
 type BoxSink<Args> = Box<
-    dyn Sink<Task<Args, JsonMapMetadata, RandomId>, Error = SendError>
+    dyn Sink<Task<Args, JsonMapMetadata, RandomId>, Error = MemoryStorageError>
         + Send
         + Sync
         + Unpin
         + 'static,
 >;
 
-impl JsonStorage<Value> {
+impl SharedJsonStore {
     fn create_channel<Args: 'static + for<'de> Deserialize<'de> + Serialize + Send + Unpin>(
         &self,
+        queue: &str,
     ) -> (
         BoxSink<Args>,
         BoxStream<'static, Task<Args, JsonMapMetadata, RandomId>>,
     ) {
         // Create a channel for communication
-        let sender = self.clone();
+        let sender = self.inner.clone();
+
+        let queue_config = queue.to_owned();
 
         // Create a wrapped sender that will insert into the in-memory store
         let wrapped_sender = {
-            let store = self.clone();
+            let sender = sender.clone();
 
-            sender.with_flat_map(move |task: Task<Args, JsonMapMetadata, RandomId>| {
-                use apalis_core::task::task_id::RandomId;
-                let task_id = task
-                    .parts
-                    .task_id
-                    .clone()
-                    .unwrap_or(TaskId::new(RandomId::default()));
-                let task = task.map(|args| serde_json::to_value(args).unwrap());
-                store
-                    .insert(
-                        &TaskKey {
-                            task_id,
-                            queue: std::any::type_name::<Args>().to_owned(),
-                            status: Status::Pending,
-                        },
-                        TaskWithMeta {
-                            args: task.args.clone(),
-                            ctx: task.parts.ctx.clone(),
-                            result: None,
-                            idempotency_key: task.parts.idempotency_key.clone(),
-                        },
-                    )
-                    .unwrap();
-                futures_util::stream::iter(vec![Ok(task)])
-            })
+            sender
+                .sink_map_err(|e| MemoryStorageError::Other(e.into()))
+                .with_flat_map(move |mut task: Task<Args, JsonMapMetadata, RandomId>| {
+                    task.parts
+                        .ctx
+                        .0
+                        .insert("queue", queue_config.clone())
+                        .unwrap();
+
+                    let res = task.try_map(|s| {
+                        serde_json::to_value(s).map_err(|e| MemoryStorageError::Other(e.into()))
+                    });
+
+                    futures_util::stream::iter(vec![res])
+                })
         };
 
         // Create a stream that filters by type T
         let filtered_stream = {
-            let inner = self.clone();
-            SharedJsonStream {
-                inner,
-                req_type: std::marker::PhantomData,
-            }
+            let queue_config = queue.to_owned();
+            sender.map(|s| s.unwrap()).filter_map(move |(_, job)| {
+                let queue_config = queue_config.clone();
+                async move {
+                    let queue = job.ctx.0.get("queue").cloned().unwrap_or_default();
+                    if queue == queue_config.clone() {
+                        let args = Args::deserialize(&job.args).ok()?;
+                        let mut task = TaskBuilder::new(args).with_ctx(job.ctx).build();
+                        task.parts.task_id = job.task_id;
+                        Some(task)
+                    } else {
+                        None
+                    }
+                }
+            })
         };
 
         // Combine the sender and receiver
         let sender = Box::new(wrapped_sender)
             as Box<
-                dyn Sink<Task<Args, JsonMapMetadata, RandomId>, Error = SendError>
+                dyn Sink<Task<Args, JsonMapMetadata, RandomId>, Error = MemoryStorageError>
                     + Send
                     + Sync
                     + Unpin,
@@ -241,7 +206,7 @@ mod tests {
     async fn basic_shared() {
         let mut store = SharedJsonStore::new();
         let mut string_store = store.make_shared().unwrap();
-        let mut int_store = store.make_shared().unwrap();
+        let mut int_store = store.make_shared_with_config("int".into()).unwrap();
         for i in 0..ITEMS {
             string_store.push(format!("ITEM: {i}")).await.unwrap();
             int_store.push(i).await.unwrap();
