@@ -85,7 +85,7 @@ version = "3.0.11"
 criteria = "safe-to-deploy"
 
 [[exemptions.anyhow]]
-version = "1.0.102"
+version = "1.0.103"
 criteria = "safe-to-deploy"
 
 [[exemptions.apalis]]
@@ -561,11 +561,11 @@ version = "1.0.18"
 criteria = "safe-to-deploy"
 
 [[exemptions.jiff]]
-version = "0.2.29"
+version = "0.2.31"
 criteria = "safe-to-deploy"
 
 [[exemptions.jiff-static]]
-version = "0.2.29"
+version = "0.2.31"
 criteria = "safe-to-deploy"
 
 [[exemptions.jobserver]]
@@ -761,27 +761,27 @@ version = "0.9.117"
 criteria = "safe-to-deploy"
 
 [[exemptions.opentelemetry]]
-version = "0.31.0"
+version = "0.32.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.opentelemetry-http]]
-version = "0.31.0"
+version = "0.32.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.opentelemetry-otlp]]
-version = "0.31.1"
+version = "0.32.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.opentelemetry-prometheus]]
-version = "0.31.0"
+version = "0.32.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.opentelemetry-proto]]
-version = "0.31.0"
+version = "0.32.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.opentelemetry_sdk]]
-version = "0.31.0"
+version = "0.32.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.os_info]]
@@ -868,14 +868,6 @@ criteria = "safe-to-deploy"
 version = "0.14.4"
 criteria = "safe-to-deploy"
 
-[[exemptions.protobuf]]
-version = "3.7.2"
-criteria = "safe-to-deploy"
-
-[[exemptions.protobuf-support]]
-version = "3.7.2"
-criteria = "safe-to-deploy"
-
 [[exemptions.quanta]]
 version = "0.12.6"
 criteria = "safe-to-deploy"
@@ -909,7 +901,7 @@ version = "0.7.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.rapidhash]]
-version = "4.4.1"
+version = "4.4.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.raw-cpuid]]
@@ -1133,15 +1125,7 @@ version = "3.27.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.thiserror]]
-version = "1.0.69"
-criteria = "safe-to-deploy"
-
-[[exemptions.thiserror]]
 version = "2.0.18"
-criteria = "safe-to-deploy"
-
-[[exemptions.thiserror-impl]]
-version = "1.0.69"
 criteria = "safe-to-deploy"
 
 [[exemptions.thiserror-impl]]
@@ -1153,7 +1137,7 @@ version = "1.1.9"
 criteria = "safe-to-deploy"
 
 [[exemptions.time]]
-version = "0.3.51"
+version = "0.3.52"
 criteria = "safe-to-deploy"
 
 [[exemptions.time-core]]
@@ -1161,7 +1145,7 @@ version = "0.1.9"
 criteria = "safe-to-deploy"
 
 [[exemptions.time-macros]]
-version = "0.2.30"
+version = "0.2.31"
 criteria = "safe-to-deploy"
 
 [[exemptions.tinystr]]
@@ -1184,20 +1168,8 @@ criteria = "safe-to-deploy"
 version = "0.26.4"
 criteria = "safe-to-deploy"
 
-[[exemptions.tokio-stream]]
-version = "0.1.18"
-criteria = "safe-to-deploy"
-
 [[exemptions.tokio-util]]
 version = "0.7.18"
-criteria = "safe-to-deploy"
-
-[[exemptions.tonic]]
-version = "0.14.6"
-criteria = "safe-to-deploy"
-
-[[exemptions.tonic-prost]]
-version = "0.14.6"
 criteria = "safe-to-deploy"
 
 [[exemptions.tower]]
@@ -1233,7 +1205,7 @@ version = "0.2.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.tracing-opentelemetry]]
-version = "0.32.1"
+version = "0.33.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.tracing-serde]]

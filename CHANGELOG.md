@@ -4,7 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
-- **refactor**: improve file storage adding csv functionality ([#748](https://github.com/apalis-dev/apalis/pull/748))
+- **chore**: bump opentelemetry_sdk ([#750](https://github.com/apalis-dev/apalis/pull/750))
+- **refactor**: improve file storage adding csv functionality ([#749](https://github.com/apalis-dev/apalis/pull/749))
 - **chore (api)!**: metadata as a key-value store ([#747](https://github.com/apalis-dev/apalis/pull/747))
 - **chore**: improve `FromRequest` api adding `Option<T>` ([#746](https://github.com/apalis-dev/apalis/pull/746))
 - **chore**: bump to v1.0.0 rc.9 ([#744](https://github.com/apalis-dev/apalis/pull/744))
