@@ -77,12 +77,12 @@ mod service;
 /// Allows breaking the circuit if an error threshold is hit
 ///
 /// See [module level documentation](self) for more details.
-pub trait CircuitBreaker<Args, Ctx, Source, Middleware>: Sized {
+pub trait CircuitBreaker<Args, Conn, Source, Middleware>: Sized {
     /// Allows the worker to break the circuit in case of failures
     /// Uses default configuration
     fn break_circuit(
         self,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<CircuitBreakerLayer, Middleware>> {
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<CircuitBreakerLayer, Middleware>> {
         self.break_circuit_with(CircuitBreakerConfig::default())
     }
 
@@ -91,18 +91,18 @@ pub trait CircuitBreaker<Args, Ctx, Source, Middleware>: Sized {
     fn break_circuit_with(
         self,
         cfg: CircuitBreakerConfig,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<CircuitBreakerLayer, Middleware>>;
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<CircuitBreakerLayer, Middleware>>;
 }
 
-impl<Args, P, M, Ctx> CircuitBreaker<Args, Ctx, P, M> for WorkerBuilder<Args, Ctx, P, M>
+impl<Args, P, M, Conn> CircuitBreaker<Args, Conn, P, M> for WorkerBuilder<Args, Conn, P, M>
 where
-    P: Backend<Args = Args, Context = Ctx>,
+    P: Backend<Args = Args, Connection = Conn>,
     M: Layer<CircuitBreakerLayer>,
 {
     fn break_circuit_with(
         self,
         config: CircuitBreakerConfig,
-    ) -> WorkerBuilder<Args, Ctx, P, Stack<CircuitBreakerLayer, M>> {
+    ) -> WorkerBuilder<Args, Conn, P, Stack<CircuitBreakerLayer, M>> {
         let this = self.layer(CircuitBreakerLayer::new(config));
         WorkerBuilder {
             name: this.name,

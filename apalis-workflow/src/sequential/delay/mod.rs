@@ -3,7 +3,7 @@ use std::time::Duration;
 use apalis_core::{
     backend::{BackendExt, codec::Codec},
     error::BoxDynError,
-    task::{Task, builder::TaskBuilder, metadata::MetadataExt, task_id::TaskId},
+    task::{Task, builder::TaskBuilder, task_id::TaskId},
 };
 use futures::sink::SinkExt;
 use futures::{FutureExt, Sink, future::BoxFuture};
@@ -46,9 +46,9 @@ pub struct DelayForStep<S> {
 
 impl<Input, B, S, Err> Step<Input, B> for DelayForStep<S>
 where
-    B::IdType: GenerateId + Send + 'static,
+    B::IdType: GenerateId + Send + Sync + 'static,
     B::Compact: Send + 'static,
-    B: Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err>
+    B: Sink<Task<B::Compact, B::Connection, B::IdType>, Error = Err>
         + Unpin
         + Send
         + Sync
@@ -59,7 +59,7 @@ where
     S::Response: Send + 'static,
     B::Codec: Codec<Duration, Compact = B::Compact> + Codec<Input, Compact = B::Compact> + 'static,
     <B::Codec as Codec<Duration>>::Error: Into<BoxDynError>,
-    B::Context: Send + 'static + MetadataExt,
+    B::Connection: Send + Sync + 'static,
     Input: Send + Sync + 'static,
     <B::Codec as Codec<Input>>::Error: Into<BoxDynError>,
     B: BackendExt,
@@ -119,10 +119,10 @@ impl<S: Clone, F: Clone, B, Input> Clone for DelayWithStep<S, F, B, Input> {
 
 impl<Input, F, B, S, Err> Step<Input, B> for DelayWithStep<S, F, B, Input>
 where
-    F: FnMut(Task<Input, B::Context, B::IdType>) -> Duration + Send + Sync + 'static + Clone,
-    B::IdType: GenerateId + Send + 'static,
+    F: FnMut(Task<Input, B::Connection, B::IdType>) -> Duration + Send + Sync + 'static + Clone,
+    B::IdType: GenerateId + Sync + Send + 'static,
     B::Compact: Send + 'static,
-    B: Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err>
+    B: Sink<Task<B::Compact, B::Connection, B::IdType>, Error = Err>
         + Unpin
         + Send
         + Sync
@@ -133,7 +133,7 @@ where
     S::Response: Send + 'static,
     B::Codec: Codec<Duration, Compact = B::Compact> + Codec<Input, Compact = B::Compact> + 'static,
     <B::Codec as Codec<Duration>>::Error: Into<BoxDynError>,
-    B::Context: Send + 'static + MetadataExt,
+    B::Connection: Send + Sync + 'static,
     Input: Send + Sync + 'static,
     <B::Codec as Codec<Input>>::Error: Into<BoxDynError>,
     B: BackendExt,
@@ -154,19 +154,19 @@ where
 }
 
 impl<S, F, B: BackendExt + Send + Sync + 'static + Clone, Input, Err>
-    Service<Task<B::Compact, B::Context, B::IdType>> for DelayWithStep<S, F, B, Input>
+    Service<Task<B::Compact, B::Connection, B::IdType>> for DelayWithStep<S, F, B, Input>
 where
-    F: FnMut(Task<Input, B::Context, B::IdType>) -> Duration + Send + 'static + Clone,
+    F: FnMut(Task<Input, B::Connection, B::IdType>) -> Duration + Send + 'static + Clone,
     S: Step<Input, B> + Send + 'static,
     S::Response: Send + 'static,
-    B::IdType: GenerateId + Send + 'static,
+    B::IdType: GenerateId + Sync + Send + 'static,
     B::Compact: Send + 'static,
-    B: Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err> + Unpin + Send + Sync,
+    B: Sink<Task<B::Compact, B::Connection, B::IdType>, Error = Err> + Unpin + Send + Sync,
     Err: std::error::Error + Send + Sync + 'static,
     B::Codec: Codec<Duration, Compact = B::Compact> + Codec<Input, Compact = B::Compact> + 'static,
     <B::Codec as Codec<Duration>>::Error: Into<BoxDynError>,
     <B::Codec as Codec<Input>>::Error: Into<BoxDynError>,
-    B::Context: Send + 'static + MetadataExt,
+    B::Connection: Send + Sync + 'static,
 {
     type Response = GoTo<StepResult<B::Compact, B::IdType>>;
     type Error = BoxDynError;
@@ -179,27 +179,25 @@ where
         std::task::Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, req: Task<B::Compact, B::Context, B::IdType>) -> Self::Future {
-        let mut ctx: StepContext<B> = req.parts.data.get().cloned().unwrap();
+    fn call(&mut self, req: Task<B::Compact, B::Connection, B::IdType>) -> Self::Future {
+        let mut step_context: StepContext<B> = req.ctx.data.get().cloned().unwrap();
         let mut f = self.f.clone();
 
         let task_id = TaskId::new(B::IdType::generate());
         async move {
             let decoded: Input = B::Codec::decode(&req.args)
                 .map_err(|e: <B::Codec as Codec<Input>>::Error| e.into())?;
-            let (args, parts) = req.take();
-            let delay_duration = f(Task {
-                args: decoded,
-                parts,
-            });
+            let (args, ctx) = req.take();
+            let delay_duration = f(Task { args: decoded, ctx });
             let task = TaskBuilder::new(args)
-                .with_task_id(task_id.clone())
-                .meta(&WorkflowContext {
-                    step_index: ctx.current_step + 1,
+                .task_id(task_id.clone())
+                .metadata(&WorkflowContext {
+                    step_index: step_context.current_step + 1,
                 })
                 .run_after(delay_duration)
                 .build();
-            ctx.backend
+            step_context
+                .backend
                 .send(task)
                 .await
                 .map_err(|e| BoxDynError::from(e))?;

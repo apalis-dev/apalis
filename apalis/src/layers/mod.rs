@@ -44,25 +44,25 @@ pub use tower::timeout::TimeoutLayer;
 pub mod catch_panic;
 
 /// An extension trait that extends `WorkerBuilder` with additional middleware methods
-pub trait WorkerBuilderExt<Args, Ctx, Source, Middleware> {
+pub trait WorkerBuilderExt<Args, Conn, Source, Middleware> {
     /// Optionally adds a new layer `T` into the [`WorkerBuilder`].
     fn option_layer<T>(
         self,
         layer: Option<T>,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::util::Either<T, Identity>, Middleware>>;
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::util::Either<T, Identity>, Middleware>>;
 
     /// Adds a [`Layer`] built from a function that accepts a service and returns another service.
     fn layer_fn<F>(
         self,
         f: F,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::layer::LayerFn<F>, Middleware>>;
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::layer::LayerFn<F>, Middleware>>;
 
     /// Limits the max number of in-flight requests.
     #[cfg(feature = "limit")]
     fn concurrency(
         self,
         max: usize,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::limit::ConcurrencyLimitLayer, Middleware>>;
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::limit::ConcurrencyLimitLayer, Middleware>>;
 
     /// Limits requests to at most `num` per the given duration.
     #[cfg(feature = "limit")]
@@ -70,41 +70,41 @@ pub trait WorkerBuilderExt<Args, Ctx, Source, Middleware> {
         self,
         num: u64,
         per: std::time::Duration,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::limit::RateLimitLayer, Middleware>>;
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::limit::RateLimitLayer, Middleware>>;
 
     /// Retries failed requests according to the given retry policy.
     #[cfg(feature = "retry")]
     fn retry<P>(
         self,
         policy: P,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::retry::RetryLayer<P>, Middleware>>;
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::retry::RetryLayer<P>, Middleware>>;
 
     /// Fails requests that take longer than `timeout`.
     #[cfg(feature = "timeout")]
     fn timeout(
         self,
         timeout: std::time::Duration,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::timeout::TimeoutLayer, Middleware>>;
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::timeout::TimeoutLayer, Middleware>>;
 
     /// Conditionally rejects requests based on `predicate`.
     #[cfg(feature = "filter")]
     fn filter<P>(
         self,
         predicate: P,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::filter::FilterLayer<P>, Middleware>>;
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::filter::FilterLayer<P>, Middleware>>;
 
     /// Conditionally rejects requests based on an asynchronous `predicate`.
     #[cfg(feature = "filter")]
     fn filter_async<P>(
         self,
         predicate: P,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::filter::AsyncFilterLayer<P>, Middleware>>;
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::filter::AsyncFilterLayer<P>, Middleware>>;
 
     /// Maps one request type to another.
     fn map_request<F, R1, R2>(
         self,
         f: F,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::util::MapRequestLayer<F>, Middleware>>
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::util::MapRequestLayer<F>, Middleware>>
     where
         F: FnMut(R1) -> R2 + Clone;
 
@@ -112,37 +112,37 @@ pub trait WorkerBuilderExt<Args, Ctx, Source, Middleware> {
     fn map_response<F>(
         self,
         f: F,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::util::MapResponseLayer<F>, Middleware>>;
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::util::MapResponseLayer<F>, Middleware>>;
 
     /// Maps one error type to another.
     fn map_err<F>(
         self,
         f: F,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::util::MapErrLayer<F>, Middleware>>;
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::util::MapErrLayer<F>, Middleware>>;
 
     /// Composes a function that transforms futures produced by the service.
     fn map_future<F>(
         self,
         f: F,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::util::MapFutureLayer<F>, Middleware>>;
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::util::MapFutureLayer<F>, Middleware>>;
 
     /// Applies an asynchronous function after the service, regardless of whether the future succeeds or fails.
     fn then<F>(
         self,
         f: F,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::util::ThenLayer<F>, Middleware>>;
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::util::ThenLayer<F>, Middleware>>;
 
     /// Executes a new future after this service's future resolves.
     fn and_then<F>(
         self,
         f: F,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::util::AndThenLayer<F>, Middleware>>;
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::util::AndThenLayer<F>, Middleware>>;
 
     /// Maps the service's result type to a different value, regardless of success or failure.
     fn map_result<F>(
         self,
         f: F,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::util::MapResultLayer<F>, Middleware>>;
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::util::MapResultLayer<F>, Middleware>>;
 
     /// Catch panics in execution and pipe them as errors
     #[cfg(feature = "catch-panic")]
@@ -152,7 +152,7 @@ pub trait WorkerBuilderExt<Args, Ctx, Source, Middleware> {
         self,
     ) -> WorkerBuilder<
         Args,
-        Ctx,
+        Conn,
         Source,
         Stack<
             CatchPanicLayer<fn(Box<dyn std::any::Any + Send>) -> AbortError, AbortError>,
@@ -164,25 +164,26 @@ pub trait WorkerBuilderExt<Args, Ctx, Source, Middleware> {
     #[cfg_attr(docsrs, doc(cfg(feature = "tracing")))]
     fn enable_tracing(
         self,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tracing::TraceLayer, Middleware>>;
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tracing::TraceLayer, Middleware>>;
 }
 
-impl<Args, Ctx, Source, Middleware> WorkerBuilderExt<Args, Ctx, Source, Middleware>
-    for WorkerBuilder<Args, Ctx, Source, Middleware>
+impl<Args, Conn, Source, Middleware> WorkerBuilderExt<Args, Conn, Source, Middleware>
+    for WorkerBuilder<Args, Conn, Source, Middleware>
 where
-    Source: Backend<Args = Args, Context = Ctx>,
+    Source: Backend<Args = Args, Connection = Conn>,
 {
     fn option_layer<T>(
         self,
         layer: Option<T>,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::util::Either<T, Identity>, Middleware>> {
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::util::Either<T, Identity>, Middleware>>
+    {
         self.layer(tower::util::option_layer(layer))
     }
 
     fn layer_fn<F>(
         self,
         f: F,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::layer::LayerFn<F>, Middleware>> {
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::layer::LayerFn<F>, Middleware>> {
         self.layer(tower::layer::layer_fn(f))
     }
 
@@ -190,7 +191,7 @@ where
     fn concurrency(
         self,
         max: usize,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::limit::ConcurrencyLimitLayer, Middleware>>
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::limit::ConcurrencyLimitLayer, Middleware>>
     {
         self.layer(tower::limit::ConcurrencyLimitLayer::new(max))
     }
@@ -200,7 +201,7 @@ where
         self,
         num: u64,
         per: std::time::Duration,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::limit::RateLimitLayer, Middleware>> {
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::limit::RateLimitLayer, Middleware>> {
         self.layer(tower::limit::RateLimitLayer::new(num, per))
     }
 
@@ -208,7 +209,7 @@ where
     fn retry<P>(
         self,
         policy: P,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::retry::RetryLayer<P>, Middleware>> {
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::retry::RetryLayer<P>, Middleware>> {
         self.layer(tower::retry::RetryLayer::new(policy))
     }
 
@@ -216,7 +217,7 @@ where
     fn timeout(
         self,
         timeout: std::time::Duration,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::timeout::TimeoutLayer, Middleware>> {
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::timeout::TimeoutLayer, Middleware>> {
         self.layer(tower::timeout::TimeoutLayer::new(timeout))
     }
 
@@ -224,7 +225,7 @@ where
     fn filter<P>(
         self,
         predicate: P,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::filter::FilterLayer<P>, Middleware>> {
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::filter::FilterLayer<P>, Middleware>> {
         self.layer(tower::filter::FilterLayer::new(predicate))
     }
 
@@ -232,7 +233,7 @@ where
     fn filter_async<P>(
         self,
         predicate: P,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::filter::AsyncFilterLayer<P>, Middleware>>
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::filter::AsyncFilterLayer<P>, Middleware>>
     {
         self.layer(tower::filter::AsyncFilterLayer::new(predicate))
     }
@@ -240,7 +241,7 @@ where
     fn map_request<F, R1, R2>(
         self,
         f: F,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::util::MapRequestLayer<F>, Middleware>>
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::util::MapRequestLayer<F>, Middleware>>
     where
         F: FnMut(R1) -> R2 + Clone,
     {
@@ -250,42 +251,43 @@ where
     fn map_response<F>(
         self,
         f: F,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::util::MapResponseLayer<F>, Middleware>> {
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::util::MapResponseLayer<F>, Middleware>>
+    {
         self.layer(tower::util::MapResponseLayer::new(f))
     }
 
     fn map_err<F>(
         self,
         f: F,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::util::MapErrLayer<F>, Middleware>> {
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::util::MapErrLayer<F>, Middleware>> {
         self.layer(tower::util::MapErrLayer::new(f))
     }
 
     fn map_future<F>(
         self,
         f: F,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::util::MapFutureLayer<F>, Middleware>> {
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::util::MapFutureLayer<F>, Middleware>> {
         self.layer(tower::util::MapFutureLayer::new(f))
     }
 
     fn then<F>(
         self,
         f: F,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::util::ThenLayer<F>, Middleware>> {
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::util::ThenLayer<F>, Middleware>> {
         self.layer(tower::util::ThenLayer::new(f))
     }
 
     fn and_then<F>(
         self,
         f: F,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::util::AndThenLayer<F>, Middleware>> {
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::util::AndThenLayer<F>, Middleware>> {
         self.layer(tower::util::AndThenLayer::new(f))
     }
 
     fn map_result<F>(
         self,
         f: F,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tower::util::MapResultLayer<F>, Middleware>> {
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tower::util::MapResultLayer<F>, Middleware>> {
         self.layer(tower::util::MapResultLayer::new(f))
     }
 
@@ -296,7 +298,7 @@ where
         self,
     ) -> WorkerBuilder<
         Args,
-        Ctx,
+        Conn,
         Source,
         Stack<
             CatchPanicLayer<fn(Box<dyn std::any::Any + Send>) -> AbortError, AbortError>,
@@ -311,7 +313,7 @@ where
     #[cfg_attr(docsrs, doc(cfg(feature = "tracing")))]
     fn enable_tracing(
         self,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<tracing::TraceLayer, Middleware>> {
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<tracing::TraceLayer, Middleware>> {
         use tracing::TraceLayer;
 
         self.layer(TraceLayer::new())

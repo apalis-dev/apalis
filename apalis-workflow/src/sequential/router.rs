@@ -12,7 +12,7 @@ where
     Backend: BackendExt,
 {
     pub(super) steps:
-        HashMap<usize, SteppedService<Backend::Compact, Backend::Context, Backend::IdType>>,
+        HashMap<usize, SteppedService<Backend::Compact, Backend::Connection, Backend::IdType>>,
 }
 
 impl<Backend> WorkflowRouter<Backend>

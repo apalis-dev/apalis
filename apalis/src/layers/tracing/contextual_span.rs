@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use apalis_core::task::{Task, metadata::MetadataExt};
+use apalis_core::task::Task;
 use tracing::{Level, Span};
 
 #[cfg(feature = "opentelemetry")]
@@ -8,7 +8,7 @@ use crate::layers::tracing::OtelTraceContext;
 use crate::layers::tracing::{DEFAULT_MESSAGE_LEVEL, MakeSpan};
 
 /// A [`Span`]s whose context that was created in a previous operation now used in the current [`Trace`] context.
-/// This assumes that [`TracingContext`] was injected into the task during pushing using [`MetadataExt`]
+/// This assumes that [`TracingContext`] was injected into the task metadata during pushing
 ///
 ///
 /// [`Span`]: tracing::Span
@@ -43,14 +43,13 @@ impl Default for ContextualTaskSpan {
     }
 }
 
-impl<Args, Ctx, IdType> MakeSpan<Args, Ctx, IdType> for ContextualTaskSpan
+impl<Args, Conn, IdType> MakeSpan<Args, Conn, IdType> for ContextualTaskSpan
 where
-    Ctx: MetadataExt,
     IdType: Display,
 {
-    fn make_span(&mut self, req: &Task<Args, Ctx, IdType>) -> Span {
+    fn make_span(&mut self, req: &Task<Args, Conn, IdType>) -> Span {
         let task_id = req
-            .parts
+            .ctx
             .task_id
             .as_ref()
             .expect("A task must have an ID")
@@ -58,8 +57,8 @@ where
         println!("Fetching");
         #[cfg(feature = "opentelemetry")]
         let tracing_ctx: apalis_core::task::metadata::TracingContext =
-            req.parts.ctx.extract().unwrap_or_default();
-        let attempt = &req.parts.attempt;
+            apalis_core::task::metadata::Metadata::extract(&req.ctx.metadata).unwrap_or_default();
+        let attempt = &req.ctx.attempt;
         let span = Span::current();
 
         macro_rules! make_span {

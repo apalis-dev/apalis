@@ -6,7 +6,7 @@ use apalis_core::{
     task::{
         Task,
         builder::TaskBuilder,
-        metadata::{Metadata, MetadataError, MetadataExt, MetadataStore},
+        metadata::{Metadata, MetadataError, MetadataStore},
         task_id::TaskId,
     },
     task_fn::{TaskFn, task_fn},
@@ -51,10 +51,10 @@ impl<Start, C, L, I: IntoIterator<Item = C>, B: BackendExt> Workflow<Start, I, B
     pub fn fold<F, Output, FnArgs, Init>(
         self,
         fold: F,
-    ) -> Workflow<Start, Output, B, Stack<Fold<TaskFn<F, (Init, C), B::Context, FnArgs>, Init>, L>>
+    ) -> Workflow<Start, Output, B, Stack<Fold<TaskFn<F, (Init, C), B::Connection, FnArgs>, Init>, L>>
     where
-        TaskFn<F, (Init, C), B::Context, FnArgs>:
-            Service<Task<(Init, C), B::Context, B::IdType>, Response = Output>,
+        TaskFn<F, (Init, C), B::Connection, FnArgs>:
+            Service<Task<(Init, C), B::Connection, B::IdType>, Response = Output>,
     {
         self.add_step(Fold {
             fold: task_fn(fold),
@@ -74,7 +74,7 @@ pub struct FoldStep<S, F, Init> {
 impl<S, F, Input, I: IntoIterator<Item = Input>, Init, B, Err, CodecError> Step<I, B>
     for FoldStep<S, F, Init>
 where
-    F: Service<Task<(Init, Input), B::Context, B::IdType>, Response = Init>
+    F: Service<Task<(Init, Input), B::Connection, B::IdType>, Response = Init>
         + Send
         + Sync
         + 'static
@@ -84,17 +84,17 @@ where
         + Send
         + Sync
         + Clone
-        + Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err>
+        + Sink<Task<B::Compact, B::Connection, B::IdType>, Error = Err>
         + Unpin
         + 'static,
     I: IntoIterator<Item = Input> + Send + Sync + 'static,
-    B::Context: MetadataExt + Send + 'static,
+    B::Connection: Send + Sync + 'static,
     B::Codec: Codec<(Init, Vec<Input>), Error = CodecError, Compact = B::Compact>
         + Codec<Init, Error = CodecError, Compact = B::Compact>
         + Codec<I, Error = CodecError, Compact = B::Compact>
         + Codec<(Init, Input), Error = CodecError, Compact = B::Compact>
         + 'static,
-    B::IdType: GenerateId + Send + 'static + Clone,
+    B::IdType: GenerateId + Sync + Send + 'static + Clone,
     Init: Default + Send + Sync + 'static,
     Err: std::error::Error + Send + Sync + 'static,
     CodecError: std::error::Error + Send + Sync + 'static,
@@ -142,10 +142,10 @@ impl<F, Init, I, B> FoldService<F, Init, I, B> {
     }
 }
 
-impl<F, Init, I, B, Input, CodecError, Err> Service<Task<B::Compact, B::Context, B::IdType>>
+impl<F, Init, I, B, Input, CodecError, Err> Service<Task<B::Compact, B::Connection, B::IdType>>
     for FoldService<F, Init, I, B>
 where
-    F: Service<Task<(Init, Input), B::Context, B::IdType>, Response = Init>
+    F: Service<Task<(Init, Input), B::Connection, B::IdType>, Response = Init>
         + Send
         + 'static
         + Clone,
@@ -153,17 +153,17 @@ where
         + Send
         + Sync
         + Clone
-        + Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err>
+        + Sink<Task<B::Compact, B::Connection, B::IdType>, Error = Err>
         + Unpin
         + 'static,
     I: IntoIterator<Item = Input> + Send + 'static,
-    B::Context: MetadataExt + Send + 'static,
+    B::Connection: Send + Sync + 'static,
     B::Codec: Codec<(Init, Vec<Input>), Error = CodecError, Compact = B::Compact>
         + Codec<Init, Error = CodecError, Compact = B::Compact>
         + Codec<I, Error = CodecError, Compact = B::Compact>
         + Codec<(Init, Input), Error = CodecError, Compact = B::Compact>
         + 'static,
-    B::IdType: GenerateId + Send + 'static,
+    B::IdType: GenerateId + Sync + Send + 'static,
     Init: Default + Send + 'static,
     Err: std::error::Error + Send + Sync + 'static,
     CodecError: std::error::Error + Send + Sync + 'static,
@@ -180,22 +180,25 @@ where
         self.fold.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, task: Task<B::Compact, B::Context, B::IdType>) -> Self::Future {
-        let state = task.parts.ctx.extract().unwrap_or(FoldState::Init);
-        let mut ctx = task.parts.data.get::<StepContext<B>>().cloned().unwrap();
+    fn call(&mut self, task: Task<B::Compact, B::Connection, B::IdType>) -> Self::Future {
+        let state = FoldState::extract(&task.ctx.metadata).unwrap_or(FoldState::Init);
+        let mut ctx = task.ctx.data.get::<StepContext<B>>().cloned().unwrap();
         let mut fold = self.fold.clone();
 
         match state {
             FoldState::Init => async move {
                 let task_id = TaskId::new(B::IdType::generate());
-                let steps: Task<I, _, _> = task.try_map(|arg| B::Codec::decode(&arg))?;
+                let steps: Task<I, _, _> = task
+                    .into_builder()
+                    .try_map(|arg| B::Codec::decode(&arg))?
+                    .build();
                 let steps = steps.args.into_iter().collect::<Vec<_>>();
                 let task = TaskBuilder::new(B::Codec::encode(&(Init::default(), steps))?)
-                    .meta(&WorkflowContext {
+                    .metadata(&WorkflowContext {
                         step_index: ctx.current_step,
                     })
-                    .with_task_id(task_id.clone())
-                    .meta(&FoldState::Collection)
+                    .task_id(task_id.clone())
+                    .metadata(&FoldState::Collection)
                     .build();
                 ctx.backend
                     .send(task)
@@ -214,7 +217,7 @@ where
                 let mut items = items.into_iter();
                 let next = items.next().unwrap();
                 let rest = items.collect::<Vec<_>>();
-                let fold_task = task.map(|_| (acc, next));
+                let fold_task = task.into_builder().map(|_| (acc, next)).build();
                 let response = fold.call(fold_task).await.map_err(|e| e.into())?;
 
                 match rest.len() {
@@ -222,8 +225,8 @@ where
                         let task_id = TaskId::new(B::IdType::generate());
                         let result = B::Codec::encode(&response)?;
                         let next_step = TaskBuilder::new(result)
-                            .with_task_id(task_id.clone())
-                            .meta(&WorkflowContext {
+                            .task_id(task_id.clone())
+                            .metadata(&WorkflowContext {
                                 step_index: ctx.current_step + 1,
                             })
                             .build();
@@ -245,11 +248,11 @@ where
                         let task_id = TaskId::new(B::IdType::generate());
                         let result = B::Codec::encode(&response)?;
                         let steps = TaskBuilder::new(B::Codec::encode(&(response, rest))?)
-                            .with_task_id(task_id.clone())
-                            .meta(&WorkflowContext {
+                            .task_id(task_id.clone())
+                            .metadata(&WorkflowContext {
                                 step_index: ctx.current_step,
                             })
-                            .meta(&FoldState::Collection)
+                            .metadata(&FoldState::Collection)
                             .build();
                         ctx.backend
                             .send(steps)

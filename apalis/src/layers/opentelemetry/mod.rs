@@ -52,10 +52,10 @@ pub struct OpenTelemetryMetricsService<S> {
     duration_histogram: Histogram<f64>,
 }
 
-impl<Svc, Fut, Args, Ctx, Res, Err, IdType> Service<Task<Args, Ctx, IdType>>
+impl<Svc, Fut, Args, Conn, Res, Err, IdType> Service<Task<Args, Conn, IdType>>
     for OpenTelemetryMetricsService<Svc>
 where
-    Svc: Service<Task<Args, Ctx, IdType>, Response = Res, Error = Err, Future = Fut>,
+    Svc: Service<Task<Args, Conn, IdType>, Response = Res, Error = Err, Future = Fut>,
     Fut: Future<Output = Result<Res, Err>> + 'static,
 {
     type Response = Svc::Response;
@@ -66,10 +66,10 @@ where
         self.service.poll_ready(cx)
     }
 
-    fn call(&mut self, request: Task<Args, Ctx, IdType>) -> Self::Future {
+    fn call(&mut self, request: Task<Args, Conn, IdType>) -> Self::Future {
         let start = Instant::now();
         let worker = request
-            .parts
+            .ctx
             .data
             .get::<WorkerContext>()
             .map(|ns| ns.name())

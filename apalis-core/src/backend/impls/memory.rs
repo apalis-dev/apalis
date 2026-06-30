@@ -41,7 +41,6 @@ use crate::backend::BackendExt;
 use crate::backend::codec::IdentityCodec;
 use crate::error::BoxDynError;
 use crate::features_table;
-use crate::task::metadata::{MetadataExt, MetadataStore};
 use crate::{
     backend::{Backend, TaskStream},
     task::{
@@ -67,7 +66,7 @@ use std::{
 use tower_layer::Identity;
 
 /// A boxed in-memory task receiver stream
-pub type BoxedReceiver<Args, Ctx> = Pin<Box<dyn Stream<Item = Task<Args, Ctx, RandomId>> + Send>>;
+pub type BoxedReceiver<Args, Conn> = Pin<Box<dyn Stream<Item = Task<Args, Conn, RandomId>> + Send>>;
 
 /// In-memory queue that is based on channels
 ///
@@ -110,9 +109,9 @@ pub type BoxedReceiver<Args, Ctx> = Pin<Box<dyn Stream<Item = Task<Args, Ctx, Ra
     ListWorkers => not_supported("List all workers registered with the backend"),
     ListTasks => not_supported("List all tasks in the backend"),
 }]
-pub struct MemoryStorage<Args, Ctx = MemoryContext> {
-    pub(super) sender: MemorySink<Args, Ctx>,
-    pub(super) receiver: BoxedReceiver<Args, Ctx>,
+pub struct MemoryStorage<Args, Conn = MemoryContext> {
+    pub(super) sender: MemorySink<Args, Conn>,
+    pub(super) receiver: BoxedReceiver<Args, Conn>,
 }
 
 impl<Args: Send + 'static> Default for MemoryStorage<Args, MemoryContext> {
@@ -121,21 +120,9 @@ impl<Args: Send + 'static> Default for MemoryStorage<Args, MemoryContext> {
     }
 }
 
-/// Store extra context related to task metadata
+/// A context for the in-memory backend, which is a placeholder and does not hold any state.
 #[derive(Debug, Clone, Default)]
-pub struct MemoryContext {
-    metadata: MetadataStore,
-}
-
-impl MetadataExt for MemoryContext {
-    fn metadata(&self) -> &MetadataStore {
-        &self.metadata
-    }
-
-    fn metadata_mut(&mut self) -> &mut MetadataStore {
-        &mut self.metadata
-    }
-}
+pub struct MemoryContext;
 
 /// Error type for MemoryStorage operations
 #[derive(Debug, thiserror::Error)]
@@ -170,15 +157,15 @@ impl<Args: Send + 'static> MemoryStorage<Args, MemoryContext> {
     }
 }
 
-impl<Args: Send + 'static, Ctx> MemoryStorage<Args, Ctx> {
+impl<Args: Send + 'static, Conn> MemoryStorage<Args, Conn> {
     /// Create a storage given a sender and receiver
     #[must_use]
-    pub fn new_with(sender: MemorySink<Args, Ctx>, receiver: BoxedReceiver<Args, Ctx>) -> Self {
+    pub fn new_with(sender: MemorySink<Args, Conn>, receiver: BoxedReceiver<Args, Conn>) -> Self {
         Self { sender, receiver }
     }
 }
 
-impl<Args, Ctx> Sink<Task<Args, Ctx, RandomId>> for MemoryStorage<Args, Ctx> {
+impl<Args, Conn> Sink<Task<Args, Conn, RandomId>> for MemoryStorage<Args, Conn> {
     type Error = MemoryStorageError;
 
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -187,7 +174,7 @@ impl<Args, Ctx> Sink<Task<Args, Ctx, RandomId>> for MemoryStorage<Args, Ctx> {
 
     fn start_send(
         mut self: Pin<&mut Self>,
-        item: Task<Args, Ctx, RandomId>,
+        item: Task<Args, Conn, RandomId>,
     ) -> Result<(), Self::Error> {
         self.as_mut().sender.start_send_unpin(item)
     }
@@ -201,10 +188,10 @@ impl<Args, Ctx> Sink<Task<Args, Ctx, RandomId>> for MemoryStorage<Args, Ctx> {
     }
 }
 
-type ArcMemorySink<Args, Ctx = MemoryContext> = Arc<
+type ArcMemorySink<Args, Conn = MemoryContext> = Arc<
     Mutex<
         Box<
-            dyn Sink<Task<Args, Ctx, RandomId>, Error = MemoryStorageError>
+            dyn Sink<Task<Args, Conn, RandomId>, Error = MemoryStorageError>
                 + Send
                 + Sync
                 + Unpin
@@ -216,14 +203,14 @@ type ArcMemorySink<Args, Ctx = MemoryContext> = Arc<
 type ArcIdempotencySet = Arc<Mutex<HashSet<String>>>;
 
 /// Memory sink for sending tasks to the in-memory backend
-pub struct MemorySink<Args, Ctx = MemoryContext> {
-    pub(super) inner: ArcMemorySink<Args, Ctx>,
+pub struct MemorySink<Args, Conn = MemoryContext> {
+    pub(super) inner: ArcMemorySink<Args, Conn>,
     pub(super) idempotency_keys: ArcIdempotencySet,
 }
 
-impl<Args, Ctx> MemorySink<Args, Ctx> {
+impl<Args, Conn> MemorySink<Args, Conn> {
     /// Build a new memory sink given a sink
-    pub fn new(sink: ArcMemorySink<Args, Ctx>) -> Self {
+    pub fn new(sink: ArcMemorySink<Args, Conn>) -> Self {
         Self {
             inner: sink,
             idempotency_keys: Arc::new(Mutex::new(HashSet::new())),
@@ -231,7 +218,7 @@ impl<Args, Ctx> MemorySink<Args, Ctx> {
     }
 }
 
-impl<Args, Ctx> std::fmt::Debug for MemorySink<Args, Ctx> {
+impl<Args, Conn> std::fmt::Debug for MemorySink<Args, Conn> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MemorySink")
             .field("inner", &"<Sink>")
@@ -240,7 +227,7 @@ impl<Args, Ctx> std::fmt::Debug for MemorySink<Args, Ctx> {
     }
 }
 
-impl<Args, Ctx> Clone for MemorySink<Args, Ctx> {
+impl<Args, Conn> Clone for MemorySink<Args, Conn> {
     fn clone(&self) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
@@ -249,7 +236,7 @@ impl<Args, Ctx> Clone for MemorySink<Args, Ctx> {
     }
 }
 
-impl<Args, Ctx> Sink<Task<Args, Ctx, RandomId>> for MemorySink<Args, Ctx> {
+impl<Args, Conn> Sink<Task<Args, Conn, RandomId>> for MemorySink<Args, Conn> {
     type Error = MemoryStorageError;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -259,18 +246,10 @@ impl<Args, Ctx> Sink<Task<Args, Ctx, RandomId>> for MemorySink<Args, Ctx> {
 
     fn start_send(
         self: Pin<&mut Self>,
-        mut item: Task<Args, Ctx, RandomId>,
+        item: Task<Args, Conn, RandomId>,
     ) -> Result<(), Self::Error> {
         let this = self.get_mut();
-
-        let _ = item.parts.data.get_or_insert(MetadataStore::default());
-
-        // Ensure task id exists
-        item.parts
-            .task_id
-            .get_or_insert_with(|| TaskId::new(RandomId::default()));
-
-        if let Some(key) = item.parts.idempotency_key.as_ref() {
+        if let Some(key) = item.ctx.idempotency_key.as_ref() {
             let mut keys = this.idempotency_keys.try_lock().unwrap();
 
             if keys.contains(key) {
@@ -280,8 +259,13 @@ impl<Args, Ctx> Sink<Task<Args, Ctx, RandomId>> for MemorySink<Args, Ctx> {
             keys.insert(key.clone());
         }
 
+        let mut item = item.into_builder();
+        // Ensure task id exists
+        item.ctx
+            .task_id
+            .get_or_insert_with(|| TaskId::new(RandomId::default()));
         let mut sink = this.inner.try_lock().unwrap();
-        Pin::new(&mut *sink).start_send_unpin(item)
+        Pin::new(&mut *sink).start_send_unpin(item.build())
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -295,7 +279,7 @@ impl<Args, Ctx> Sink<Task<Args, Ctx, RandomId>> for MemorySink<Args, Ctx> {
     }
 }
 
-impl<Args, Ctx> std::fmt::Debug for MemoryStorage<Args, Ctx> {
+impl<Args, Conn> std::fmt::Debug for MemoryStorage<Args, Conn> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MemoryStorage")
             .field("sender", &self.sender)
@@ -304,8 +288,8 @@ impl<Args, Ctx> std::fmt::Debug for MemoryStorage<Args, Ctx> {
     }
 }
 
-impl<Args, Ctx> Stream for MemoryStorage<Args, Ctx> {
-    type Item = Task<Args, Ctx, RandomId>;
+impl<Args, Conn> Stream for MemoryStorage<Args, Conn> {
+    type Item = Task<Args, Conn, RandomId>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.receiver.poll_next_unpin(cx)
@@ -313,14 +297,14 @@ impl<Args, Ctx> Stream for MemoryStorage<Args, Ctx> {
 }
 
 // MemoryStorage as a Backend
-impl<Args: 'static + Clone + Send, Ctx: 'static + Default> Backend for MemoryStorage<Args, Ctx> {
+impl<Args: 'static + Clone + Send, Conn: 'static> Backend for MemoryStorage<Args, Conn> {
     type Args = Args;
     type IdType = RandomId;
 
-    type Context = Ctx;
+    type Connection = Conn;
 
     type Error = MemoryStorageError;
-    type Stream = TaskStream<Task<Args, Ctx, RandomId>, MemoryStorageError>;
+    type Stream = TaskStream<Task<Args, Conn, RandomId>, MemoryStorageError>;
     type Layer = Identity;
     type Beat = BoxStream<'static, Result<(), Self::Error>>;
 
@@ -336,10 +320,12 @@ impl<Args: 'static + Clone + Send, Ctx: 'static + Default> Backend for MemorySto
     }
 }
 
-impl<Args: Clone + Send + 'static, Ctx: Default + 'static> BackendExt for MemoryStorage<Args, Ctx> {
+impl<Args: Clone + Send + 'static, Conn: Default + 'static> BackendExt
+    for MemoryStorage<Args, Conn>
+{
     type Codec = IdentityCodec;
     type Compact = Args;
-    type CompactStream = TaskStream<Task<Args, Self::Context, RandomId>, Self::Error>;
+    type CompactStream = TaskStream<Task<Args, Self::Connection, RandomId>, Self::Error>;
 
     fn get_queue(&self) -> crate::backend::queue::Queue {
         std::any::type_name::<Args>().into()

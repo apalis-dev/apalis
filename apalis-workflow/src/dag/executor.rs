@@ -8,10 +8,7 @@ use std::{
 
 use apalis_core::{
     backend::{BackendExt, codec::RawDataBackend},
-    task::{
-        Task,
-        metadata::{Meta, MetadataExt},
-    },
+    task::{Task, metadata::Meta},
     worker::builder::{IntoWorkerService, WorkerService},
 };
 use petgraph::graph::{DiGraph, NodeIndex};
@@ -32,7 +29,7 @@ pub struct DagExecutor<B>
 where
     B: BackendExt,
 {
-    pub(super) graph: DiGraph<DagService<B::Compact, B::Context, B::IdType>, ()>,
+    pub(super) graph: DiGraph<DagService<B::Compact, B::Connection, B::IdType>, ()>,
     pub(super) node_mapping: HashMap<String, NodeIndex>,
     pub(super) topological_order: Vec<NodeIndex>,
     pub(super) start_nodes: Vec<NodeIndex>,
@@ -64,17 +61,17 @@ where
     pub fn get_node_by_name_mut(
         &mut self,
         name: &str,
-    ) -> Option<&mut DagService<B::Compact, B::Context, B::IdType>> {
+    ) -> Option<&mut DagService<B::Compact, B::Connection, B::IdType>> {
         self.node_mapping
             .get(name)
             .and_then(|&idx| self.graph.node_weight_mut(idx))
     }
 }
 
-impl<B> Service<Task<B::Compact, B::Context, B::IdType>> for DagExecutor<B>
+impl<B> Service<Task<B::Compact, B::Connection, B::IdType>> for DagExecutor<B>
 where
     B: BackendExt,
-    B::Context: Send + Sync + 'static + MetadataExt + Default,
+    B::Connection: Send + Sync + 'static,
     B::IdType: Clone + Send + Sync + 'static + GenerateId + Debug + FromStr + Display,
     B::Compact: Send + Sync + 'static,
     <B::IdType as FromStr>::Err: std::error::Error + Send + Sync + 'static,
@@ -107,7 +104,7 @@ where
         }
     }
 
-    fn call(&mut self, req: Task<B::Compact, B::Context, B::IdType>) -> Self::Future {
+    fn call(&mut self, req: Task<B::Compact, B::Connection, B::IdType>) -> Self::Future {
         let mut graph = self.graph.clone();
 
         Box::pin(async move {
@@ -131,14 +128,15 @@ where
     }
 }
 
-impl<B, Compact, Err> IntoWorkerService<B, RootDagService<B>, B::Compact, B::Context> for DagFlow<B>
+impl<B, Compact, Err> IntoWorkerService<B, RootDagService<B>, B::Compact, B::Connection>
+    for DagFlow<B>
 where
     B: BackendExt<Compact = Compact, Args = Compact, Error = Err> + Clone,
     Err: std::error::Error + Send + Sync + 'static,
-    B::Context: MetadataExt + Send + Sync + 'static,
+    B::Connection: Send + Sync + 'static,
     B::IdType: Send + Sync + 'static + Default + GenerateId + PartialEq + Debug,
     B::Compact: Send + Sync + 'static + Clone,
-    RootDagService<B>: Service<Task<Compact, B::Context, B::IdType>>,
+    RootDagService<B>: Service<Task<Compact, B::Connection, B::IdType>>,
 {
     type Backend = RawDataBackend<B>;
     fn into_service(self, b: B) -> WorkerService<RawDataBackend<B>, RootDagService<B>> {

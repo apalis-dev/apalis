@@ -3,7 +3,7 @@ use std::{fmt::Display, str::FromStr};
 use apalis_core::{
     backend::{BackendExt, TaskSinkError, codec::Codec},
     error::BoxDynError,
-    task::{Task, builder::TaskBuilder, metadata::MetadataExt, task_id::TaskId},
+    task::{Task, builder::TaskBuilder, task_id::TaskId},
 };
 use futures::Sink;
 use petgraph::graph::NodeIndex;
@@ -61,12 +61,12 @@ where
 
 impl<S: Send, Args: Send, Compact, Err> WorkflowSink<Args> for S
 where
-    S: Sink<Task<Compact, S::Context, S::IdType>, Error = Err>
+    S: Sink<Task<Compact, S::Connection, S::IdType>, Error = Err>
         + BackendExt<Error = Err, Compact = Compact>
         + Unpin,
-    S::IdType: GenerateId + Send + FromStr + Display,
+    S::IdType: GenerateId + Send + Sync + FromStr + Display,
     S::Codec: Codec<Args, Compact = Compact>,
-    S::Context: MetadataExt + Send,
+    S::Connection: Send + Sync,
     Err: std::error::Error + Send + Sync + 'static,
     <S::Codec as Codec<Args>>::Error: Into<BoxDynError> + Send + Sync + 'static,
     Compact: Send + 'static,
@@ -76,9 +76,7 @@ where
         use futures::SinkExt;
         let task_id = TaskId::new(S::IdType::generate());
         let compact = S::Codec::encode(&args).map_err(|e| TaskSinkError::CodecError(e.into()))?;
-        let task = TaskBuilder::new(compact)
-            .with_task_id(task_id.clone())
-            .build();
+        let task = TaskBuilder::new(compact).task_id(task_id.clone()).build();
         self.send(task)
             .await
             .map_err(|e| TaskSinkError::PushError(e))
@@ -93,9 +91,7 @@ where
         let task_id = TaskId::new(S::IdType::generate());
 
         let compact = Args::encode(args).map_err(|e| TaskSinkError::CodecError(e.into()))?;
-        let task = TaskBuilder::new(compact)
-            .with_task_id(task_id.clone())
-            .build();
+        let task = TaskBuilder::new(compact).task_id(task_id.clone()).build();
         self.send(task)
             .await
             .map_err(|e| TaskSinkError::PushError(e))
@@ -110,8 +106,8 @@ where
         let task_id = TaskId::new(S::IdType::generate());
         let compact = S::Codec::encode(&step).map_err(|e| TaskSinkError::CodecError(e.into()))?;
         let task = TaskBuilder::new(compact)
-            .meta(&WorkflowContext { step_index: index })
-            .with_task_id(task_id.clone())
+            .metadata(&WorkflowContext { step_index: index })
+            .task_id(task_id.clone())
             .build();
         self.send(task)
             .await
@@ -127,7 +123,7 @@ where
         let task_id = TaskId::new(S::IdType::generate());
         let compact = S::Codec::encode(&node).map_err(|e| TaskSinkError::CodecError(e.into()))?;
         let task = TaskBuilder::new(compact)
-            .meta(&DagFlowContext {
+            .metadata(&DagFlowContext {
                 current_node: index,
                 completed_nodes: Default::default(),
                 current_position: index.index(),
@@ -136,7 +132,7 @@ where
                 prev_node: None,
                 root_task_id: Some(task_id.clone()),
             })
-            .with_task_id(task_id.clone())
+            .task_id(task_id.clone())
             .build();
         self.send(task)
             .await

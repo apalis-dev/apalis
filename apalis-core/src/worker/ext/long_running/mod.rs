@@ -63,6 +63,7 @@ use std::{
     fmt::Debug,
     future::Future,
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
@@ -215,12 +216,12 @@ impl<Res: Send + 'static> RunnerContext<Res> {
     }
 }
 
-impl<Args: Sync, Ctx: Sync + Clone, IdType: Sync + Send> FromRequest<Task<Args, Ctx, IdType>>
+impl<Args: Sync, Conn: Send + Sync, IdType: Sync + Send> FromRequest<Task<Args, Conn, IdType>>
     for Runner
 {
     type Error = MissingDataError;
-    async fn from_request(task: &Task<Args, Ctx, IdType>) -> Result<Self, Self::Error> {
-        let runner: &Self = task.parts.data.get_checked()?;
+    async fn from_request(task: &Task<Args, Conn, IdType>) -> Result<Self, Self::Error> {
+        let runner: &Self = task.ctx.data.get_checked()?;
         Ok(runner.clone())
     }
 }
@@ -260,9 +261,9 @@ pub struct LongRunningService<S> {
     config: LongRunningConfig,
 }
 
-impl<S, Args, Ctx, IdType> Service<Task<Args, Ctx, IdType>> for LongRunningService<S>
+impl<S, Args, Conn, IdType> Service<Task<Args, Conn, IdType>> for LongRunningService<S>
 where
-    S: Service<Task<Args, Ctx, IdType>>,
+    S: Service<Task<Args, Conn, IdType>>,
     S::Future: Send + 'static,
     S::Response: Send,
     S::Error: Send,
@@ -278,16 +279,23 @@ where
         self.service.poll_ready(cx)
     }
 
-    fn call(&mut self, mut task: Task<Args, Ctx, IdType>) -> Self::Future {
+    fn call(&mut self, mut task: Task<Args, Conn, IdType>) -> Self::Future {
         let tracker = TaskTracker::new();
-        let worker: WorkerContext = task.parts.data.get().cloned().expect("");
+        let worker: WorkerContext = task
+            .ctx
+            .data
+            .get()
+            .cloned()
+            .expect("Could not get worker context");
         let config = self.config.clone();
         let runner = Runner {
             tracker,
             worker,
             config,
         };
-        task.parts.data.insert(runner);
+        if let Some(ctx) = Arc::get_mut(&mut task.ctx) {
+            ctx.data.insert(runner);
+        }
         self.service.call(task)
     }
 }
@@ -295,27 +303,29 @@ where
 /// Helper trait for building long running workers from [`WorkerBuilder`]
 ///
 /// See [module level documentation](self) for more details.
-pub trait LongRunningExt<Args, Ctx, Source, Middleware>: Sized {
+pub trait LongRunningExt<Args, Conn, Source, Middleware>: Sized {
     /// Extension for executing long running jobs
-    fn long_running(self) -> WorkerBuilder<Args, Ctx, Source, Stack<LongRunningLayer, Middleware>> {
+    fn long_running(
+        self,
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<LongRunningLayer, Middleware>> {
         self.long_running_with_cfg(Default::default())
     }
     /// Extension for executing long running jobs with a config
     fn long_running_with_cfg(
         self,
         cfg: LongRunningConfig,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<LongRunningLayer, Middleware>>;
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<LongRunningLayer, Middleware>>;
 }
 
-impl<Args, B, M, Ctx> LongRunningExt<Args, Ctx, B, M> for WorkerBuilder<Args, Ctx, B, M>
+impl<Args, B, M, Conn> LongRunningExt<Args, Conn, B, M> for WorkerBuilder<Args, Conn, B, M>
 where
     M: Layer<LongRunningLayer>,
-    B: Backend<Args = Args, Context = Ctx>,
+    B: Backend<Args = Args, Connection = Conn>,
 {
     fn long_running_with_cfg(
         self,
         cfg: LongRunningConfig,
-    ) -> WorkerBuilder<Args, Ctx, B, Stack<LongRunningLayer, M>> {
+    ) -> WorkerBuilder<Args, Conn, B, Stack<LongRunningLayer, M>> {
         let this = self.layer(LongRunningLayer::new(cfg));
         WorkerBuilder {
             name: this.name,

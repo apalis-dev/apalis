@@ -64,13 +64,13 @@ pub trait Backend {
     type Args;
     /// The type used to uniquely identify tasks.
     type IdType: Clone;
-    /// Context associated with each task.
-    type Context: Default;
+    /// The type of connection used by the backend.
+    type Connection;
     /// The error type returned by backend operations
     type Error;
     /// A stream of tasks provided by the backend.
     type Stream: Stream<
-        Item = Result<Option<Task<Self::Args, Self::Context, Self::IdType>>, Self::Error>,
+        Item = Result<Option<Task<Self::Args, Self::Connection, Self::IdType>>, Self::Error>,
     >;
     /// A stream representing heartbeat signals.
     type Beat: Stream<Item = Result<(), Self::Error>>;
@@ -93,7 +93,7 @@ pub trait BackendExt: Backend {
     type Compact;
     /// A stream of encoded tasks provided by the backend.
     type CompactStream: Stream<
-        Item = Result<Option<Task<Self::Compact, Self::Context, Self::IdType>>, Self::Error>,
+        Item = Result<Option<Task<Self::Compact, Self::Connection, Self::IdType>>, Self::Error>,
     >;
 
     /// Returns the queue associated with the backend.
@@ -112,7 +112,9 @@ pub trait FetchById<Args>: Backend {
     fn fetch_by_id(
         &mut self,
         task_id: &TaskId<Self::IdType>,
-    ) -> impl Future<Output = Result<Option<Task<Args, Self::Context, Self::IdType>>, Self::Error>> + Send;
+    ) -> impl Future<
+        Output = Result<Option<Task<Args, Self::Connection, Self::IdType>>, Self::Error>,
+    > + Send;
 }
 
 /// Allows updating an existing task
@@ -120,7 +122,7 @@ pub trait Update: Backend {
     /// Update the given task
     fn update(
         &mut self,
-        task: Task<Self::Args, Self::Context, Self::IdType>,
+        task: Task<Self::Args, Self::Connection, Self::IdType>,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
@@ -129,7 +131,7 @@ pub trait Reschedule: Backend {
     /// Reschedule the task after a specified duration
     fn reschedule(
         &mut self,
-        task: Task<Self::Args, Self::Context, Self::IdType>,
+        task: Task<Self::Args, Self::Connection, Self::IdType>,
         wait: Duration,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
@@ -229,4 +231,30 @@ pub trait WaitForCompletion<T>: Backend {
         &self,
         task_ids: impl IntoIterator<Item = TaskId<Self::IdType>> + Send,
     ) -> impl Future<Output = Result<Vec<TaskResult<T, Self::IdType>>, Self::Error>> + Send;
+}
+
+/// A helper trait to build connections and pollers for backends
+/// This should be used in crates implementing Backend rather than end users.
+pub trait TryIntoConnectionParts {
+    /// The config for the backend
+    type Config;
+    /// The connection for the backend
+    type Connection;
+    /// The poller to be used by the backend
+    type Fetcher;
+    /// The error emitted during creation
+    type Error: std::error::Error + Send + Sync + 'static;
+    /// Generate the parts needed to build a Backend
+    fn try_into_parts(
+        self,
+        config: &Self::Config,
+    ) -> Result<(Self::Connection, Self::Fetcher), Self::Error>;
+}
+
+/// A helper to standardize building new backends
+pub trait TryNewBackend: Backend + Sized {
+    /// Build a new backend given a connection source and a config
+    fn try_new<P>(src: P, config: P::Config) -> Result<Self, P::Error>
+    where
+        P: TryIntoConnectionParts<Connection = Self::Connection>;
 }

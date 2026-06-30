@@ -293,13 +293,13 @@ impl<S, MakeSpan, OnRequest, OnResponse, OnFailure>
     }
 }
 
-impl<Args, S, OnRequestT, OnResponseT, OnFailureT, MakeSpanT, F, Res, Ctx, IdType>
-    Service<Task<Args, Ctx, IdType>> for Trace<S, MakeSpanT, OnRequestT, OnResponseT, OnFailureT>
+impl<Args, S, OnRequestT, OnResponseT, OnFailureT, MakeSpanT, F, Res, Conn, IdType>
+    Service<Task<Args, Conn, IdType>> for Trace<S, MakeSpanT, OnRequestT, OnResponseT, OnFailureT>
 where
-    S: Service<Task<Args, Ctx, IdType>, Response = Res, Future = F> + Unpin + Send + 'static,
+    S: Service<Task<Args, Conn, IdType>, Response = Res, Future = F> + Unpin + Send + 'static,
     S::Error: fmt::Display + 'static,
-    MakeSpanT: MakeSpan<Args, Ctx, IdType>,
-    OnRequestT: OnRequest<Args, Ctx, IdType>,
+    MakeSpanT: MakeSpan<Args, Conn, IdType>,
+    OnRequestT: OnRequest<Args, Conn, IdType>,
     OnResponseT: OnResponse<Res> + Clone + 'static,
     F: Future<Output = Result<Res, S::Error>> + 'static,
     OnFailureT: OnFailure<S::Error> + Clone + 'static,
@@ -312,7 +312,7 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, req: Task<Args, Ctx, IdType>) -> Self::Future {
+    fn call(&mut self, req: Task<Args, Conn, IdType>) -> Self::Future {
         let span = self.make_span.make_span(&req);
         let start = Instant::now();
         let job = {
@@ -437,7 +437,7 @@ mod tests {
                         tracing::span!(
                             tracing::Level::INFO,
                             "custom_span",
-                            task_id = req.parts.task_id.as_ref().unwrap().to_string()
+                            task_id = req.ctx.task_id.as_ref().unwrap().to_string()
                         )
                     })
                     .on_request(|task: &Task<u32, MemoryContext, RandomId>, span: &tracing::Span| {

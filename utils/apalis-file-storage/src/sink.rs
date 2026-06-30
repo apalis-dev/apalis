@@ -1,18 +1,18 @@
 use std::{
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
 };
 
-use apalis_core::task::{Task, task_id::RandomId};
+use apalis_core::task::{Task, metadata::MetadataStore, task_id::RandomId};
 use futures_sink::Sink;
 use serde_json::Value;
 
 use crate::{
-    Adapter, FileStorage, JsonMapMetadata, PendingChange, SyncPolicy, error::FileStorageError,
-    util::RawTask,
+    Adapter, FileStorage, PendingChange, SyncPolicy, error::FileStorageError, util::RawTask,
 };
 
-impl<A: Adapter + Unpin, Args: Unpin> Sink<Task<Value, JsonMapMetadata, RandomId>>
+impl<A: Adapter + Unpin, Args: Unpin> Sink<Task<Value, MetadataStore, RandomId>>
     for FileStorage<Args, A>
 {
     type Error = FileStorageError<A>;
@@ -23,13 +23,14 @@ impl<A: Adapter + Unpin, Args: Unpin> Sink<Task<Value, JsonMapMetadata, RandomId
 
     fn start_send(
         self: Pin<&mut Self>,
-        item: Task<Value, JsonMapMetadata, RandomId>,
+        item: Task<Value, MetadataStore, RandomId>,
     ) -> Result<(), Self::Error> {
-        let idempotency_key = item.parts.idempotency_key;
+        let ctx = Arc::try_unwrap(item.ctx).map_err(|_| FileStorageError::WouldBlockLock)?;
+        let idempotency_key = ctx.idempotency_key;
         let entry = RawTask {
-            task_id: item.parts.task_id,
+            task_id: ctx.task_id,
             args: item.args,
-            ctx: item.parts.ctx,
+            ctx: ctx.metadata,
             result: None,
             idempotency_key,
         };

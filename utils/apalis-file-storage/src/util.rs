@@ -2,15 +2,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::BTreeMap, fmt::Debug};
 
-use apalis_core::task::task_id::{RandomId, TaskId};
-
-use crate::JsonMapMetadata;
+use apalis_core::task::{
+    metadata::MetadataStore,
+    task_id::{RandomId, TaskId},
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawTask {
     pub(super) task_id: Option<TaskId<RandomId>>,
     pub(super) args: serde_json::Value,
-    pub(super) ctx: JsonMapMetadata,
+    pub(super) ctx: MetadataStore,
     pub(super) result: Option<serde_json::Value>,
     pub(super) idempotency_key: Option<String>,
 }

@@ -1,15 +1,7 @@
 //! Task metadata extension trait and implementations
 //!
-//! The [`MetadataExt`] trait allows injecting and extracting metadata associated with tasks.
-//! It includes implementations for common metadata types.
-//!
 //! ## Overview
 //! - `Metadata`: A trait for extracting and injecting metadata.
-//!
-//! # Usage
-//! Implement the `MetadataExt` trait for your context types to enable easy extraction and injection
-//! from task contexts. This allows middleware and services to access and modify task metadata in a
-//! type-safe manner.
 use crate::task::Task;
 use crate::task_fn::FromRequest;
 use std::collections::HashMap;
@@ -28,180 +20,6 @@ impl<T> Deref for Meta<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-
-/// Extension trait for types that expose task metadata.
-///
-/// `MetadataExt` provides a uniform interface for accessing, mutating,
-/// injecting, and extracting strongly typed metadata values backed by a
-/// [`MetadataStore`].
-///
-/// This trait is commonly implemented by task contexts, job payloads,
-/// execution environments, or workflow state containers that need to
-/// carry metadata across system boundaries.
-///
-/// # Provided Methods
-///
-/// - [`metadata`](Self::metadata): Returns an immutable reference to the
-///   underlying [`MetadataStore`].
-/// - [`metadata_mut`](Self::metadata_mut): Returns a mutable reference to
-///   the underlying [`MetadataStore`].
-/// - [`extract`](Self::extract): Extracts a typed metadata value from the store.
-/// - [`inject`](Self::inject): Injects a typed metadata value into the store.
-///
-/// # Examples
-///
-/// ```rust
-/// # use std::collections::HashMap;
-/// # use apalis_core::task::metadata::Metadata;
-/// # use apalis_core::task::metadata::MetadataStore;
-/// # use apalis_core::task::metadata::MetadataExt;
-/// #
-/// struct TaskContext {
-///     metadata: MetadataStore,
-/// }
-///
-/// impl MetadataExt for TaskContext {
-///     fn metadata(&self) -> &MetadataStore {
-///         &self.metadata
-///     }
-///
-///     fn metadata_mut(&mut self) -> &mut MetadataStore {
-///         &mut self.metadata
-///     }
-/// }
-/// ```
-///
-/// Injecting and extracting typed metadata:
-///
-/// ```rust
-/// # use std::collections::HashMap;
-/// # use apalis_core::task::metadata::Metadata;
-/// # use apalis_core::task::metadata::MetadataStore;
-/// # use apalis_core::task::metadata::MetadataExt;
-/// #
-/// #[derive(Debug, PartialEq)]
-/// struct RequestId(String);
-///
-/// impl Metadata for RequestId {
-///     type Error = std::convert::Infallible;
-///
-///     fn inject(&self, metadata: &mut MetadataStore) -> Result<(), Self::Error> {
-///         let _ = metadata.insert("request_id", self.0.clone());
-///         Ok(())
-///     }
-///
-///     fn extract(metadata: &MetadataStore) -> Result<Self, Self::Error> {
-///         Ok(Self(
-///             metadata
-///                 .get("request_id")
-///                 .cloned()
-///                 .unwrap_or_default(),
-///         ))
-///     }
-/// }
-///
-/// struct Context {
-///     metadata: MetadataStore,
-/// }
-///
-/// impl MetadataExt for Context {
-///     fn metadata(&self) -> &MetadataStore {
-///         &self.metadata
-///     }
-///
-///     fn metadata_mut(&mut self) -> &mut MetadataStore {
-///         &mut self.metadata
-///     }
-/// }
-///
-/// let mut ctx = Context {
-///     metadata: MetadataStore::new(),
-/// };
-///
-/// ctx.inject(&RequestId("req-123".into()));
-///
-/// let request_id = ctx.extract::<RequestId>()?;
-///
-/// assert_eq!(request_id, RequestId("req-123".into()));
-///
-/// # Ok::<(), std::convert::Infallible>(())
-/// ```
-pub trait MetadataExt {
-    /// Returns an immutable reference to the underlying metadata store.
-    fn metadata(&self) -> &MetadataStore;
-
-    /// Returns a mutable reference to the underlying metadata store.
-    fn metadata_mut(&mut self) -> &mut MetadataStore;
-
-    /// Extracts a strongly typed metadata value from the underlying store.
-    ///
-    /// This method delegates extraction logic to the [`Metadata`] implementation
-    /// for `T`.
-    ///
-    /// # Errors
-    ///
-    /// Returns `T::Error` if extraction fails.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use std::convert::Infallible;
-    /// # use apalis_core::task::metadata::Metadata;
-    /// # use apalis_core::task::metadata::MetadataStore;
-    /// #
-    /// struct UserId(String);
-    ///
-    /// impl Metadata for UserId {
-    ///     type Error = Infallible;
-    ///
-    ///     fn inject(&self, metadata: &mut MetadataStore) -> Result<(), Self::Error> {
-    ///         let _ = metadata.insert("user_id", self.0.clone());
-    ///         Ok(())
-    ///     }
-    ///
-    ///     fn extract(metadata: &MetadataStore) -> Result<Self, Self::Error> {
-    ///         Ok(Self(
-    ///             metadata
-    ///                 .get("user_id")
-    ///                 .cloned()
-    ///                 .unwrap_or_default(),
-    ///         ))
-    ///     }
-    /// }
-    /// ```
-    fn extract<T: Metadata>(&self) -> Result<T, T::Error> {
-        T::extract(self.metadata())
-    }
-
-    /// Injects a strongly typed metadata value into the underlying store.
-    ///
-    /// This method delegates serialization/injection logic to the [`Metadata`]
-    /// implementation for `T`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use apalis_core::task::metadata::Metadata;
-    /// # use apalis_core::task::metadata::MetadataStore;
-    /// struct CorrelationId(String);
-    ///
-    /// impl Metadata for CorrelationId {
-    ///     type Error = std::convert::Infallible;
-    ///
-    ///     fn inject(&self, metadata: &mut MetadataStore) -> Result<(), Self::Error> {
-    ///         let _ = metadata.insert("correlation_id", self.0.clone());
-    ///         Ok(())
-    ///     }
-    ///
-    ///     fn extract(_: &MetadataStore) -> Result<Self, Self::Error> {
-    ///         unreachable!()
-    ///     }
-    /// }
-    /// ```
-    fn inject<T: Metadata>(&mut self, value: &T) -> Result<(), T::Error> {
-        value.inject(self.metadata_mut())
     }
 }
 
@@ -478,23 +296,25 @@ pub trait Metadata: Sized {
     fn inject(&self, map: &mut MetadataStore) -> Result<(), Self::Error>;
 }
 
-impl<T: Metadata, Args: Send + Sync, Ctx: MetadataExt + Send + Sync, IdType: Send + Sync>
-    FromRequest<Task<Args, Ctx, IdType>> for Meta<T>
+impl<T: Metadata, Args: Send + Sync, Conn: Send + Sync, IdType: Send + Sync>
+    FromRequest<Task<Args, Conn, IdType>> for Meta<T>
 {
     type Error = T::Error;
 
-    async fn from_request(task: &Task<Args, Ctx, IdType>) -> Result<Self, Self::Error> {
-        task.parts.ctx.extract().map(Meta)
+    async fn from_request(task: &Task<Args, Conn, IdType>) -> Result<Self, Self::Error> {
+        let metadata = &task.ctx.metadata;
+        let value = T::extract(metadata)?;
+        Ok(Self(value))
     }
 }
 
-impl<Args: Send + Sync, Ctx: MetadataExt + Send + Sync, IdType: Send + Sync>
-    FromRequest<Task<Args, Ctx, IdType>> for MetadataStore
+impl<Args: Send + Sync, Conn: Send + Sync, IdType: Send + Sync>
+    FromRequest<Task<Args, Conn, IdType>> for MetadataStore
 {
     type Error = Infallible;
 
-    async fn from_request(task: &Task<Args, Ctx, IdType>) -> Result<Self, Self::Error> {
-        Ok(task.parts.ctx.metadata().clone())
+    async fn from_request(task: &Task<Args, Conn, IdType>) -> Result<Self, Self::Error> {
+        Ok(task.ctx.metadata.clone())
     }
 }
 
@@ -689,7 +509,7 @@ mod tests {
         error::BoxDynError,
         task::{
             Task,
-            metadata::{Meta, Metadata, MetadataExt, MetadataStore},
+            metadata::{Meta, Metadata, MetadataStore},
         },
         task_fn::FromRequest,
     };
@@ -725,23 +545,11 @@ mod tests {
         }
     }
 
-    struct SampleStore(MetadataStore);
-
-    impl MetadataExt for SampleStore {
-        fn metadata(&self) -> &MetadataStore {
-            &self.0
-        }
-
-        fn metadata_mut(&mut self) -> &mut MetadataStore {
-            &mut self.0
-        }
-    }
-
-    impl<S, Args: Send + Sync + 'static, Ctx: Send + Sync + 'static, IdType: Send + Sync + 'static>
-        Service<Task<Args, Ctx, IdType>> for ExampleService<S>
+    impl<S, Args: Send + Sync + 'static, Conn: Send + Sync + 'static, IdType: Send + Sync + 'static>
+        Service<Task<Args, Conn, IdType>> for ExampleService<S>
     where
-        S: Service<Task<Args, Ctx, IdType>> + Clone + Send + 'static,
-        Ctx: MetadataExt + Send,
+        S: Service<Task<Args, Conn, IdType>> + Clone + Send + 'static,
+        Conn: Send,
         S::Future: Send + 'static,
     {
         type Response = S::Response;
@@ -752,7 +560,7 @@ mod tests {
             self.service.poll_ready(cx)
         }
 
-        fn call(&mut self, request: Task<Args, Ctx, IdType>) -> Self::Future {
+        fn call(&mut self, request: Task<Args, Conn, IdType>) -> Self::Future {
             let mut svc = self.service.clone();
 
             // Do something with config

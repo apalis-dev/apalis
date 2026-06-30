@@ -22,6 +22,7 @@
 //! # use futures_util::{lock::Mutex, sink, stream, sink::SinkExt};
 //! # use apalis_core::backend::custom::{BackendBuilder, CustomBackend};
 //! # use apalis_core::task::Task;
+//! # use apalis_core::task::builder::TaskBuilder;
 //! # use apalis_core::worker::builder::WorkerBuilder;
 //! # use apalis_core::worker::context::WorkerContext;
 //! # use apalis_core::error::BoxDynError;
@@ -65,7 +66,7 @@
 //!         .unwrap();
 //!
 //!     // Add a task to the backend
-//!     backend.send(Task::new(42)).await.unwrap();
+//!     backend.send(TaskBuilder::new(42).build()).await.unwrap();
 //!
 //!     // Define the task handler
 //!     async fn task(task: u32, ctx: WorkerContext) -> Result<(), BoxDynError> {
@@ -342,20 +343,20 @@ pub enum CustomBackendError {
     Inner(#[from] BoxDynError),
 }
 
-impl<Args, DB, Fetch, Sink, IdType: Clone, E, Ctx: Default, Config> Backend
+impl<Args, DB, Fetch, Sink, IdType: Clone, E, Conn: Default, Config> Backend
     for CustomBackend<Args, DB, Fetch, Sink, IdType, Config>
 where
-    Fetch: Stream<Item = Result<Option<Task<Args, Ctx, IdType>>, E>> + Send + 'static,
+    Fetch: Stream<Item = Result<Option<Task<Args, Conn, IdType>>, E>> + Send + 'static,
     E: Into<BoxDynError>,
 {
     type Args = Args;
     type IdType = IdType;
 
-    type Context = Ctx;
+    type Connection = Conn;
 
     type Error = CustomBackendError;
 
-    type Stream = TaskStream<Task<Args, Ctx, IdType>, CustomBackendError>;
+    type Stream = TaskStream<Task<Args, Conn, IdType>, CustomBackendError>;
 
     type Beat = BoxStream<'static, Result<(), Self::Error>>;
 
@@ -380,10 +381,10 @@ where
     }
 }
 
-impl<Args, Ctx, IdType, DB, Fetch, S, Config> Sink<Task<Args, Ctx, IdType>>
+impl<Args, Conn, IdType, DB, Fetch, S, Config> Sink<Task<Args, Conn, IdType>>
     for CustomBackend<Args, DB, Fetch, S, IdType, Config>
 where
-    S: Sink<Task<Args, Ctx, IdType>>,
+    S: Sink<Task<Args, Conn, IdType>>,
     S::Error: Into<BoxDynError>,
 {
     type Error = CustomBackendError;
@@ -395,7 +396,7 @@ where
             .map_err(|e| CustomBackendError::Inner(e.into()))
     }
 
-    fn start_send(self: Pin<&mut Self>, item: Task<Args, Ctx, IdType>) -> Result<(), Self::Error> {
+    fn start_send(self: Pin<&mut Self>, item: Task<Args, Conn, IdType>) -> Result<(), Self::Error> {
         self.project()
             .current_sink
             .start_send_unpin(item)
@@ -425,7 +426,7 @@ mod tests {
 
     use crate::{
         error::BoxDynError,
-        task::task_id::RandomId,
+        task::{builder::TaskBuilder, task_id::RandomId},
         worker::{builder::WorkerBuilder, ext::event_listener::EventListenerExt},
     };
 
@@ -468,7 +469,7 @@ mod tests {
             .unwrap();
 
         for i in 0..ITEMS {
-            backend.send(Task::new(i)).await.unwrap();
+            backend.send(TaskBuilder::new(i).build()).await.unwrap();
         }
 
         async fn task(task: u32, ctx: WorkerContext) -> Result<(), BoxDynError> {

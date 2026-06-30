@@ -49,6 +49,7 @@ use crate::backend::{BackendExt, TaskSink};
 use crate::error::BoxDynError;
 use crate::features_table;
 use crate::task::Task;
+use crate::task::builder::TaskBuilder;
 use crate::{backend::Backend, backend::codec::Codec, worker::context::WorkerContext};
 use futures_sink::Sink;
 use futures_util::stream::{once, select};
@@ -65,13 +66,13 @@ use std::ops::{Deref, DerefMut};
     TaskSink => supported("Ability to push new tasks", false),
     InheritsFeatures => limited("Inherits features from the underlying backend", false),
 }]
-pub struct Pipe<S, Into, Args, Ctx> {
+pub struct Pipe<S, Into, Args, Conn> {
     pub(crate) from: S,
     pub(crate) into: Into,
-    pub(crate) _req: PhantomData<(Args, Ctx)>,
+    pub(crate) _req: PhantomData<(Args, Conn)>,
 }
 
-impl<S: Clone, Into: Clone, Args, Ctx> Clone for Pipe<S, Into, Args, Ctx> {
+impl<S: Clone, Into: Clone, Args, Conn> Clone for Pipe<S, Into, Args, Conn> {
     fn clone(&self) -> Self {
         Self {
             from: self.from.clone(),
@@ -81,7 +82,7 @@ impl<S: Clone, Into: Clone, Args, Ctx> Clone for Pipe<S, Into, Args, Ctx> {
     }
 }
 
-impl<S, Into, Args, Ctx> Deref for Pipe<S, Into, Args, Ctx> {
+impl<S, Into, Args, Conn> Deref for Pipe<S, Into, Args, Conn> {
     type Target = Into;
 
     fn deref(&self) -> &Self::Target {
@@ -89,13 +90,13 @@ impl<S, Into, Args, Ctx> Deref for Pipe<S, Into, Args, Ctx> {
     }
 }
 
-impl<S, Into, Args, Ctx> DerefMut for Pipe<S, Into, Args, Ctx> {
+impl<S, Into, Args, Conn> DerefMut for Pipe<S, Into, Args, Conn> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.into
     }
 }
 
-impl<S, Into, Args, Ctx> Pipe<S, Into, Args, Ctx> {
+impl<S, Into, Args, Conn> Pipe<S, Into, Args, Conn> {
     /// Create a new Pipe instance
     pub fn new(stream: S, backend: Into) -> Self {
         Self {
@@ -106,7 +107,7 @@ impl<S, Into, Args, Ctx> Pipe<S, Into, Args, Ctx> {
     }
 }
 
-impl<S: fmt::Debug, Into: fmt::Debug, Args, Ctx> fmt::Debug for Pipe<S, Into, Args, Ctx> {
+impl<S: fmt::Debug, Into: fmt::Debug, Args, Conn> fmt::Debug for Pipe<S, Into, Args, Conn> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Pipe")
             .field("inner", &self.from)
@@ -115,25 +116,25 @@ impl<S: fmt::Debug, Into: fmt::Debug, Args, Ctx> fmt::Debug for Pipe<S, Into, Ar
     }
 }
 
-impl<Args, Ctx, S, TSink, Err> Backend for Pipe<S, TSink, Args, Ctx>
+impl<Args, Conn, S, TSink, Err> Backend for Pipe<S, TSink, Args, Conn>
 where
     S: Stream<Item = Result<Args, Err>> + Send + 'static,
-    TSink: Backend<Args = Args, Context = Ctx>
+    TSink: Backend<Args = Args, Connection = Conn>
         + BackendExt
         + TaskSink<Args>
         + Clone
         + Unpin
         + Send
         + 'static
-        + Sink<Task<TSink::Compact, Ctx, TSink::IdType>>,
+        + Sink<Task<TSink::Compact, Conn, TSink::IdType>>,
     <TSink as Backend>::Error: std::error::Error + Send + Sync + 'static,
     TSink::Beat: Send + 'static,
-    TSink::IdType: Send + Clone + 'static,
+    TSink::IdType: Send + Sync + 'static,
     TSink::Stream: Send + 'static,
     Args: Send + 'static,
-    Ctx: Send + 'static + Default,
+    Conn: Send + Sync + 'static,
     Err: std::error::Error + Send + Sync + 'static,
-    <TSink as Sink<Task<TSink::Compact, Ctx, TSink::IdType>>>::Error:
+    <TSink as Sink<Task<TSink::Compact, Conn, TSink::IdType>>>::Error:
         std::error::Error + Send + Sync + 'static,
     <<TSink as BackendExt>::Codec as Codec<Args>>::Error: std::error::Error + Send + Sync + 'static,
     TSink::Compact: Send,
@@ -142,9 +143,9 @@ where
 
     type IdType = TSink::IdType;
 
-    type Context = Ctx;
+    type Connection = Conn;
 
-    type Stream = BoxStream<'static, Result<Option<Task<Args, Ctx, Self::IdType>>, PipeError>>;
+    type Stream = BoxStream<'static, Result<Option<Task<Args, Conn, Self::IdType>>, PipeError>>;
 
     type Layer = TSink::Layer;
 
@@ -173,8 +174,9 @@ where
             .from
             .map_err(|e| PipeError::Inner(e.into()))
             .map_ok(|s| {
-                Task::new(s)
+                TaskBuilder::new(s)
                     .try_map(|s| TSink::Codec::encode(&s).map_err(|e| PipeError::Inner(e.into())))
+                    .map(|s| s.build())
             })
             .map(|t| t.and_then(|t| t))
             .boxed();
@@ -193,21 +195,21 @@ where
 }
 
 /// Represents utility for piping streams into a backend
-pub trait PipeExt<B, Args, Ctx>
+pub trait PipeExt<B, Args, Conn>
 where
     Self: Sized,
 {
     /// Pipe the current stream into the provided backend
-    fn pipe_to(self, backend: B) -> Pipe<Self, B, Args, Ctx>;
+    fn pipe_to(self, backend: B) -> Pipe<Self, B, Args, Conn>;
 }
 
-impl<B, Args, Ctx, Err, S> PipeExt<B, Args, Ctx> for S
+impl<B, Args, Conn, Err, S> PipeExt<B, Args, Conn> for S
 where
     S: Stream<Item = Result<Args, Err>> + Send + 'static,
     <B as Backend>::Error: Into<BoxDynError> + Send + Sync + 'static,
     B: Backend<Args = Args> + TaskSink<Args>,
 {
-    fn pipe_to(self, backend: B) -> Pipe<Self, B, Args, Ctx> {
+    fn pipe_to(self, backend: B) -> Pipe<Self, B, Args, Conn> {
         Pipe::new(self, backend)
     }
 }

@@ -131,7 +131,7 @@ where
 
     type IdType = RandomId;
 
-    type Context = ();
+    type Connection = ();
 
     type Stream = BoxStream<'static, Result<Option<Task<T, (), Self::IdType>>, VecDequeError>>;
 
@@ -285,9 +285,9 @@ where
                             )));
                         };
 
-                        if let Some(ref key) = item.parts.idempotency_key {
+                        if let Some(ref key) = item.ctx.idempotency_key {
                             let exists = db.iter().any(|task| {
-                                task.parts
+                                task.ctx
                                     .idempotency_key
                                     .as_ref()
                                     .map(|existing| existing == key)

@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use apalis_core::{
     backend::{Backend, BackendExt, codec::RawDataBackend},
     error::BoxDynError,
-    task::{Task, metadata::MetadataExt},
+    task::Task,
     worker::builder::{IntoWorkerService, WorkerService},
 };
 use futures::Sink;
@@ -99,18 +99,18 @@ impl<Input, Current, B: BackendExt> Step<Input, B> for RootStep<Current> {
 }
 
 impl<Input, Output, Current, B, Compact, Err, L>
-    IntoWorkerService<B, WorkflowService<B, Output>, Compact, B::Context>
+    IntoWorkerService<B, WorkflowService<B, Output>, Compact, B::Connection>
     for Workflow<Input, Current, B, L>
 where
     B: BackendExt<Compact = Compact>
         + Send
         + Sync
         + 'static
-        + Sink<Task<Compact, B::Context, B::IdType>, Error = Err>
+        + Sink<Task<Compact, B::Connection, B::IdType>, Error = Err>
         + Unpin
         + Clone,
     Err: std::error::Error + Send + Sync + 'static,
-    B::Context: MetadataExt + Send + Sync + 'static,
+    B::Connection: Send + Sync + 'static,
     B::IdType: Send + 'static + Default + GenerateId,
     B: Sync + Backend<Args = Compact, Error = Err>,
     B::Compact: Send + Sync + 'static,

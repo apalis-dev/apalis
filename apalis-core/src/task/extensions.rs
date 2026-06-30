@@ -52,10 +52,10 @@ impl Hasher for IdHasher {
     }
 }
 
-/// A type map of protocol extensions.
+/// A type map of typed task extensions.
 ///
-/// `Extensions` can be used by `Request` and `Response` to store
-/// extra data derived from the underlying protocol.
+/// `Extensions` can be used by `Task` to store
+/// extra data derived from the underlying execution.
 #[derive(Clone, Default)]
 pub struct Extensions {
     // If extensions are never used, no need to carry around an empty HashMap.

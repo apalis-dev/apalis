@@ -45,6 +45,7 @@
 //! - [`Task`] type representing a unit of work.
 use std::{
     ops::Deref,
+    sync::Arc,
     task::{Context, Poll},
 };
 
@@ -115,9 +116,9 @@ pub struct AddExtension<S, T> {
     value: T,
 }
 
-impl<S, T, Args, Ctx, IdType> Service<Task<Args, Ctx, IdType>> for AddExtension<S, T>
+impl<S, T, Args, Conn, IdType> Service<Task<Args, Conn, IdType>> for AddExtension<S, T>
 where
-    S: Service<Task<Args, Ctx, IdType>>,
+    S: Service<Task<Args, Conn, IdType>>,
     T: Clone + Send + Sync + 'static,
 {
     type Response = S::Response;
@@ -129,8 +130,10 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, mut task: Task<Args, Ctx, IdType>) -> Self::Future {
-        task.parts.data.insert(self.value.clone());
+    fn call(&mut self, mut task: Task<Args, Conn, IdType>) -> Self::Future {
+        if let Some(ctx) = Arc::get_mut(&mut task.ctx) {
+            ctx.data.insert(self.value.clone());
+        }
         self.inner.call(task)
     }
 }
@@ -143,11 +146,11 @@ pub enum MissingDataError {
     NotFound(String),
 }
 
-impl<T: Clone + Send + Sync + 'static, Args: Sync, Ctx: Sync, IdType: Sync + Send>
-    FromRequest<Task<Args, Ctx, IdType>> for Data<T>
+impl<T: Clone + Send + Sync + 'static, Args: Sync, Conn: Send + Sync, IdType: Sync + Send>
+    FromRequest<Task<Args, Conn, IdType>> for Data<T>
 {
     type Error = MissingDataError;
-    async fn from_request(task: &Task<Args, Ctx, IdType>) -> Result<Self, Self::Error> {
-        task.parts.data.get_checked().cloned().map(Self::new)
+    async fn from_request(task: &Task<Args, Conn, IdType>) -> Result<Self, Self::Error> {
+        task.ctx.data.get_checked().cloned().map(Self::new)
     }
 }

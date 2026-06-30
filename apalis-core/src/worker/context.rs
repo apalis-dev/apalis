@@ -356,12 +356,12 @@ impl Future for WorkerContext {
     }
 }
 
-impl<Args: Sync, Ctx: Sync, IdType: Sync + Send> FromRequest<Task<Args, Ctx, IdType>>
+impl<Args: Sync, Conn: Send + Sync, IdType: Sync + Send> FromRequest<Task<Args, Conn, IdType>>
     for WorkerContext
 {
     type Error = MissingDataError;
-    async fn from_request(task: &Task<Args, Ctx, IdType>) -> Result<Self, Self::Error> {
-        task.parts.data.get_checked().cloned()
+    async fn from_request(task: &Task<Args, Conn, IdType>) -> Result<Self, Self::Error> {
+        task.ctx.data.get_checked().cloned()
     }
 }
 

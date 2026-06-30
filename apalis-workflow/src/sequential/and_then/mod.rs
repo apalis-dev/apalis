@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use apalis_core::{
     backend::{BackendExt, codec::Codec},
     error::BoxDynError,
-    task::{Task, metadata::MetadataExt},
+    task::Task,
     task_fn::{TaskFn, task_fn},
 };
 use futures::{
@@ -63,9 +63,9 @@ where
         + Sync
         + 'static
         + Clone
-        + Sink<Task<B::Compact, B::Context, B::IdType>, Error = SinkError>
+        + Sink<Task<B::Compact, B::Connection, B::IdType>, Error = SinkError>
         + Unpin,
-    F: Service<Task<Input, B::Context, B::IdType>, Error = BoxDynError>
+    F: Service<Task<Input, B::Connection, B::IdType>, Error = BoxDynError>
         + Send
         + Sync
         + 'static
@@ -79,10 +79,10 @@ where
         + Codec<S::Response, Error = CodecError, Compact = B::Compact>
         + 'static,
     CodecError: std::error::Error + Send + Sync + 'static,
-    B::IdType: GenerateId + Send + 'static,
+    B::IdType: GenerateId + Send + Sync + 'static,
     S::Response: Send + 'static,
     B::Compact: Send + 'static,
-    B::Context: Send + MetadataExt + 'static,
+    B::Connection: Send + Sync + 'static,
     SinkError: std::error::Error + Send + Sync + 'static,
     F::Response: Send + 'static,
 {
@@ -96,7 +96,7 @@ where
             }))
             .map_response(|res: F::Response| GoTo::Next(res))
             .service(self.then_fn.clone());
-        let svc = SteppedService::<B::Compact, B::Context, B::IdType>::new(svc);
+        let svc = SteppedService::<B::Compact, B::Connection, B::IdType>::new(svc);
         let count = ctx.steps.len();
         ctx.steps.insert(count, svc);
         self.step.register(ctx)
@@ -129,28 +129,28 @@ impl<Svc, Backend, Cur> AndThenService<Svc, Backend, Cur> {
     }
 }
 
-impl<S, B, Cur, Res, CodecErr, SinkError> Service<Task<B::Compact, B::Context, B::IdType>>
+impl<S, B, Cur, Res, CodecErr, SinkError> Service<Task<B::Compact, B::Connection, B::IdType>>
     for AndThenService<S, B, Cur>
 where
-    S: Service<Task<Cur, B::Context, B::IdType>, Response = GoTo<Res>>,
+    S: Service<Task<Cur, B::Connection, B::IdType>, Response = GoTo<Res>>,
     S::Future: Send + 'static,
     B: BackendExt<Error = SinkError>
         + Sync
         + Send
         + 'static
         + Clone
-        + Sink<Task<B::Compact, B::Context, B::IdType>, Error = SinkError>
+        + Sink<Task<B::Compact, B::Connection, B::IdType>, Error = SinkError>
         + Unpin,
     B::Codec: Codec<Cur, Compact = B::Compact, Error = CodecErr>
         + Codec<Res, Compact = B::Compact, Error = CodecErr>,
     S::Error: Into<BoxDynError> + Send + 'static,
     CodecErr: Into<BoxDynError> + Send + 'static,
     Cur: Send + 'static,
-    B::IdType: GenerateId + Send + 'static,
+    B::IdType: GenerateId + Send + Sync + 'static,
     SinkError: std::error::Error + Send + Sync + 'static,
     Res: Send + 'static,
     B::Compact: Send + 'static,
-    B::Context: Send + MetadataExt + 'static,
+    B::Connection: Send + Sync + 'static,
 {
     type Response = GoTo<StepResult<B::Compact, B::IdType>>;
     type Error = BoxDynError;
@@ -163,9 +163,12 @@ where
         self.service.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, request: Task<B::Compact, B::Context, B::IdType>) -> Self::Future {
-        let mut ctx = request.parts.data.get::<StepContext<B>>().cloned().unwrap();
-        let compacted = request.try_map(|t| B::Codec::decode(&t));
+    fn call(&mut self, request: Task<B::Compact, B::Connection, B::IdType>) -> Self::Future {
+        let mut ctx = request.ctx.data.get::<StepContext<B>>().cloned().unwrap();
+        let compacted = request
+            .into_builder()
+            .try_map(|t| B::Codec::decode(&t))
+            .map(|t| t.build());
         match compacted {
             Ok(task) => {
                 let fut = self.service.call(task);
@@ -200,9 +203,10 @@ where
     pub fn and_then<F, O, FnArgs>(
         self,
         and_then: F,
-    ) -> Workflow<Start, O, B, Stack<AndThen<TaskFn<F, Cur, B::Context, FnArgs>>, L>>
+    ) -> Workflow<Start, O, B, Stack<AndThen<TaskFn<F, Cur, B::Connection, FnArgs>>, L>>
     where
-        TaskFn<F, Cur, B::Context, FnArgs>: Service<Task<Cur, B::Context, B::IdType>, Response = O>,
+        TaskFn<F, Cur, B::Connection, FnArgs>:
+            Service<Task<Cur, B::Connection, B::IdType>, Response = O>,
     {
         self.add_step(AndThen {
             then_fn: task_fn(and_then),

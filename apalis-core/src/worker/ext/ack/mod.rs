@@ -10,7 +10,7 @@
 //! # use apalis_core::worker::{builder::WorkerBuilder, ext::ack::{Acknowledge, AcknowledgeLayer}};
 //! # use apalis_core::backend::memory::MemoryStorage;
 //! # use apalis_core::worker::context::WorkerContext;
-//! # use apalis_core::task::Parts;
+//! # use apalis_core::task::ExecutionContext;
 //! # use apalis_core::error::BoxDynError;
 //! # use futures_util::{future::{ready, BoxFuture}, FutureExt};
 //! # use std::fmt::Debug;
@@ -35,15 +35,15 @@
 //!     #[derive(Debug, Clone)]
 //!     struct MyAcknowledger;
 //!
-//!     impl<Ctx: Debug, IdType: Debug> Acknowledge<(), Ctx, IdType> for MyAcknowledger {
+//!     impl<Conn: Debug, IdType: Debug> Acknowledge<(), Conn, IdType> for MyAcknowledger {
 //!         type Error = SendError<()>;
 //!         type Future = BoxFuture<'static, Result<(), Self::Error>>;
 //!         fn ack(
 //!             &mut self,
 //!             res: &Result<(), BoxDynError>,
-//!             parts: &Parts<Ctx, IdType>,
+//!             ctx: &ExecutionContext<Conn, IdType>,
 //!         ) -> Self::Future {
-//!             println!("{res:?}, {parts:?}");
+//!             println!("{res:?}, {ctx:?}");
 //!             ready(Ok(())).boxed()
 //!         }
 //!     }
@@ -67,46 +67,54 @@ use tower_service::Service;
 use crate::{
     backend::Backend,
     error::BoxDynError,
-    task::{Parts, Task},
+    task::{ExecutionContext, Task},
     worker::{builder::WorkerBuilder, context::WorkerContext},
 };
 
 /// Extension trait for adding acknowledgment handling to workers
 ///
 /// See [module level documentation](self) for more details.
-pub trait AcknowledgementExt<Args, Ctx, Source, Middleware, Ack, Res>: Sized
+pub trait AcknowledgementExt<Args, Conn, Source, Middleware, Ack, Res>: Sized
 where
-    Source: Backend<Args = Args, Context = Ctx>,
-    Ack: Acknowledge<Res, Ctx, Source::IdType>,
+    Source: Backend<Args = Args, Connection = Conn>,
+    Ack: Acknowledge<Res, Conn, Source::IdType>,
 {
     /// Add an acknowledgment handler to the worker
     fn ack_with(
         self,
         ack: Ack,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<AcknowledgeLayer<Ack>, Middleware>>;
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<AcknowledgeLayer<Ack>, Middleware>>;
 }
 
 /// Acknowledge the result of a task processing
 ///
 /// See [module level documentation](self) for more details.
-pub trait Acknowledge<Res, Ctx, IdType> {
+pub trait Acknowledge<Res, Conn, IdType> {
     /// The error type returned by the acknowledgment process
     type Error;
     /// The future returned by the `ack` method
     type Future: Future<Output = Result<(), Self::Error>>;
     /// Acknowledge the result of a task processing
-    fn ack(&mut self, res: &Result<Res, BoxDynError>, ctx: &Parts<Ctx, IdType>) -> Self::Future;
+    fn ack(
+        &mut self,
+        res: &Result<Res, BoxDynError>,
+        ctx: &ExecutionContext<Conn, IdType>,
+    ) -> Self::Future;
 }
 
-impl<Res, Ctx, F, Fut, IdType, E> Acknowledge<Res, Ctx, IdType> for F
+impl<Res, Conn, F, Fut, IdType, E> Acknowledge<Res, Conn, IdType> for F
 where
-    F: FnMut(&Result<Res, BoxDynError>, &Parts<Ctx, IdType>) -> Fut,
+    F: FnMut(&Result<Res, BoxDynError>, &ExecutionContext<Conn, IdType>) -> Fut,
     Fut: Future<Output = Result<(), E>>,
 {
     type Error = E;
     type Future = Fut;
 
-    fn ack(&mut self, res: &Result<Res, BoxDynError>, ctx: &Parts<Ctx, IdType>) -> Self::Future {
+    fn ack(
+        &mut self,
+        res: &Result<Res, BoxDynError>,
+        ctx: &ExecutionContext<Conn, IdType>,
+    ) -> Self::Future {
         (self)(res, ctx)
     }
 }
@@ -150,17 +158,17 @@ pub struct AcknowledgeService<S, A> {
     acknowledger: A,
 }
 
-impl<S, A, Args, Ctx, Res, IdType> Service<Task<Args, Ctx, IdType>> for AcknowledgeService<S, A>
+impl<S, A, Args, Conn, Res, IdType> Service<Task<Args, Conn, IdType>> for AcknowledgeService<S, A>
 where
-    S: Service<Task<Args, Ctx, IdType>, Response = Res>,
-    A: Acknowledge<Res, Ctx, IdType> + Clone + Send + 'static,
+    S: Service<Task<Args, Conn, IdType>, Response = Res>,
+    A: Acknowledge<Res, Conn, IdType> + Clone + Send + 'static,
     S::Error: Into<BoxDynError>,
     A::Error: std::error::Error + Send + Sync + 'static,
     S::Future: Send + 'static,
     A::Future: Send + 'static,
-    Ctx: Clone + Sync + 'static + Send,
+    Conn: Clone + Send + Sync + 'static + Send,
     Res: Send,
-    IdType: Send + Clone + 'static,
+    IdType: Send + Sync + 'static,
 {
     type Response = Res;
     type Error = BoxDynError;
@@ -170,27 +178,27 @@ where
         self.inner.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, task: Task<Args, Ctx, IdType>) -> Self::Future {
-        let parts = task.parts.clone();
-        let worker: WorkerContext = task.parts.data.get().cloned().unwrap();
+    fn call(&mut self, task: Task<Args, Conn, IdType>) -> Self::Future {
+        let ctx = task.ctx.clone();
+        let worker: WorkerContext = ctx.data.get().cloned().unwrap();
         let future = self.inner.call(task);
         let mut acknowledger = self.acknowledger.clone();
         Box::pin(async move {
             let res = future.await.map_err(|e| e.into());
-            worker.track(acknowledger.ack(&res, &parts).boxed()).await?; // Ensure ack is gracefully shutdown
+            worker.track(acknowledger.ack(&res, &ctx).boxed()).await?; // Ensure ack is gracefully shutdown
             res
         })
     }
 }
 
-impl<Args, B, M, Ctx, Ack, Res> AcknowledgementExt<Args, Ctx, B, M, Ack, Res>
-    for WorkerBuilder<Args, Ctx, B, M>
+impl<Args, B, M, Conn, Ack, Res> AcknowledgementExt<Args, Conn, B, M, Ack, Res>
+    for WorkerBuilder<Args, Conn, B, M>
 where
     M: Layer<AcknowledgeLayer<Ack>>,
-    Ack: Acknowledge<Res, Ctx, B::IdType>,
-    B: Backend<Args = Args, Context = Ctx>,
+    Ack: Acknowledge<Res, Conn, B::IdType>,
+    B: Backend<Args = Args, Connection = Conn>,
 {
-    fn ack_with(self, ack: Ack) -> WorkerBuilder<Args, Ctx, B, Stack<AcknowledgeLayer<Ack>, M>> {
+    fn ack_with(self, ack: Ack) -> WorkerBuilder<Args, Conn, B, Stack<AcknowledgeLayer<Ack>, M>> {
         let this = self.layer(AcknowledgeLayer::new(ack));
         WorkerBuilder {
             name: this.name,

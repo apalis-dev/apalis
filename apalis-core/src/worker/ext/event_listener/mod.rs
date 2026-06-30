@@ -30,12 +30,12 @@ use crate::{
 };
 
 /// Worker extension for emitting events
-pub trait EventListenerExt<Args, Ctx, Source, Middleware>: Sized {
+pub trait EventListenerExt<Args, Conn, Source, Middleware>: Sized {
     /// Register a callback for worker events
     fn on_event<F: Fn(&WorkerContext, &Event) + Send + Sync + 'static>(
         self,
         f: F,
-    ) -> WorkerBuilder<Args, Ctx, Source, Stack<EventListenerLayer, Middleware>>;
+    ) -> WorkerBuilder<Args, Conn, Source, Stack<EventListenerLayer, Middleware>>;
 }
 
 /// Middleware for emitting events
@@ -64,9 +64,9 @@ pub struct EventListenerService<S> {
     service: S,
 }
 
-impl<S, Args, Ctx, IdType> Service<Task<Args, Ctx, IdType>> for EventListenerService<S>
+impl<S, Args, Conn, IdType> Service<Task<Args, Conn, IdType>> for EventListenerService<S>
 where
-    S: Service<Task<Args, Ctx, IdType>>,
+    S: Service<Task<Args, Conn, IdType>>,
 {
     type Response = S::Response;
     type Error = S::Error;
@@ -79,20 +79,20 @@ where
         self.service.poll_ready(cx)
     }
 
-    fn call(&mut self, request: Task<Args, Ctx, IdType>) -> Self::Future {
+    fn call(&mut self, request: Task<Args, Conn, IdType>) -> Self::Future {
         self.service.call(request)
     }
 }
 
-impl<Args, P, M, Ctx> EventListenerExt<Args, Ctx, P, M> for WorkerBuilder<Args, Ctx, P, M>
+impl<Args, P, M, Conn> EventListenerExt<Args, Conn, P, M> for WorkerBuilder<Args, Conn, P, M>
 where
-    P: Backend<Args = Args, Context = Ctx>,
+    P: Backend<Args = Args, Connection = Conn>,
     M: Layer<EventListenerLayer>,
 {
     fn on_event<F: Fn(&WorkerContext, &Event) + Send + Sync + 'static>(
         self,
         f: F,
-    ) -> WorkerBuilder<Args, Ctx, P, Stack<EventListenerLayer, M>> {
+    ) -> WorkerBuilder<Args, Conn, P, Stack<EventListenerLayer, M>> {
         let new_fn = self
             .event_handler
             .write()

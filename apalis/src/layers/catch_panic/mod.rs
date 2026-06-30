@@ -143,10 +143,10 @@ pub struct CatchPanicService<S, F> {
     on_panic: F,
 }
 
-impl<S, Req, Res, Ctx, F, PanicErr, IdType> Service<Task<Req, Ctx, IdType>>
+impl<S, Req, Res, Conn, F, PanicErr, IdType> Service<Task<Req, Conn, IdType>>
     for CatchPanicService<S, F>
 where
-    S: Service<Task<Req, Ctx, IdType>, Response = Res>,
+    S: Service<Task<Req, Conn, IdType>, Response = Res>,
     F: FnMut(Box<dyn Any + Send>) -> PanicErr + Clone,
     S::Error: Into<BoxDynError>,
     PanicErr: Into<BoxDynError>,
@@ -159,7 +159,7 @@ where
         self.service.poll_ready(cx).map_err(Into::into)
     }
 
-    fn call(&mut self, task: Task<Req, Ctx, IdType>) -> Self::Future {
+    fn call(&mut self, task: Task<Req, Conn, IdType>) -> Self::Future {
         match std::panic::catch_unwind(AssertUnwindSafe(|| self.service.call(task))) {
             Ok(future) => CatchPanicFuture {
                 kind: Kind::Future {
@@ -282,7 +282,7 @@ mod tests {
     use apalis_core::{
         backend::{TaskSink, memory::MemoryStorage},
         error::BoxDynError,
-        task::task_id::RandomId,
+        task::{builder::TaskBuilder, task_id::RandomId},
         worker::{builder::WorkerBuilder, event::Event, ext::event_listener::EventListenerExt},
     };
     use std::task::{Context, Poll};
@@ -313,7 +313,7 @@ mod tests {
         let layer = CatchPanicLayer::new();
         let mut service = layer.layer(TestService);
 
-        let request = Task::new(TestJob);
+        let request = TaskBuilder::new(TestJob).build();
         let response = service.call(request).await;
 
         assert!(response.is_ok());
@@ -343,7 +343,7 @@ mod tests {
         let layer = CatchPanicLayer::new();
         let mut service = layer.layer(PanicService);
 
-        let request = Task::new(TestJob);
+        let request = TaskBuilder::new(TestJob).build();
         let response = service.call(request).await;
 
         assert!(response.is_err());

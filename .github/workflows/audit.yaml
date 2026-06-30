@@ -17,9 +17,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions-rs/audit-check@v1
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          path: ~/.cargo/bin/cargo-audit
+          key: cargo-audit-${{ runner.os }}
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit
           
   cargo-vet:
     runs-on: ubuntu-latest

@@ -17,11 +17,11 @@ use crate::{task::Task, task_fn::FromRequest};
 
 /// Represents a queue in the backend
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Queue(Arc<String>);
+pub struct Queue(Arc<str>);
 
 impl From<String> for Queue {
     fn from(value: String) -> Self {
-        Self(Arc::new(value))
+        Self(Arc::from(value))
     }
 }
 impl AsRef<str> for Queue {
@@ -32,7 +32,7 @@ impl AsRef<str> for Queue {
 
 impl From<&str> for Queue {
     fn from(value: &str) -> Self {
-        Self(Arc::new(value.to_owned()))
+        Self(Arc::from(value))
     }
 }
 
@@ -40,7 +40,7 @@ impl FromStr for Queue {
     type Err = std::convert::Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self(Arc::new(s.to_owned())))
+        Ok(Self(Arc::from(s)))
     }
 }
 
@@ -67,20 +67,20 @@ impl<'de> serde::Deserialize<'de> for Queue {
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Ok(Self(Arc::new(s)))
+        Ok(Self(Arc::from(s)))
     }
 }
 
-impl<Args, Ctx, IdType> FromRequest<Task<Args, Ctx, IdType>> for Queue
+impl<Args, Conn, IdType> FromRequest<Task<Args, Conn, IdType>> for Queue
 where
     Args: Sync,
-    Ctx: Sync,
+    Conn: Send + Sync,
     IdType: Sync + Send,
 {
     type Error = QueueError;
 
-    async fn from_request(req: &Task<Args, Ctx, IdType>) -> Result<Self, Self::Error> {
-        let queue = req.parts.data.get().cloned().ok_or(QueueError::NotFound)?;
+    async fn from_request(req: &Task<Args, Conn, IdType>) -> Result<Self, Self::Error> {
+        let queue = req.ctx.queue.clone().ok_or(QueueError::NotFound)?;
         Ok(queue)
     }
 }

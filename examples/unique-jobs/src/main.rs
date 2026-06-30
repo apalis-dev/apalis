@@ -10,7 +10,7 @@ async fn produce_jobs(storage: &mut MemoryStorage<Email>) -> Result<()> {
         text: "Test background job from apalis".to_string(),
         subject: "Background email job".to_string(),
     };
-    let task = TaskBuilder::new(email1).with_idempotency_key(to).build();
+    let task = TaskBuilder::new(email1).idempotency_key(to).build();
     storage.push_task(task).await?;
 
     let email2 = Email {
@@ -18,7 +18,7 @@ async fn produce_jobs(storage: &mut MemoryStorage<Email>) -> Result<()> {
         text: "Test background job from apalis".to_string(),
         subject: "[Copy] Background email job".to_string(),
     };
-    let task = TaskBuilder::new(email2).with_idempotency_key(to).build();
+    let task = TaskBuilder::new(email2).idempotency_key(to).build();
 
     storage.push_task(task).await?;
     Ok(())

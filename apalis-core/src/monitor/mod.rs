@@ -283,10 +283,10 @@ impl Debug for Monitor {
 impl Monitor {
     fn run_worker<Args, S, B, M>(
         mut ctx: WorkerContext,
-        worker: Worker<Args, B::Context, B, S, M>,
+        worker: Worker<Args, B::Connection, B, S, M>,
     ) -> BoxFuture<'static, Result<(), WorkerError>>
     where
-        S: Service<Task<Args, B::Context, B::IdType>> + Send + 'static,
+        S: Service<Task<Args, B::Connection, B::IdType>> + Send + 'static,
         S::Future: Send,
         S::Error: Send + Sync + 'static + Into<BoxDynError>,
         B: Backend<Args = Args> + Send + 'static,
@@ -295,13 +295,13 @@ impl Monitor {
         M: Layer<<<B as Backend>::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service> + 'static,
         <M as Layer<
             <<B as Backend>::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service,
-        >>::Service: Service<Task<Args, B::Context, B::IdType>> + Send + 'static,
-            <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Context, B::IdType>>>::Future: Send,
-        <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Context, B::IdType>>>::Error: Into<BoxDynError> + Send + Sync + 'static,
+        >>::Service: Service<Task<Args, B::Connection, B::IdType>> + Send + 'static,
+            <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::IdType>>>::Future: Send,
+        <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::IdType>>>::Error: Into<BoxDynError> + Send + Sync + 'static,
         B::Stream: Unpin + Send + 'static,
         B::Beat: Unpin + Send,
         Args: Send + 'static,
-        B::Context: Send + 'static,
+        B::Connection: Send + Sync + 'static,
         B::IdType: Sync + Send + 'static,
     {
         let mut stream = worker.stream_with_ctx(&mut ctx);
@@ -339,10 +339,10 @@ impl Monitor {
     #[must_use]
     pub fn register<Args, S, B, M>(
         mut self,
-        factory: impl Fn(usize) -> Worker<Args, B::Context, B, S, M> + 'static + Send + Sync,
+        factory: impl Fn(usize) -> Worker<Args, B::Connection, B, S, M> + 'static + Send + Sync,
     ) -> Self
     where
-        S: Service<Task<Args, B::Context, B::IdType>> + Send + 'static,
+        S: Service<Task<Args, B::Connection, B::IdType>> + Send + 'static,
         S::Future: Send,
         S::Error: Send + Sync + 'static + Into<BoxDynError>,
         B: Backend<Args = Args> + Send + 'static,
@@ -350,14 +350,14 @@ impl Monitor {
         B::Stream: Unpin + Send + 'static,
         B::Beat: Unpin + Send,
         Args: Send + 'static,
-        B::Context: Send + 'static,
+        B::Connection: Send + Sync + 'static,
         B::Layer: Layer<ReadinessService<TrackerService<S>>> + 'static,
         M: Layer<<<B as Backend>::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service> + 'static,
         <M as Layer<
             <<B as Backend>::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service,
-        >>::Service: Service<Task<Args, B::Context, B::IdType>> + Send + 'static,
-            <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Context, B::IdType>>>::Future: Send,
-        <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Context, B::IdType>>>::Error:
+        >>::Service: Service<Task<Args, B::Connection, B::IdType>> + Send + 'static,
+            <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::IdType>>>::Future: Send,
+        <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::IdType>>>::Error:
             Into<BoxDynError> + Send + Sync + 'static,
         B::IdType: Send + Sync + 'static,
     {
@@ -542,6 +542,12 @@ impl Monitor {
         });
         self
     }
+
+    /// Get the shutdown token to manually start the shutdown process
+    #[must_use]
+    pub fn shutdown_token(&self) -> &Shutdown {
+        &self.shutdown
+    }
 }
 
 /// Error type for monitor operations.
@@ -610,7 +616,7 @@ mod tests {
                     Ok::<_, io::Error>(r)
                 })
         });
-        let shutdown = monitor.shutdown.clone();
+        let shutdown = monitor.shutdown_token().clone();
         tokio::spawn(async move {
             sleep(Duration::from_millis(1500)).await;
             shutdown.start_shutdown();
@@ -649,7 +655,7 @@ mod tests {
                 println!("{}: {e:?}", wrk.name());
             });
         assert_eq!(monitor.workers.len(), 1);
-        let shutdown = monitor.shutdown.clone();
+        let shutdown = monitor.shutdown_token().clone();
 
         tokio::spawn(async move {
             sleep(Duration::from_millis(5000)).await;
@@ -710,7 +716,7 @@ mod tests {
                     )
             });
         assert_eq!(monitor.workers.len(), 2);
-        let shutdown = monitor.shutdown.clone();
+        let shutdown = monitor.shutdown_token().clone();
 
         tokio::spawn(async move {
             sleep(Duration::from_millis(5000)).await;

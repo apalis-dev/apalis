@@ -8,7 +8,7 @@ use apalis_core::backend::TaskSinkError;
 use apalis_core::backend::codec::Codec;
 use apalis_core::error::BoxDynError;
 use apalis_core::task::builder::TaskBuilder;
-use apalis_core::task::metadata::{Metadata, MetadataError, MetadataExt, MetadataStore};
+use apalis_core::task::metadata::{Metadata, MetadataError, MetadataStore};
 use apalis_core::task::task_id::TaskId;
 use apalis_core::task_fn::{TaskFn, task_fn};
 use apalis_core::{backend::BackendExt, task::Task};
@@ -52,11 +52,11 @@ impl<Start, L, Input, B: BackendExt> Workflow<Start, Input, B, L> {
         Start,
         Output,
         B,
-        Stack<RepeatUntil<TaskFn<F, Input, B::Context, FnArgs>, Input, Output>, L>,
+        Stack<RepeatUntil<TaskFn<F, Input, B::Connection, FnArgs>, Input, Output>, L>,
     >
     where
-        TaskFn<F, Input, B::Context, FnArgs>:
-            Service<Task<Input, B::Context, B::IdType>, Response = Option<Output>>,
+        TaskFn<F, Input, B::Connection, FnArgs>:
+            Service<Task<Input, B::Connection, B::IdType>, Response = Option<Output>>,
     {
         self.add_step(RepeatUntil {
             repeater: task_fn(repeater),
@@ -92,23 +92,26 @@ where
     }
 }
 
-impl<F, Res, B, Input, CodecError, Err> Service<Task<B::Compact, B::Context, B::IdType>>
+impl<F, Res, B, Input, CodecError, Err> Service<Task<B::Compact, B::Connection, B::IdType>>
     for RepeatUntilService<F, B, Input, Res>
 where
-    F: Service<Task<Input, B::Context, B::IdType>, Response = Option<Res>> + Send + 'static + Clone,
+    F: Service<Task<Input, B::Connection, B::IdType>, Response = Option<Res>>
+        + Send
+        + 'static
+        + Clone,
     B: BackendExt<Error = Err>
         + Send
         + Sync
         + Clone
-        + Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err>
+        + Sink<Task<B::Compact, B::Connection, B::IdType>, Error = Err>
         + Unpin
         + 'static,
-    B::Context: MetadataExt + Send + 'static,
+    B::Connection: Send + Sync + 'static,
     B::Codec: Codec<Input, Error = CodecError, Compact = B::Compact>
         + Codec<Res, Error = CodecError, Compact = B::Compact>
         + Codec<Option<Res>, Error = CodecError, Compact = B::Compact>
         + 'static,
-    B::IdType: GenerateId + Send + Display + FromStr + 'static,
+    B::IdType: GenerateId + Send + Sync + Display + FromStr + 'static,
     Err: std::error::Error + Send + Sync + 'static,
     CodecError: std::error::Error + Send + Sync + 'static,
     F::Error: Into<BoxDynError> + Send + 'static,
@@ -125,10 +128,11 @@ where
         self.repeater.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, task: Task<B::Compact, B::Context, B::IdType>) -> Self::Future {
-        let state: RepeaterState<B::IdType> = task.parts.ctx.extract().unwrap_or_default();
+    fn call(&mut self, task: Task<B::Compact, B::Connection, B::IdType>) -> Self::Future {
+        let state: RepeaterState<B::IdType> =
+            Metadata::extract(&task.ctx.metadata).unwrap_or_default();
         let mut ctx =
-            task.parts.data.get::<StepContext<B>>().cloned().expect(
+            task.ctx.data.get::<StepContext<B>>().cloned().expect(
                 "StepContext missing, Did you call the repeater outside of a workflow step?",
             );
         let mut repeater = self.repeater.clone();
@@ -136,18 +140,21 @@ where
         (async move {
             let mut compact = None;
             let decoded: Input = B::Codec::decode(&task.args)?;
-            let prev_task_id = task.parts.task_id.clone();
-            let repeat_task = task.map(|c| {
-                compact = Some(c);
-                decoded
-            });
+            let prev_task_id = task.ctx.task_id.clone();
+            let repeat_task = task
+                .into_builder()
+                .map(|c| {
+                    compact = Some(c);
+                    decoded
+                })
+                .build();
             let response = repeater.call(repeat_task).await.map_err(|e| e.into())?;
             Ok(match response {
                 Some(res) if ctx.has_next => {
                     let task_id = TaskId::new(B::IdType::generate());
                     let next_step = TaskBuilder::new(B::Codec::encode(&res)?)
-                        .with_task_id(task_id.clone())
-                        .meta(&WorkflowContext {
+                        .task_id(task_id.clone())
+                        .metadata(&WorkflowContext {
                             step_index: ctx.current_step + 1,
                         })
                         .build();
@@ -168,11 +175,11 @@ where
                     let task_id = TaskId::new(B::IdType::generate());
                     let next_step =
                         TaskBuilder::new(compact.take().expect("Compact args should be set"))
-                            .with_task_id(task_id.clone())
-                            .meta(&WorkflowContext {
+                            .task_id(task_id.clone())
+                            .metadata(&WorkflowContext {
                                 step_index: ctx.current_step,
                             })
-                            .meta(&RepeaterState {
+                            .metadata(&RepeaterState {
                                 iterations: state.iterations + 1,
                                 prev_task_id,
                             })
@@ -283,7 +290,7 @@ where
 
 impl<B, F, Input, Res, S, Err, CodecError> Step<Input, B> for RepeatUntilStep<S, F, Input, Res>
 where
-    F: Service<Task<Input, B::Context, B::IdType>, Response = Option<Res>>
+    F: Service<Task<Input, B::Connection, B::IdType>, Response = Option<Res>>
         + Send
         + Sync
         + 'static
@@ -292,10 +299,10 @@ where
         + Send
         + Sync
         + Clone
-        + Sink<Task<B::Compact, B::Context, B::IdType>, Error = Err>
+        + Sink<Task<B::Compact, B::Connection, B::IdType>, Error = Err>
         + Unpin
         + 'static,
-    B::Context: MetadataExt + Send + 'static,
+    B::Connection: Send + Sync + 'static,
     B::Codec: Codec<Input, Error = CodecError, Compact = B::Compact>
         + Codec<Res, Error = CodecError, Compact = B::Compact>
         + Codec<Option<Res>, Error = CodecError, Compact = B::Compact>
@@ -309,7 +316,7 @@ where
     Input: Send + Sync + 'static, // We don't need Clone because decoding just needs a reference
     Res: Send + Sync + 'static,
     S: Step<Input, B> + Send + 'static,
-    B::IdType: FromStr + Display,
+    B::IdType: FromStr + Display + Sync,
 {
     type Response = Res;
     type Error = F::Error;

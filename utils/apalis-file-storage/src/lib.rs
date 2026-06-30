@@ -33,7 +33,7 @@ use apalis_core::{
     error::BoxDynError,
     features_table,
     task::{
-        Parts, Task,
+        ExecutionContext, Task,
         builder::TaskBuilder,
         metadata::MetadataStore,
         status::Status,
@@ -50,14 +50,12 @@ use fd_lock::RwLock as FileLock;
 
 mod adapter;
 mod error;
-mod meta;
 mod shared;
 mod sink;
 mod util;
 
 pub use self::shared::SharedJsonStore;
 pub use adapter::Adapter;
-pub use meta::JsonMapMetadata;
 
 /// Handles the sync policy for when to flush pending changes to disk.
 #[derive(Debug, Clone)]
@@ -468,8 +466,8 @@ where
     type Args = Args;
     type IdType = RandomId;
     type Error = FileStorageError<A>;
-    type Context = JsonMapMetadata;
-    type Stream = TaskStream<Task<Args, JsonMapMetadata, RandomId>, Self::Error>;
+    type Connection = MetadataStore;
+    type Stream = TaskStream<Task<Args, MetadataStore, RandomId>, Self::Error>;
     type Layer = AcknowledgeLayer<Self>;
     type Beat = BoxStream<'static, Result<(), Self::Error>>;
 
@@ -483,10 +481,13 @@ where
         (self
             .map_ok(|(line_id, mut job)| {
                 let args = Args::deserialize(&job.args).unwrap();
-                job.ctx.0.insert("line_id", line_id.to_string()).unwrap();
-                let mut task = TaskBuilder::new(args).with_ctx(job.ctx).build();
-                task.parts.task_id = job.task_id;
-                Some(task)
+                job.ctx.insert("line_id", line_id.to_string()).unwrap();
+                let mut task = TaskBuilder::new(args).with_metadata(job.ctx);
+
+                if let Some(task_id) = job.task_id {
+                    task = task.task_id(task_id);
+                }
+                Some(task.build())
             })
             .boxed()) as _
     }
@@ -501,7 +502,7 @@ where
     type Compact = Value;
 
     type CompactStream =
-        TaskStream<Task<Self::Compact, JsonMapMetadata, RandomId>, FileStorageError<A>>;
+        TaskStream<Task<Self::Compact, MetadataStore, RandomId>, FileStorageError<A>>;
 
     fn get_queue(&self) -> Queue {
         std::any::type_name::<Args>().into()
@@ -510,7 +511,11 @@ where
     fn poll_compact(self, worker: &WorkerContext) -> Self::CompactStream {
         self.poll(worker)
             .map_ok(|c| {
-                c.map(|t| t.map(|args| serde_json::to_value(args).expect("to be encodable")))
+                c.map(|t| {
+                    t.into_builder()
+                        .map(|args| serde_json::to_value(args).expect("to be encodable"))
+                        .build()
+                })
             })
             .boxed()
     }
@@ -602,7 +607,7 @@ impl Adapter for CsvAdapter {
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect::<HashMap<String, String>>();
 
-        let ctx = JsonMapMetadata(MetadataStore::from_map(ctx));
+        let ctx = MetadataStore::from_map(ctx);
 
         Ok(RawTask {
             task_id,
@@ -641,7 +646,7 @@ impl Adapter for CsvAdapter {
             line.insert("idempotency_key".to_owned(), idempotency_key.clone());
         }
 
-        for (k, value) in entry.ctx.0.iter() {
+        for (k, value) in entry.ctx.iter() {
             line.insert(format!("ctx.{k}"), value.clone());
         }
 
@@ -680,7 +685,7 @@ impl Adapter for CsvAdapter {
     }
 }
 
-impl<Args, Res, A> Acknowledge<Res, JsonMapMetadata, RandomId> for FileStorage<Args, A>
+impl<Args, Res, A> Acknowledge<Res, MetadataStore, RandomId> for FileStorage<Args, A>
 where
     Args: Send + 'static + Debug,
     Res: Serialize,
@@ -693,13 +698,12 @@ where
     fn ack(
         &mut self,
         res: &Result<Res, BoxDynError>,
-        ctx: &Parts<JsonMapMetadata, RandomId>,
+        ctx: &ExecutionContext<MetadataStore, RandomId>,
     ) -> Self::Future {
         let res = |this: &mut Self| {
             let val = serde_json::to_value(res.as_ref().map_err(|e| e.to_string()))?;
             let line_id = ctx
-                .ctx
-                .0
+                .metadata
                 .get("line_id")
                 .unwrap()
                 .parse()

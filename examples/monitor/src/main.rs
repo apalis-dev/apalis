@@ -51,7 +51,7 @@ async fn produce_task_with_ctx(storage: &mut JsonStorage<Email>) -> Result<()> {
         subject: "Welcome Sentry Email".to_string(),
     };
     let context = TracingContext::from(OtelTraceContext::current());
-    let task = Task::builder(email).meta(&context).build();
+    let task = TaskBuilder::new(email).metadata(&context).build();
     storage.push_task(task).await?;
     Ok(())
 }

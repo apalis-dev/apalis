@@ -125,7 +125,9 @@ mod tests {
         let mut backend = backend(Duration::from_secs(1));
 
         for i in 0..ITEMS {
-            backend.send(Task::new(i)).await.unwrap();
+            use crate::task::builder::TaskBuilder;
+
+            backend.send(TaskBuilder::new(i).build()).await.unwrap();
         }
 
         async fn task(task: u32, ctx: WorkerContext) -> Result<(), BoxDynError> {
@@ -236,7 +238,9 @@ mod tests {
             .unwrap();
 
         for i in 0..ITEMS {
-            backend.send(Task::new(i)).await.unwrap();
+            use crate::task::builder::TaskBuilder;
+
+            backend.send(TaskBuilder::new(i).build()).await.unwrap();
         }
 
         async fn task(task: u32, ctx: WorkerContext) -> Result<(), BoxDynError> {

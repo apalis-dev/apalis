@@ -153,10 +153,10 @@ where
     }
 }
 
-impl<Svc, Args, Ctx, Fut, Res, IdType, Err> Service<Task<Args, Ctx, IdType>>
+impl<Svc, Args, Conn, Fut, Res, IdType, Err> Service<Task<Args, Conn, IdType>>
     for SentryTaskService<Svc>
 where
-    Svc: Service<Task<Args, Ctx, IdType>, Response = Res, Error = Err, Future = Fut>,
+    Svc: Service<Task<Args, Conn, IdType>, Response = Res, Error = Err, Future = Fut>,
     Fut: Future<Output = Result<Res, BoxDynError>> + 'static,
     IdType: ToUuid,
     Err: Into<BoxDynError> + 'static,
@@ -169,11 +169,11 @@ where
         self.service.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, task: Task<Args, Ctx, IdType>) -> Self::Future {
+    fn call(&mut self, task: Task<Args, Conn, IdType>) -> Self::Future {
         let task_type = std::any::type_name::<Args>().to_string();
-        let attempt = &task.parts.attempt;
+        let attempt = &task.ctx.attempt;
         let task_id = task
-            .parts
+            .ctx
             .task_id
             .as_ref()
             .expect("Task ID is missing")

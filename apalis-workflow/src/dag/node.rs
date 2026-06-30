@@ -13,7 +13,7 @@ use crate::dag::decode::DagCodec;
 /// of task inputs and outputs using the backend's codec.
 pub struct NodeService<S, B, Input>
 where
-    S: Service<Task<Input, B::Context, B::IdType>>,
+    S: Service<Task<Input, B::Connection, B::IdType>>,
     B: BackendExt,
 {
     inner: S,
@@ -22,7 +22,7 @@ where
 
 impl<S, B, Input> std::fmt::Debug for NodeService<S, B, Input>
 where
-    S: Service<Task<Input, B::Context, B::IdType>>,
+    S: Service<Task<Input, B::Connection, B::IdType>>,
     B: BackendExt,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -35,7 +35,7 @@ where
 
 impl<S, B, Input> Clone for NodeService<S, B, Input>
 where
-    S: Service<Task<Input, B::Context, B::IdType>> + Clone,
+    S: Service<Task<Input, B::Connection, B::IdType>> + Clone,
     B: BackendExt,
 {
     fn clone(&self) -> Self {
@@ -48,7 +48,7 @@ where
 
 impl<S, B, Input> NodeService<S, B, Input>
 where
-    S: Service<Task<Input, B::Context, B::IdType>>,
+    S: Service<Task<Input, B::Connection, B::IdType>>,
     B: BackendExt,
 {
     /// Creates a new `NodeService` wrapping the provided service.
@@ -60,10 +60,10 @@ where
     }
 }
 
-impl<S, B, Input, CdcErr> Service<Task<B::Compact, B::Context, B::IdType>>
+impl<S, B, Input, CdcErr> Service<Task<B::Compact, B::Connection, B::IdType>>
     for NodeService<S, B, Input>
 where
-    S: Service<Task<Input, B::Context, B::IdType>>,
+    S: Service<Task<Input, B::Connection, B::IdType>>,
     S::Error: Into<BoxDynError>,
     B: BackendExt,
     B::Codec: Codec<Input, Compact = B::Compact, Error = CdcErr>
@@ -80,9 +80,9 @@ where
         self.inner.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, req: Task<B::Compact, B::Context, B::IdType>) -> Self::Future {
+    fn call(&mut self, req: Task<B::Compact, B::Connection, B::IdType>) -> Self::Future {
         let decoded_req = match Input::decode(&req.args) {
-            Ok(decoded) => req.map(|_| decoded),
+            Ok(decoded) => req.into_builder().map(|_| decoded).build(),
             Err(e) => {
                 return Box::pin(async move { Err(CdcErr::into(e)) });
             }

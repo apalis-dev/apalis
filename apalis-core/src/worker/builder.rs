@@ -86,22 +86,22 @@ use crate::{
 };
 
 /// Declaratively builds a [`Worker`]
-pub struct WorkerBuilder<Args, Ctx, Source, Middleware> {
+pub struct WorkerBuilder<Args, Conn, Source, Middleware> {
     pub(crate) name: String,
-    pub(crate) request: PhantomData<(Args, Ctx)>,
+    pub(crate) request: PhantomData<(Args, Conn)>,
     pub(crate) layer: Middleware,
     pub(crate) source: Source,
     pub(crate) event_handler: EventHandlerBuilder,
     pub(crate) shutdown: Option<Shutdown>,
 }
 
-impl<Args, Ctx, Source, Middleware> std::fmt::Debug
-    for WorkerBuilder<Args, Ctx, Source, Middleware>
+impl<Args, Conn, Source, Middleware> std::fmt::Debug
+    for WorkerBuilder<Args, Conn, Source, Middleware>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WorkerBuilder")
             .field("id", &self.name)
-            .field("job", &std::any::type_name::<(Args, Ctx)>())
+            .field("job", &std::any::type_name::<(Args, Conn)>())
             .field("layer", &std::any::type_name::<Middleware>())
             .field("source", &std::any::type_name::<Source>())
             .finish()
@@ -124,9 +124,9 @@ impl WorkerBuilder<(), (), (), Identity> {
 
 impl WorkerBuilder<(), (), (), Identity> {
     /// Set the source to a backend that implements [Backend]
-    pub fn backend<NB, NJ, Ctx>(self, backend: NB) -> WorkerBuilder<NJ, Ctx, NB, Identity>
+    pub fn backend<NB, NJ, Conn>(self, backend: NB) -> WorkerBuilder<NJ, Conn, NB, Identity>
     where
-        NB: Backend<Args = NJ, Context = Ctx>,
+        NB: Backend<Args = NJ, Connection = Conn>,
     {
         WorkerBuilder {
             request: PhantomData,
@@ -139,7 +139,7 @@ impl WorkerBuilder<(), (), (), Identity> {
     }
 }
 
-impl<Args, Ctx, M, B> WorkerBuilder<Args, Ctx, B, M>
+impl<Args, Conn, M, B> WorkerBuilder<Args, Conn, B, M>
 where
     B: Backend<Args = Args>,
 {
@@ -148,7 +148,7 @@ where
     pub fn chain<NewLayer>(
         self,
         f: impl FnOnce(M) -> NewLayer,
-    ) -> WorkerBuilder<Args, Ctx, B, NewLayer> {
+    ) -> WorkerBuilder<Args, Conn, B, NewLayer> {
         let middleware = f(self.layer);
 
         WorkerBuilder {
@@ -161,7 +161,7 @@ where
         }
     }
     /// Allows adding middleware to the layer stack
-    pub fn layer<U>(self, layer: U) -> WorkerBuilder<Args, Ctx, B, Stack<U, M>> {
+    pub fn layer<U>(self, layer: U) -> WorkerBuilder<Args, Conn, B, Stack<U, M>> {
         WorkerBuilder {
             request: self.request,
             source: self.source,
@@ -175,7 +175,7 @@ where
     /// Adds data to the context
     ///
     /// This will be shared by all requests
-    pub fn data<D>(self, data: D) -> WorkerBuilder<Args, Ctx, B, Stack<Data<D>, M>>
+    pub fn data<D>(self, data: D) -> WorkerBuilder<Args, Conn, B, Stack<Data<D>, M>>
     where
         M: Layer<Data<D>>,
     {
@@ -191,15 +191,15 @@ where
 }
 
 /// Finalizes the builder and constructs a [`Worker`] with the provided service
-impl<Args, Ctx, B, M> WorkerBuilder<Args, Ctx, B, M>
+impl<Args, Conn, B, M> WorkerBuilder<Args, Conn, B, M>
 where
-    B: Backend<Args = Args, Context = Ctx>,
+    B: Backend<Args = Args, Connection = Conn>,
 {
     /// Consumes the builder and a service to construct the final worker
-    pub fn build<W, Svc>(self, service: W) -> Worker<Args, Ctx, W::Backend, Svc, M>
+    pub fn build<W, Svc>(self, service: W) -> Worker<Args, Conn, W::Backend, Svc, M>
     where
-        Svc: Service<Task<Args, Ctx, B::IdType>>,
-        W: IntoWorkerServiceExt<Args, Ctx, Svc, B, M>,
+        Svc: Service<Task<Args, Conn, B::IdType>>,
+        W: IntoWorkerServiceExt<Args, Conn, Svc, B, M>,
     {
         service.build_with(self)
     }
@@ -215,10 +215,10 @@ pub struct WorkerService<Backend, Svc> {
 }
 
 /// Trait for building a worker service provided a backend
-pub trait IntoWorkerService<B, Svc, Args, Ctx>
+pub trait IntoWorkerService<B, Svc, Args, Conn>
 where
-    B: crate::backend::Backend<Args = Args, Context = Ctx>,
-    Svc: Service<Task<Args, Ctx, B::IdType>>,
+    B: crate::backend::Backend<Args = Args, Connection = Conn>,
+    Svc: Service<Task<Args, Conn, B::IdType>>,
 {
     /// The backend type for the worker
     type Backend;
@@ -227,33 +227,33 @@ where
 }
 
 /// Extension trait for building a worker from a builder
-pub trait IntoWorkerServiceExt<Args, Ctx, Svc, Backend, M>: Sized
+pub trait IntoWorkerServiceExt<Args, Conn, Svc, Backend, M>: Sized
 where
-    Backend: crate::backend::Backend<Args = Args, Context = Ctx>,
-    Svc: Service<Task<Args, Ctx, Backend::IdType>>,
-    Self: IntoWorkerService<Backend, Svc, Args, Ctx>,
+    Backend: crate::backend::Backend<Args = Args, Connection = Conn>,
+    Svc: Service<Task<Args, Conn, Backend::IdType>>,
+    Self: IntoWorkerService<Backend, Svc, Args, Conn>,
 {
     /// Consumes the builder and returns a worker
     fn build_with(
         self,
-        builder: WorkerBuilder<Args, Ctx, Backend, M>,
-    ) -> Worker<Args, Ctx, Self::Backend, Svc, M>;
+        builder: WorkerBuilder<Args, Conn, Backend, M>,
+    ) -> Worker<Args, Conn, Self::Backend, Svc, M>;
 }
 
 /// Implementation of the IntoWorkerServiceExt trait for any type
 ///
 /// Rust doest offer specialization yet, the [`IntoWorkerServiceExt`] and [`IntoWorkerService`]
 /// traits are used to allow the [build](WorkerBuilder::build) method to be more flexible.
-impl<T, Args, Ctx, Svc, B, M> IntoWorkerServiceExt<Args, Ctx, Svc, B, M> for T
+impl<T, Args, Conn, Svc, B, M> IntoWorkerServiceExt<Args, Conn, Svc, B, M> for T
 where
-    T: IntoWorkerService<B, Svc, Args, Ctx>,
-    B: Backend<Args = Args, Context = Ctx>,
-    Svc: Service<Task<Args, Ctx, B::IdType>>,
+    T: IntoWorkerService<B, Svc, Args, Conn>,
+    B: Backend<Args = Args, Connection = Conn>,
+    Svc: Service<Task<Args, Conn, B::IdType>>,
 {
     fn build_with(
         self,
-        builder: WorkerBuilder<Args, Ctx, B, M>,
-    ) -> Worker<Args, Ctx, T::Backend, Svc, M> {
+        builder: WorkerBuilder<Args, Conn, B, M>,
+    ) -> Worker<Args, Conn, T::Backend, Svc, M> {
         let svc = self.into_service(builder.source);
         let mut worker = Worker::new(builder.name, svc.backend, svc.service, builder.layer);
         worker.event_handler = builder
@@ -287,12 +287,12 @@ pub mod task_fn_validator {
                 #[inline]
                 #[doc = concat!("A helper for checking that the builder can build a worker with the provided service (", stringify!($num), " arguments)")]
                 pub fn $num<
-                    F, B, Args, Ctx,
-                    $($arg: FromRequest<Task<Args, Ctx, B::IdType>>),+
+                    F, B, Args, Conn,
+                    $($arg: FromRequest<Task<Args, Conn, B::IdType>>),+
                 >(
                     _: F,
                 ) where
-                    TaskFn<F, Args, Ctx, ($($arg,)+)>: Service<Task<Args, Ctx, B::IdType>>,
+                    TaskFn<F, Args, Conn, ($($arg,)+)>: Service<Task<Args, Conn, B::IdType>>,
                     B: Backend<Args = Args>
                 {
                 }

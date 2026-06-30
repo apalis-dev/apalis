@@ -60,12 +60,12 @@ impl<IdType: Display> Display for TaskId<IdType> {
     }
 }
 
-impl<Args: Sync, Ctx: Sync, IdType: Sync + Send + Clone> FromRequest<Task<Args, Ctx, IdType>>
-    for TaskId<IdType>
+impl<Args: Sync, Conn: Send + Sync, IdType: Sync + Send + Clone>
+    FromRequest<Task<Args, Conn, IdType>> for TaskId<IdType>
 {
     type Error = MissingDataError;
-    async fn from_request(task: &Task<Args, Ctx, IdType>) -> Result<Self, Self::Error> {
-        task.parts.task_id.clone().ok_or(MissingDataError::NotFound(
+    async fn from_request(task: &Task<Args, Conn, IdType>) -> Result<Self, Self::Error> {
+        task.ctx.task_id.clone().ok_or(MissingDataError::NotFound(
             std::any::type_name::<Self>().to_owned(),
         ))
     }

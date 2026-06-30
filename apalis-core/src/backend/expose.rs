@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crate::{
     backend::{Backend, BackendExt, TaskSink},
     task::{Task, status::Status},
@@ -41,7 +43,7 @@ pub trait ListTasks<Args>: Backend {
     fn list_tasks(
         &self,
         filter: &Filter,
-    ) -> impl Future<Output = Result<Vec<Task<Args, Self::Context, Self::IdType>>, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<Vec<Task<Args, Self::Connection, Self::IdType>>, Self::Error>> + Send;
 }
 
 /// Allows listing tasks across all queues with optional filtering
@@ -52,7 +54,7 @@ pub trait ListAllTasks: BackendExt {
         &self,
         filter: &Filter,
     ) -> impl Future<
-        Output = Result<Vec<Task<Self::Compact, Self::Context, Self::IdType>>, Self::Error>,
+        Output = Result<Vec<Task<Self::Compact, Self::Connection, Self::IdType>>, Self::Error>,
     > + Send;
 }
 
@@ -145,7 +147,7 @@ pub struct Statistic {
 }
 /// Statistics type
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatType {
     /// Timestamp statistic
     Timestamp,
@@ -155,4 +157,26 @@ pub enum StatType {
     Decimal,
     /// Percentage statistic
     Percentage,
+}
+
+/// Error type for parsing StatType from a string
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ParseStatTypeError {
+    /// Error for invalid statistic type string
+    #[error("invalid stat type: `{0}`")]
+    InvalidStatType(String),
+}
+
+impl FromStr for StatType {
+    type Err = ParseStatTypeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Timestamp" => Ok(Self::Timestamp),
+            "Decimal" => Ok(Self::Decimal),
+            "Percentage" => Ok(Self::Percentage),
+            "Number" => Ok(Self::Number),
+            _ => Err(ParseStatTypeError::InvalidStatType(s.to_owned())),
+        }
+    }
 }

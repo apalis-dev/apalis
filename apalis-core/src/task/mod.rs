@@ -1,34 +1,43 @@
 //! Utilities for creating and managing tasks.
 //!
 //! The [`Task`] component encapsulates a unit of work to be executed,
-//! along with its associated context, metadata, and execution status. The [`Parts`]
+//! along with its associated context, metadata, and execution status. The [`ExecutionContext`]
 //! struct contains metadata, attempt tracking, extensions, and scheduling information for each task.
 //!
 //! # Overview
 //!
 //! In `apalis`, tasks are designed to represent discrete units of work that can be scheduled, retried, and tracked
 //! throughout their lifecycle. Each task consists of arguments (`args`) describing the work to be performed,
-//! and an [`Parts`] (`parts`) containing metadata and control information.
+//! and an [`ExecutionContext`] containing metadata and control information.
 //!
 //! ## [`Task`]
 //!
 //! The [`Task`] struct is generic over:
 //! - `Args`: The type of arguments or payload for the task.
-//! - `Ctx`: Data associated with the task, such as custom fields or backend-specific information.
+//! - `Conn`: Backend-specific marker for a task.
 //! - `IdType`: The type used for uniquely identifying the task (defaults to [`RandomId`]).
 //!
-//! ## [`Parts`]
+//! ## [`ExecutionContext`]
 //!
-//! The [`Parts`] struct provides the following:
+//! The [`ExecutionContext`] struct provides the following:
 //! - `task_id`: Optionally stores a unique identifier for the task.
 //! - `data`: An [`Extensions`] container for storing arbitrary per-task data (e.g., middleware extensions).
 //! - `attempt`: Tracks how many times the task has been attempted.
 //! - `metadata`: Custom metadata for the task, provided by the backend or user.
 //! - `status`: The current [`Status`] of the task (e.g., Pending, Running, Completed, Failed).
 //! - `run_at`: The UNIX timestamp (in seconds) when the task should be run.
+//! - `done_at`: The UNIX timestamp (in seconds) when the task completed, if it has.
+//! - `lock_at`: The UNIX timestamp (in seconds) when the task was locked for processing, if applicable.
+//! - `lock_by`: An identifier for the worker or process currently holding the lock on the task.
+//! - `idempotency_key`: An optional key used to enforce job uniqueness.
+//! - `max_attempts`: The maximum number of attempts allowed before the task is considered failed.
+//! - `priority`: An optional priority value used to influence scheduling order.
+//! - `queue`: The queue the task belongs to, if applicable.
+//! - `runs`: A history of all runs recorded for the task.
 //!
 //! The execution context is essential for tracking the state and metadata of a task as it moves through
-//! the system. It enables features such as retries, scheduling, and extensibility via the `Extensions` type.
+//! the system. It enables features such as retries, scheduling, locking, prioritization, and extensibility
+//! via the `Extensions` type.
 //!
 //! # Modules
 //!
@@ -45,7 +54,7 @@
 //! ## Creating a new task with default metadata
 //!
 //! ```rust
-//! # use apalis_core::task::{Task, Parts};
+//! # use apalis_core::task::{Task, ExecutionContext};
 //! # use apalis_core::task::builder::TaskBuilder;
 //! # use apalis_core::task::task_id::RandomId;
 //! let task: Task<String, (), RandomId> = TaskBuilder::new("my work".to_string()).build();
@@ -54,12 +63,11 @@
 //! ## Creating a task with custom metadata
 //!
 //! ```rust
-//! # use apalis_core::task::{Task, Parts};
+//! # use apalis_core::task::{Task, ExecutionContext};
 //! # use apalis_core::task::builder::TaskBuilder;
 //! # use apalis_core::task::task_id::RandomId;
 //! # use apalis_core::task::metadata::Metadata;
 //! # use apalis_core::task::metadata::MetadataStore;
-//! # use apalis_core::task::metadata::MetadataExt;
 //! # use apalis_core::backend::memory::MemoryContext;
 //! #
 //! #[derive(Debug, PartialEq)]
@@ -84,18 +92,20 @@
 //! }
 //!
 //! let task: Task<String, MemoryContext, RandomId> = TaskBuilder::new("important work".to_string())
-//!     .meta(&RequestId("user_id".to_string()))
+//!     .metadata(&RequestId("user_id".to_string()))
 //!     .build();
 //! ```
 //!
 //! ## Accessing and modifying the execution context
 //!
 //! ```rust
+//! # use apalis_core::task::builder::TaskBuilder;
 //! # use apalis_core::task::task_id::RandomId;
-//! use apalis_core::task::{Task, Parts, status::Status};
-//! let mut task = Task::<String, (), RandomId>::new("work".to_string());
-//! task.parts.status = Status::Running.into();
-//! task.parts.attempt.increment();
+//! # use apalis_core::backend::memory::MemoryContext;
+//! use apalis_core::task::{Task, ExecutionContext, status::Status};
+//! let mut task: TaskBuilder<_, MemoryContext, RandomId> = TaskBuilder::new("work".to_string());
+//! task.ctx.status = Status::Running.into();
+//! task.ctx.attempt.increment();
 //! ```
 //!
 //! ## Using Extensions for per-task data
@@ -109,13 +119,13 @@
 //! let mut extensions = Extensions::default();
 //! extensions.insert(TracingId("abc123".to_owned()));
 //! let task: Task<String, (), RandomId> = TaskBuilder::new("work".to_string()).with_data(extensions).build();
-//! assert_eq!(task.parts.data.get::<TracingId>(), Some(&TracingId("abc123".to_owned())));
+//! assert_eq!(task.ctx.data.get::<TracingId>(), Some(&TracingId("abc123".to_owned())));
 //! ```
 //!
 //! # See Also
 //!
 //! - [`Task`]: Represents a unit of work to be executed.
-//! - [`Parts`]: Holds metadata, status, and control information for a task.
+//! - [`ExecutionContext`]: Holds metadata, status, and control information for a task.
 //! - [`Extensions`]: Type-safe storage for per-task data.
 //! - [`Status`]: Enum representing the lifecycle state of a task.
 //! - [`Attempt`]: Tracks the number of execution attempts for a task.
@@ -129,16 +139,16 @@
 //! [`IntoResponse`]: crate::task_fn::into_response::IntoResponse
 //! [`FromRequest`]: crate::task_fn::from_request::FromRequest
 
-use std::{
-    fmt::Debug,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 
 use crate::{
+    backend::queue::Queue,
     task::{
         attempt::Attempt,
         builder::TaskBuilder,
         extensions::Extensions,
+        metadata::MetadataStore,
+        runs::Run,
         status::{AtomicStatus, Status},
         task_id::TaskId,
     },
@@ -150,24 +160,23 @@ pub mod builder;
 pub mod data;
 pub mod extensions;
 pub mod metadata;
+pub mod runs;
 pub mod status;
 pub mod task_id;
 
 /// Represents a task which will be executed
 /// Should be considered a single unit of work
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Default)]
-pub struct Task<Args, Context, IdType> {
+pub struct Task<Args, Connection, IdType> {
     /// The argument task part
     pub args: Args,
-    /// Parts of the task eg id, attempts and context
-    pub parts: Parts<Context, IdType>,
+    /// ExecutionContext of the task eg id, attempts and context
+    pub ctx: Arc<ExecutionContext<Connection, IdType>>,
 }
 
-/// Component parts of a `Task`
+/// Execution context of a `Task`
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Default)]
-pub struct Parts<Context, IdType> {
+pub struct ExecutionContext<Connection, IdType> {
     /// The task's id if allocated
     pub task_id: Option<TaskId<IdType>>,
 
@@ -179,104 +188,113 @@ pub struct Parts<Context, IdType> {
     /// Keeps track of the number of attempts a task has been worked on
     pub attempt: Attempt,
 
-    /// The task specific data provided by the backend
-    pub ctx: Context,
-
     /// The task status that is wrapped in an atomic status
     pub status: AtomicStatus,
 
     /// The time a task should be run
-    pub run_at: u64,
+    pub run_at: Option<u64>,
+
+    /// The time the task was completed, if applicable
+    pub done_at: Option<u64>,
+
+    /// The time the task was locked, if applicable
+    pub lock_at: Option<u64>,
+
+    /// Identifier of the worker/process that currently holds the lock on this task
+    pub lock_by: Option<String>,
 
     /// Adds a unique key to enforce job uniqueness when used
     pub idempotency_key: Option<String>,
+
+    /// Metadata associated with the task
+    pub metadata: MetadataStore,
+
+    /// The maximum number of attempts allowed for the task
+    pub max_attempts: Option<usize>,
+
+    /// The priority of the task, which can be used for scheduling
+    pub priority: Option<usize>,
+
+    /// The queue to which the task belongs, if applicable
+    pub queue: Option<Queue>,
+
+    /// A list of all runs for this task
+    pub runs: Vec<Run>,
+
+    /// A marker to indicate the type of connection used by the backend.
+    pub connection: PhantomData<Connection>,
 }
 
-impl<Ctx: Debug, IdType: Debug> Debug for Parts<Ctx, IdType> {
+impl<Conn, IdType> Default for ExecutionContext<Conn, IdType> {
+    fn default() -> Self {
+        Self {
+            task_id: None,
+            data: Extensions::default(),
+            attempt: Attempt::default(),
+            status: AtomicStatus::new(Status::Pending),
+            run_at: None,
+            done_at: None,
+            lock_at: None,
+            lock_by: None,
+            idempotency_key: None,
+            metadata: MetadataStore::default(),
+            max_attempts: None,
+            priority: None,
+            queue: None,
+            runs: Vec::new(),
+            connection: PhantomData,
+        }
+    }
+}
+
+impl<Conn: Debug, IdType: Debug> Debug for ExecutionContext<Conn, IdType> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Parts")
+        f.debug_struct("ExecutionContext")
             .field("task_id", &self.task_id)
             .field("data", &"<Extensions>")
             .field("attempt", &self.attempt)
-            .field("ctx", &self.ctx)
+            .field("connection", &self.connection)
             .field("status", &self.status.load())
             .field("run_at", &self.run_at)
+            .field("done_at", &self.done_at)
+            .field("lock_at", &self.lock_at)
+            .field("lock_by", &self.lock_by)
             .field("idempotency_key", &self.idempotency_key)
+            .field("metadata", &self.metadata)
+            .field("max_attempts", &self.max_attempts)
+            .field("runs", &self.runs)
+            .field("priority", &self.priority)
+            .field("queue", &self.queue)
             .finish()
     }
 }
 
-impl<Ctx, IdType: Clone> Clone for Parts<Ctx, IdType>
-where
-    Ctx: Clone,
-{
+impl<Conn, IdType: Clone> Clone for ExecutionContext<Conn, IdType> {
     fn clone(&self) -> Self {
         Self {
             task_id: self.task_id.clone(),
             data: self.data.clone(),
             attempt: self.attempt.clone(),
-            ctx: self.ctx.clone(),
+            connection: self.connection,
             status: self.status.clone(),
             run_at: self.run_at,
+            done_at: self.done_at,
+            lock_at: self.lock_at,
+            lock_by: self.lock_by.clone(),
             idempotency_key: self.idempotency_key.clone(),
+            metadata: self.metadata.clone(),
+            runs: self.runs.clone(),
+            max_attempts: self.max_attempts,
+            priority: self.priority,
+            queue: self.queue.clone(),
         }
     }
 }
 
-impl<Args, Ctx, IdType> Task<Args, Ctx, IdType> {
-    /// Creates a new [Task]
-    pub fn new(args: Args) -> Self
-    where
-        Ctx: Default,
-    {
-        Self::new_with_data(args, Extensions::default(), Ctx::default())
-    }
-
-    /// Creates a task with context provided
-    pub fn new_with_ctx(req: Args, ctx: Ctx) -> Self {
-        Self {
-            args: req,
-            parts: Parts {
-                ctx,
-                task_id: Default::default(),
-                attempt: Default::default(),
-                data: Default::default(),
-                status: Status::Pending.into(),
-                run_at: {
-                    let now = SystemTime::now();
-                    let duration_since_epoch =
-                        now.duration_since(UNIX_EPOCH).expect("Time went backwards");
-                    duration_since_epoch.as_secs()
-                },
-                idempotency_key: Default::default(),
-            },
-        }
-    }
-
-    /// Creates a task with data and context provided
-    pub fn new_with_data(req: Args, data: Extensions, ctx: Ctx) -> Self {
-        Self {
-            args: req,
-            parts: Parts {
-                ctx,
-                task_id: Default::default(),
-                attempt: Default::default(),
-                data,
-                status: Status::Pending.into(),
-                run_at: {
-                    let now = SystemTime::now();
-                    let duration_since_epoch =
-                        now.duration_since(UNIX_EPOCH).expect("Time went backwards");
-                    duration_since_epoch.as_secs()
-                },
-                idempotency_key: Default::default(),
-            },
-        }
-    }
-
+impl<Args, Conn, IdType> Task<Args, Conn, IdType> {
     /// Take the task into its parts
-    pub fn take(self) -> (Args, Parts<Ctx, IdType>) {
-        (self.args, self.parts)
+    pub fn take(self) -> (Args, Arc<ExecutionContext<Conn, IdType>>) {
+        (self.args, self.ctx)
     }
 
     /// Extract a value of type `T` from the task's context
@@ -286,60 +304,14 @@ impl<Args, Ctx, IdType> Task<Args, Ctx, IdType> {
         T::from_request(self).await
     }
 
-    /// Converts the task into a builder pattern.
-    pub fn into_builder(self) -> TaskBuilder<Args, Ctx, IdType> {
+    /// Converts the task into a [`TaskBuilder`]
+    pub fn into_builder(self) -> TaskBuilder<Args, Conn, IdType>
+    where
+        IdType: Clone,
+    {
         TaskBuilder {
             args: self.args,
-            ctx: self.parts.ctx,
-            attempt: Some(self.parts.attempt),
-            data: self.parts.data,
-            status: Some(self.parts.status.into()),
-            run_at: Some(self.parts.run_at),
-            task_id: self.parts.task_id,
-            idempotency_key: self.parts.idempotency_key,
-        }
-    }
-}
-
-impl<Args, Ctx, IdType> Task<Args, Ctx, IdType> {
-    /// Maps the `args` field using the provided function, consuming the task.
-    pub fn try_map<F, NewArgs, Err>(self, f: F) -> Result<Task<NewArgs, Ctx, IdType>, Err>
-    where
-        F: FnOnce(Args) -> Result<NewArgs, Err>,
-    {
-        Ok(Task {
-            args: f(self.args)?,
-            parts: self.parts,
-        })
-    }
-    /// Maps the `args` field using the provided function, consuming the task.
-    pub fn map<F, NewArgs>(self, f: F) -> Task<NewArgs, Ctx, IdType>
-    where
-        F: FnOnce(Args) -> NewArgs,
-    {
-        Task {
-            args: f(self.args),
-            parts: self.parts,
-        }
-    }
-
-    /// Maps both `args` and `parts` together.
-    pub fn map_all<F, NewArgs, NewCtx>(self, f: F) -> Task<NewArgs, NewCtx, IdType>
-    where
-        F: FnOnce(Args, Parts<Ctx, IdType>) -> (NewArgs, Parts<NewCtx, IdType>),
-    {
-        let (args, parts) = f(self.args, self.parts);
-        Task { args, parts }
-    }
-
-    /// Maps only the `parts` field.
-    pub fn map_parts<F, NewCtx>(self, f: F) -> Task<Args, NewCtx, IdType>
-    where
-        F: FnOnce(Parts<Ctx, IdType>) -> Parts<NewCtx, IdType>,
-    {
-        Task {
-            args: self.args,
-            parts: f(self.parts),
+            ctx: Arc::unwrap_or_clone(self.ctx),
         }
     }
 }

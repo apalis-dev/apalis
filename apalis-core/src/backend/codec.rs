@@ -93,7 +93,7 @@ where
 {
     type Args = B::Compact;
     type IdType = B::IdType;
-    type Context = B::Context;
+    type Connection = B::Connection;
     type Error = B::Error;
     type Stream = B::CompactStream;
     type Beat = B::Beat;

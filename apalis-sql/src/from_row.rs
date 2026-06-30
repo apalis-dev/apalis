@@ -9,7 +9,6 @@ use apalis_core::{
     },
 };
 
-use crate::context::SqlContext;
 use crate::datetime::{DateTime, DateTimeExt};
 
 /// Errors that can occur when converting a database row into a Task
@@ -63,9 +62,9 @@ pub struct TaskRow {
 
 impl TaskRow {
     /// Convert the TaskRow into a Task with decoded arguments
-    pub fn try_into_task<D, Args, IdType, Pool>(
+    pub fn try_into_task<D, Args, IdType, Conn>(
         self,
-    ) -> Result<Task<Args, SqlContext<Pool>, IdType>, FromRowError>
+    ) -> Result<Task<Args, Conn, IdType>, FromRowError>
     where
         D::Error: Into<BoxDynError> + Send + Sync + 'static,
         IdType: FromStr,
@@ -73,26 +72,20 @@ impl TaskRow {
         D: Codec<Args, Compact = Vec<u8>>,
         Args: 'static,
     {
-        let ctx = SqlContext::default()
-            .with_done_at(self.done_at.map(|dt| dt.to_unix_timestamp()))
-            .with_lock_by(self.lock_by)
-            .with_max_attempts(self.max_attempts.unwrap_or(25) as i32)
-            .with_last_result(self.last_result)
-            .with_priority(self.priority.unwrap_or(0) as i32)
-            .with_meta(self.metadata.unwrap_or_default())
-            .with_queue(self.job_type)
-            .with_lock_at(self.lock_at.map(|dt| dt.to_unix_timestamp()));
-
         let args = D::decode(&self.job).map_err(|e| FromRowError::DecodeError(e.into()))?;
         let mut task = TaskBuilder::new(args)
-            .with_ctx(ctx)
-            .with_attempt(Attempt::new_with_value(self.attempts))
-            .with_status(
+            .done_at(self.done_at.map(|dt| dt.to_unix_timestamp() as u64))
+            .lock_by(self.lock_by)
+            .max_attempts(self.max_attempts.unwrap_or(25))
+            .priority(self.priority.unwrap_or(0))
+            .with_metadata(self.metadata.unwrap_or_default())
+            .queue(self.job_type.into())
+            .lock_at(self.lock_at.map(|dt| dt.to_unix_timestamp() as u64))
+            .attempt(Attempt::new_with_value(self.attempts))
+            .status(
                 Status::from_str(&self.status).map_err(|e| FromRowError::DecodeError(e.into()))?,
             )
-            .with_task_id(
-                TaskId::from_str(&self.id).map_err(|e| FromRowError::DecodeError(e.into()))?,
-            )
+            .task_id(TaskId::from_str(&self.id).map_err(|e| FromRowError::DecodeError(e.into()))?)
             .run_at_timestamp(
                 self.run_at
                     .ok_or(FromRowError::ColumnNotFound("run_at".to_owned()))?
@@ -100,38 +93,32 @@ impl TaskRow {
             );
 
         if let Some(key) = self.idempotency_key {
-            task = task.with_idempotency_key(key);
+            task = task.idempotency_key(key);
         }
         Ok(task.build())
     }
 
     /// Convert the TaskRow into a Task with compacted arguments
-    pub fn try_into_task_compact<IdType, Pool>(
+    pub fn try_into_task_compact<IdType, Conn>(
         self,
-    ) -> Result<Task<Vec<u8>, SqlContext<Pool>, IdType>, FromRowError>
+    ) -> Result<Task<Vec<u8>, Conn, IdType>, FromRowError>
     where
         IdType: FromStr,
         <IdType as FromStr>::Err: std::error::Error + Send + Sync + 'static,
     {
-        let ctx = SqlContext::default()
-            .with_done_at(self.done_at.map(|dt| dt.to_unix_timestamp()))
-            .with_lock_by(self.lock_by)
-            .with_max_attempts(self.max_attempts.unwrap_or(25) as i32)
-            .with_last_result(self.last_result)
-            .with_priority(self.priority.unwrap_or(0) as i32)
-            .with_meta(self.metadata.unwrap_or_default())
-            .with_queue(self.job_type)
-            .with_lock_at(self.lock_at.map(|dt| dt.to_unix_timestamp()));
-
         let mut task = TaskBuilder::new(self.job)
-            .with_ctx(ctx)
-            .with_attempt(Attempt::new_with_value(self.attempts))
-            .with_status(
+            .done_at(self.done_at.map(|dt| dt.to_unix_timestamp() as u64))
+            .lock_by(self.lock_by)
+            .max_attempts(self.max_attempts.unwrap_or(25))
+            .priority(self.priority.unwrap_or(0))
+            .with_metadata(self.metadata.unwrap_or_default())
+            .queue(self.job_type.into())
+            .lock_at(self.lock_at.map(|dt| dt.to_unix_timestamp() as u64))
+            .attempt(Attempt::new_with_value(self.attempts))
+            .status(
                 Status::from_str(&self.status).map_err(|e| FromRowError::DecodeError(e.into()))?,
             )
-            .with_task_id(
-                TaskId::from_str(&self.id).map_err(|e| FromRowError::DecodeError(e.into()))?,
-            )
+            .task_id(TaskId::from_str(&self.id).map_err(|e| FromRowError::DecodeError(e.into()))?)
             .run_at_timestamp(
                 self.run_at
                     .ok_or(FromRowError::ColumnNotFound("run_at".to_owned()))?
@@ -139,7 +126,7 @@ impl TaskRow {
             );
 
         if let Some(key) = self.idempotency_key {
-            task = task.with_idempotency_key(key);
+            task = task.idempotency_key(key);
         }
         Ok(task.build())
     }

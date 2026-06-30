@@ -25,7 +25,7 @@ and observability.
 
 The task struct provides type-safe components for task data and metadata:
 - [`Args`](crate::task_fn::guide) - The primary structure for the task
-- [`Parts`](crate::task::Parts) - Wrapper type for information for task execution includes context, status, attempts, task_id and metadata
+- [`ExecutionContext`](crate::task::ExecutionContext) - Wrapper type for information for task execution includes context, status, attempts, task_id and metadata
 - [`Context`](crate::backend::Backend#required-associated-types) - contextual information with the task provided by the backend
 - [`Status`](crate::task::status::Status) - Represents the current state of a task
 - [`TaskId`](crate::task::task_id::TaskId) - Unique identifier for task tracking
@@ -61,7 +61,7 @@ It defines task polling mechanisms, streaming interfaces, and middleware integra
 - `Codec` - Determines serialization format for task data persistence
 - `Beat` - Heartbeat stream for worker liveness checks
 - `IdType` - Type used for unique task identifiers
-- `Ctx` -   Context associated with tasks
+- `Conn` -   Context associated with tasks
 - `Error` - Error type for backend operations
 
 </details>

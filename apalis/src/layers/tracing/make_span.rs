@@ -10,22 +10,22 @@ use super::DEFAULT_MESSAGE_LEVEL;
 ///
 /// [`Span`]: tracing::Span
 /// [`Trace`]: super::Trace
-pub trait MakeSpan<Args, Ctx, IdType> {
+pub trait MakeSpan<Args, Conn, IdType> {
     /// Make a span from a request.
-    fn make_span(&mut self, request: &Task<Args, Ctx, IdType>) -> Span;
+    fn make_span(&mut self, request: &Task<Args, Conn, IdType>) -> Span;
 }
 
-impl<Args, Ctx, IdType> MakeSpan<Args, Ctx, IdType> for Span {
-    fn make_span(&mut self, _request: &Task<Args, Ctx, IdType>) -> Span {
+impl<Args, Conn, IdType> MakeSpan<Args, Conn, IdType> for Span {
+    fn make_span(&mut self, _request: &Task<Args, Conn, IdType>) -> Span {
         self.clone()
     }
 }
 
-impl<F, Args, Ctx, IdType> MakeSpan<Args, Ctx, IdType> for F
+impl<F, Args, Conn, IdType> MakeSpan<Args, Conn, IdType> for F
 where
-    F: FnMut(&Task<Args, Ctx, IdType>) -> Span,
+    F: FnMut(&Task<Args, Conn, IdType>) -> Span,
 {
-    fn make_span(&mut self, request: &Task<Args, Ctx, IdType>) -> Span {
+    fn make_span(&mut self, request: &Task<Args, Conn, IdType>) -> Span {
         self(request)
     }
 }
@@ -64,18 +64,18 @@ impl Default for DefaultMakeSpan {
     }
 }
 
-impl<Args, Ctx, IdType: Display> MakeSpan<Args, Ctx, IdType> for DefaultMakeSpan {
-    fn make_span(&mut self, req: &Task<Args, Ctx, IdType>) -> Span {
+impl<Args, Conn, IdType: Display> MakeSpan<Args, Conn, IdType> for DefaultMakeSpan {
+    fn make_span(&mut self, req: &Task<Args, Conn, IdType>) -> Span {
         // This ugly macro is needed, unfortunately, because `tracing::span!`
         // required the level argument to be static. Meaning we can't just pass
         // `self.level`.
         let task_id = req
-            .parts
+            .ctx
             .task_id
             .as_ref()
             .expect("A task must have an ID")
             .to_string();
-        let attempt = &req.parts.attempt;
+        let attempt = &req.ctx.attempt;
         let span = Span::current();
         macro_rules! make_span {
             ($level:expr) => {
