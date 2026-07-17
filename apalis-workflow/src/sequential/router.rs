@@ -1,23 +1,22 @@
 use std::{collections::HashMap, time::Duration};
 
-use apalis_core::{backend::BackendExt, task::task_id::TaskId};
+use apalis_core::{backend::Backend, task::task_id::TaskId};
 use serde::{Deserialize, Serialize};
 
 use crate::SteppedService;
 
 /// Router for workflow steps
 #[derive(Debug, Default)]
-pub struct WorkflowRouter<Backend>
+pub struct WorkflowRouter<B>
 where
-    Backend: BackendExt,
+    B: Backend,
 {
-    pub(super) steps:
-        HashMap<usize, SteppedService<Backend::Compact, Backend::Connection, Backend::IdType>>,
+    pub(super) steps: HashMap<usize, SteppedService<B::Compact, B::Connection, B::Id>>,
 }
 
-impl<Backend> WorkflowRouter<Backend>
+impl<B> WorkflowRouter<B>
 where
-    Backend: BackendExt,
+    B: Backend,
 {
     /// Create a new workflow router
     #[must_use]
@@ -29,11 +28,11 @@ where
 }
 /// Result information for workflow steps
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
-pub struct StepResult<Res, IdType> {
+pub struct StepResult<Res, Id> {
     /// Result produced by the step
     pub result: Res,
     /// Optional ID of the next task to execute
-    pub next_task_id: Option<TaskId<IdType>>,
+    pub next_task_id: Option<TaskId<Id>>,
 }
 
 /// Enum representing the possible transitions in a workflow

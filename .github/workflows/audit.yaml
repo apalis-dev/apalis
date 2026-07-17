@@ -22,7 +22,7 @@ jobs:
         with:
           path: ~/.cargo/bin/cargo-audit
           key: cargo-audit-${{ runner.os }}
-      - run: cargo install cargo-audit --locked
+      - run: cargo install cargo-audit --locked --force
       - run: cargo audit
           
   cargo-vet:

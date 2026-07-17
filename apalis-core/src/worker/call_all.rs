@@ -1,11 +1,10 @@
-//! Utilities for executing all tasks from a stream to a service.
+//! Utilities for executing all tasks from a backend to a service.
 //!
-//! A combinator for calling all requests from a stream to a service, yielding responses
+//! A combinator for calling all requests from a `Backend` to a service, yielding responses
 //! as they arrive. It supports both ordered and unordered response handling, allowing for flexible integration
 //! with asynchronous services.
 use futures_util::{Stream, ready, stream::FuturesUnordered};
 use std::{
-    error::Error,
     fmt,
     future::Future,
     pin::Pin,
@@ -13,38 +12,45 @@ use std::{
 };
 use tower_service::Service;
 
-use crate::error::BoxDynError;
+use crate::{
+    backend::{Backend, codec::Codec},
+    error::BoxDynError,
+    task::Task,
+    worker::WorkerContext,
+};
 
-/// A stream of responses received from the inner service in received order.
+/// A stream of responses received from the inner service in received order,
+/// driven by a `Backend` directly instead of a plain `Stream`.
 #[derive(Debug)]
 #[pin_project::pin_project]
-pub(super) struct CallAllUnordered<Svc, S, T, E>
+pub(super) struct CallAllUnordered<Svc, B>
 where
-    Svc: Service<T>,
-    S: Stream<Item = Result<Option<T>, E>>,
+    Svc: Service<Task<<B as Backend>::Args, <B as Backend>::Connection, <B as Backend>::Id>>,
+    B: Backend,
 {
     #[pin]
-    inner: CallAll<Svc, S, T, FuturesUnordered<Svc::Future>, E>,
+    inner: CallAll<Svc, B, FuturesUnordered<Svc::Future>>,
 }
 
-impl<Svc, S, T, E> CallAllUnordered<Svc, S, T, E>
+impl<Svc, B> CallAllUnordered<Svc, B>
 where
-    Svc: Service<T>,
-    S: Stream<Item = Result<Option<T>, E>>,
+    Svc: Service<Task<B::Args, B::Connection, B::Id>>,
+    B: Backend + Unpin,
 {
     /// Create new [`CallAllUnordered`] combinator.
-    pub(super) fn new(service: Svc, stream: S) -> Self {
+    pub(super) fn new(service: Svc, backend: B, worker: WorkerContext) -> Self {
         Self {
-            inner: CallAll::new(service, stream, FuturesUnordered::new()),
+            inner: CallAll::new(service, backend, worker, FuturesUnordered::new()),
         }
     }
 }
 
-impl<Svc, S, T, E> Stream for CallAllUnordered<Svc, S, T, E>
+impl<Svc, B> Stream for CallAllUnordered<Svc, B>
 where
-    Svc: Service<T>,
-    S: Stream<Item = Result<Option<T>, E>>,
-    E: Into<BoxDynError>,
+    Svc: Service<Task<B::Args, B::Connection, B::Id>>,
+    B: Backend + Unpin,
+    B::Error: Into<BoxDynError>,
+    <B::Codec as Codec<B::Args>>::Error: Into<BoxDynError>,
 {
     type Item = Result<Option<Svc::Response>, CallAllError<Svc::Error>>;
 
@@ -53,31 +59,18 @@ where
     }
 }
 
-/// Error type that combines stream errors and service errors
-#[derive(Debug)]
+/// Error type that combines backend errors and service errors
+#[derive(Debug, thiserror::Error)]
 pub enum CallAllError<ServiceError> {
-    /// Error originating from the request stream
-    StreamError(BoxDynError),
+    /// Error originating from `Backend::poll_ready` or `Backend::poll`
+    #[error("Backend error: {0}")]
+    PollError(BoxDynError),
     /// Error originating from the service
+    #[error("Service error: {0}")]
     ServiceError(ServiceError),
-}
-
-impl<SE: fmt::Display> fmt::Display for CallAllError<SE> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::StreamError(e) => write!(f, "Stream error: {e}"),
-            Self::ServiceError(e) => write!(f, "Service error: {e}"),
-        }
-    }
-}
-
-impl<SE: Error + 'static> Error for CallAllError<SE> {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::StreamError(e) => Some(e.as_ref()),
-            Self::ServiceError(e) => Some(e),
-        }
-    }
+    /// Error originating from the decoding of the task
+    #[error("Task decoding error: {0}")]
+    CodecError(BoxDynError),
 }
 
 impl<F: Future> Drive<F> for FuturesUnordered<F> {
@@ -94,30 +87,32 @@ impl<F: Future> Drive<F> for FuturesUnordered<F> {
     }
 }
 
-/// The [`Future`] returned by the [`ServiceExt::call_all`](https://docs.rs/tower/latest/tower/trait.ServiceExt.html#method.call_all) combinator.
-///
+/// The [`Future`]/[`Stream`] that sequences `backend.poll_ready`,
+/// `svc.poll_ready`, and `backend.poll` on every iteration, guaranteeing
+/// the backend never claims a task the service isn't yet ready to accept.
 #[pin_project::pin_project]
-pub(crate) struct CallAll<Svc, S, T, Q, E>
+pub(crate) struct CallAll<Svc, B, Q>
 where
-    S: Stream<Item = Result<Option<T>, E>>,
+    B: Backend,
 {
     service: Option<Svc>,
     #[pin]
-    stream: S,
+    backend: B,
+    worker: WorkerContext,
     queue: Q,
     eof: bool,
-    curr_req: Option<T>,
+    curr_req: Option<Task<B::Args, B::Connection, B::Id>>,
 }
 
-impl<Svc, S, T, Q, E> fmt::Debug for CallAll<Svc, S, T, Q, E>
+impl<Svc, B, Q> fmt::Debug for CallAll<Svc, B, Q>
 where
     Svc: fmt::Debug,
-    S: Stream<Item = Result<Option<T>, E>> + fmt::Debug,
+    B: Backend + fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CallAll")
             .field("service", &self.service)
-            .field("stream", &self.stream)
+            .field("backend", &self.backend)
             .field("eof", &self.eof)
             .finish()
     }
@@ -131,16 +126,17 @@ pub(crate) trait Drive<F: Future> {
     fn poll(&mut self, cx: &mut Context<'_>) -> Poll<Option<F::Output>>;
 }
 
-impl<Svc, S, T, Q, E> CallAll<Svc, S, T, Q, E>
+impl<Svc, B, Q> CallAll<Svc, B, Q>
 where
-    Svc: Service<T>,
-    S: Stream<Item = Result<Option<T>, E>>,
+    Svc: Service<Task<B::Args, B::Connection, B::Id>>,
+    B: Backend + Unpin,
     Q: Drive<Svc::Future>,
 {
-    pub(crate) const fn new(service: Svc, stream: S, queue: Q) -> Self {
+    pub(crate) const fn new(service: Svc, backend: B, worker: WorkerContext, queue: Q) -> Self {
         Self {
             service: Some(service),
-            stream,
+            backend,
+            worker,
             queue,
             eof: false,
             curr_req: None,
@@ -148,12 +144,13 @@ where
     }
 }
 
-impl<Svc, S, T, Q, E> Stream for CallAll<Svc, S, T, Q, E>
+impl<Svc, B, Q> Stream for CallAll<Svc, B, Q>
 where
-    Svc: Service<T>,
-    S: Stream<Item = Result<Option<T>, E>>,
+    Svc: Service<Task<B::Args, B::Connection, B::Id>>,
+    B: Backend + Unpin,
     Q: Drive<Svc::Future>,
-    E: Into<BoxDynError>,
+    B::Error: Into<BoxDynError>,
+    <B::Codec as Codec<B::Args>>::Error: Into<BoxDynError>,
 {
     type Item = Result<Option<Svc::Response>, CallAllError<Svc::Error>>;
 
@@ -166,43 +163,65 @@ where
                 return Poll::Ready(Some(result.map_err(CallAllError::ServiceError).map(Some)));
             }
 
-            // If there are no more requests coming, check if we're done
-            if *this.eof {
-                if this.queue.is_empty() {
-                    return Poll::Ready(None);
-                } else {
+            // Shutdown requested (or backend naturally exhausted via eof) AND
+            // no in-flight work left: time to close.
+            let shutting_down = *this.eof || this.worker.is_shutting_down();
+
+            if shutting_down {
+                if !this.queue.is_empty() {
                     return Poll::Pending;
                 }
+                return match this.backend.as_mut().get_mut().poll_close(cx, this.worker) {
+                    Poll::Pending => Poll::Pending,
+                    Poll::Ready(Err(e)) => {
+                        Poll::Ready(Some(Err(CallAllError::PollError(e.into()))))
+                    }
+                    Poll::Ready(Ok(())) => Poll::Ready(None),
+                };
             }
 
-            // Then, see that the service is ready for another request
             let svc = this
                 .service
                 .as_mut()
                 .expect("Using CallAll after extracting inner Service");
 
+            // 1. backend.poll_ready — must succeed before we even ask svc.
+            match this.backend.as_mut().get_mut().poll_ready(cx, this.worker) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Err(e)) => {
+                    *this.eof = true;
+                    return Poll::Ready(Some(Err(CallAllError::PollError(e.into()))));
+                }
+                Poll::Ready(Ok(())) => {}
+            }
+
+            // 2. svc.poll_ready — still gates step 3, same as before.
             if let Err(e) = ready!(svc.poll_ready(cx)) {
-                // Set eof to prevent the service from being called again after a `poll_ready` error
                 *this.eof = true;
                 return Poll::Ready(Some(Err(CallAllError::ServiceError(e))));
             }
 
-            // If not done, and we don't have a stored request, gather the next request from the
-            // stream (if there is one), or return `Pending` if the stream is not ready.
+            // 3. backend.poll — only now pull a task, having confirmed both
+            // the backend and the service are ready.
             if this.curr_req.is_none() {
-                match ready!(this.stream.as_mut().poll_next(cx)) {
-                    Some(Ok(Some(next_req))) => {
-                        *this.curr_req = Some(next_req);
-                    }
-                    Some(Ok(None)) => {
-                        return Poll::Ready(Some(Ok(None)));
+                match ready!(this.backend.as_mut().get_mut().poll_next(cx, this.worker)) {
+                    Some(Ok(next_req)) => {
+                        let codec = this.backend.codec();
+                        let res = next_req.try_map_args(|args| codec.decode(&args));
+                        match res {
+                            Err(e) => {
+                                *this.eof = true;
+                                return Poll::Ready(Some(Err(CallAllError::CodecError(e.into()))));
+                            }
+                            Ok(next) => {
+                                *this.curr_req = Some(next);
+                            }
+                        }
                     }
                     Some(Err(e)) => {
-                        // Stream error, propagate it
-                        return Poll::Ready(Some(Err(CallAllError::StreamError(e.into()))));
+                        return Poll::Ready(Some(Err(CallAllError::PollError(e.into()))));
                     }
                     None => {
-                        // Stream is exhausted, mark EOF
                         *this.eof = true;
                         continue;
                     }

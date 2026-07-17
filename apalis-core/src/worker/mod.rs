@@ -86,13 +86,14 @@
 //! # Test Utilities
 //! The [`test_worker`] module includes utilities for unit tests and validation of worker behavior.
 use crate::backend::Backend;
+use crate::backend::codec::Codec;
 use crate::error::{BoxDynError, WorkerError};
 use crate::monitor::shutdown::Shutdown;
 use crate::task::Task;
 use crate::task::attempt::Attempt;
 use crate::task::data::Data;
 use crate::worker::call_all::{CallAllError, CallAllUnordered};
-use crate::worker::context::{Tracked, WorkerContext};
+use crate::worker::context::{Tracked, WorkerContext, WorkerHandle};
 use crate::worker::event::{Event, RawEventListener};
 use futures_core::stream::BoxStream;
 use futures_util::{Future, FutureExt, Stream, StreamExt, TryFutureExt};
@@ -184,20 +185,20 @@ impl<Args, Conn, B, Svc, M> Worker<Args, Conn, B, Svc, M> {
 
 impl<Args, S, B, M> Worker<Args, B::Connection, B, S, M>
 where
-    B: Backend<Args = Args>,
-    S: Service<Task<Args, B::Connection, B::IdType>> + Send + 'static,
-    B::Stream: Unpin + Send + 'static,
-    B::Beat: Unpin + Send + 'static,
+    B: Backend<Args = Args> + Send + Unpin + 'static,
+    S: Service<Task<Args, B::Connection, B::Id>> + Send + 'static,
     Args: Send + 'static,
     B::Connection: Send + Sync + 'static,
     B::Error: Into<BoxDynError> + Send + 'static,
     B::Layer: Layer<ReadinessService<TrackerService<S>>>,
     M: Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>,
     <M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service:
-        Service<Task<Args, B::Connection, B::IdType>> + Send + 'static,
-    <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::IdType>>>::Future: Send,
-        <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::IdType>>>::Error: Into<BoxDynError> + Send + Sync + 'static,
-    B::IdType: Send + Sync + 'static,
+        Service<Task<Args, B::Connection, B::Id>> + Send + 'static,
+    <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::Id>>>::Future: Send,
+        <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::Id>>>::Error: Into<BoxDynError> + Send + Sync + 'static,
+    B::Id: Send + Sync + 'static,
+    <B::Codec as Codec<B::Args>>::Error: Into<BoxDynError>,
+
 {
     /// Run the worker until completion
     ///
@@ -357,15 +358,13 @@ where
     /// with a [`WorkerContext`].
     ///
     /// See [`stream`](Self::stream) for an example.
-    pub fn stream_with_ctx(
-        self,
-        ctx: &mut WorkerContext,
-    ) -> impl Stream<Item = Result<Event, WorkerError>> + use<Args, S, B, M> {
+    pub fn stream_with_ctx(self, ctx: &mut WorkerContext) -> impl Stream<Item = Result<Event, WorkerError>> + use<Args, S, B, M> {
         let backend = self.backend;
         let event_handler = self.event_handler;
         ctx.wrap_listener(event_handler);
         let worker = ctx.clone();
         let backend_middleware = backend.middleware();
+
         struct ServiceBuilder<L> {
             layer: L,
         }
@@ -383,6 +382,7 @@ where
                 self.layer.layer(service)
             }
         }
+
         let svc = ServiceBuilder {
             layer: Data::new(worker.clone()),
         };
@@ -398,31 +398,38 @@ where
             // this ensures that the attempt count is accurate even if the task fails before completion
             .layer(TrackerLayer::new(worker.clone()))
             .service(self.service);
-        let heartbeat = backend.heartbeat(&worker).map(|res| match res {
-            Ok(_) => Ok(Event::HeartBeat),
-            Err(e) => Err(WorkerError::HeartbeatError(e.into())),
-        });
 
-        let stream = backend.poll(&worker);
+        // One `poll_fn` owns `backend` and drives poll_ready -> poll_compact in
+        // order every time it's polled, registering the current task's waker
+        // into `worker` first so a backend's internal future resolving can wake
+        // this exact task.
+        let worker_ctx = worker.clone();
 
-        let tasks = Self::poll_tasks(service, stream);
+        let tasks = Self::poll_tasks(service, backend, worker_ctx);
+
         let mut w = worker.clone();
         let mut ww = w.clone();
         let starter: BoxStream<'static, _> = futures_util::stream::once(async move {
-            if !ww.is_running() {
-                ww.start()?;
-            }
-            Ok(None)
+
+            ww.start()?;
+            Ok(Some(Event::Start))
         })
         .filter_map(|res: Result<Option<Event>, WorkerError>| async move {
+
             match res {
-                Ok(_) => None,
+                Ok(res) => res.map(Ok),
                 Err(e) => Some(Err(e)),
             }
         })
         .boxed();
+
+        // Shutdown-completion awaiting now goes through the private `WorkerHandle`
+        // instead of polling `WorkerContext` directly — `WorkerContext` no
+        // longer implements `Future` at all, so this is the only path capable of
+        // awaiting worker completion.
+        let handle = WorkerHandle::new(worker);
         let wait_for_exit: BoxStream<'static, _> = futures_util::stream::once(async move {
-            match worker.await {
+            match handle.await {
                 Ok(_) => Err(WorkerError::GracefulExit),
                 Err(e) => Err(e),
             }
@@ -430,33 +437,35 @@ where
         .boxed();
 
         #[allow(clippy::needless_continue)]
-        let work_stream =
-            futures_util::stream_select!(wait_for_exit, heartbeat, tasks).map(move |res| {
-                if let Ok(e) = &res {
-                    w.emit(e);
-                }
-                res
-            });
-        starter.chain(work_stream)
-    }
-    fn poll_tasks<Svc, Stm, E, Conn>(
+        let work_stream = futures_util::stream_select!(wait_for_exit, tasks);
+
+        starter.chain(work_stream).map(move |res| {
+            if let Ok(e) = &res {
+                w.emit(e);
+            }
+            res
+        })
+}
+    fn poll_tasks<Svc>(
         service: Svc,
-        stream: Stm,
+        backend: B,
+        worker: WorkerContext,
     ) -> BoxStream<'static, Result<Event, WorkerError>>
     where
-        Svc: Service<Task<Args, Conn, B::IdType>> + Send + 'static,
-        Stm: Stream<Item = Result<Option<Task<Args, Conn, B::IdType>>, E>> + Send + Unpin + 'static,
+        Svc: Service<Task<Args, B::Connection, B::Id>> + Send + 'static,
         Args: Send + 'static,
         Svc::Future: Send,
-        Conn: Send + Sync + 'static,
+        B::Connection: Send + Sync + 'static,
         Svc::Error: Into<BoxDynError> + Sync + Send,
-        E: Into<BoxDynError> + Send + 'static,
+        <B::Codec as Codec<B::Args>>::Error: Into<BoxDynError>,
+
     {
-        let stream = CallAllUnordered::new(service, stream).map(|r| match r {
+        let stream = CallAllUnordered::new(service, backend, worker).map(|r| match r {
             Ok(Some(_)) => Ok(Event::Success),
             Ok(None) => Ok(Event::Idle),
             Err(CallAllError::ServiceError(err)) => Ok(Event::Error(err.into().into())),
-            Err(CallAllError::StreamError(err)) => Err(WorkerError::StreamError(err)),
+            Err(CallAllError::PollError(err)) => Err(WorkerError::PollError(err)),
+            Err(CallAllError::CodecError(err)) => Err(WorkerError::CodecError(err)),
         });
         stream.boxed()
     }
@@ -490,9 +499,9 @@ pub struct TrackerService<S> {
     service: S,
 }
 
-impl<S, Args, Conn, IdType> Service<Task<Args, Conn, IdType>> for TrackerService<S>
+impl<S, Args, Conn, Id> Service<Task<Args, Conn, Id>> for TrackerService<S>
 where
-    S: Service<Task<Args, Conn, IdType>>,
+    S: Service<Task<Args, Conn, Id>>,
 {
     type Response = S::Response;
     type Error = S::Error;
@@ -502,7 +511,7 @@ where
         self.service.poll_ready(cx)
     }
 
-    fn call(&mut self, task: Task<Args, Conn, IdType>) -> Self::Future {
+    fn call(&mut self, task: Task<Args, Conn, Id>) -> Self::Future {
         let attempt = task.ctx.attempt.clone();
         self.ctx.track(AttemptOnPollFuture {
             attempt,
@@ -670,13 +679,13 @@ mod tests {
         #[derive(Debug, Clone)]
         struct MyAcknowledger;
 
-        impl<Conn: Debug, IdType: Debug> Acknowledge<(), Conn, IdType> for MyAcknowledger {
+        impl<Conn: Debug, Id: Debug> Acknowledge<(), Conn, Id> for MyAcknowledger {
             type Error = SendError;
             type Future = BoxFuture<'static, Result<(), SendError>>;
             fn ack(
                 &mut self,
                 res: &Result<(), BoxDynError>,
-                ctx: &ExecutionContext<Conn, IdType>,
+                ctx: &ExecutionContext<Conn, Id>,
             ) -> Self::Future {
                 println!("{res:?}, {ctx:?}");
                 // Call webhook with the result and ctx?

@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 /// Metadata stored in each task for workflow processing
 #[derive(Debug, Deserialize, Serialize, Default)]
-pub struct DagFlowContext<IdType> {
+pub struct DagFlowContext<Id> {
     /// Previous node executed in the DAG
     /// This is the source node that led to the current node's execution
     pub prev_node: Option<NodeIndex>,
@@ -28,7 +28,7 @@ pub struct DagFlowContext<IdType> {
     pub completed_nodes: HashSet<NodeIndex>,
 
     /// Map of node indices to their task IDs for result lookup
-    pub node_task_ids: HashMap<NodeIndex, TaskId<IdType>>,
+    pub node_task_ids: HashMap<NodeIndex, TaskId<Id>>,
 
     /// Current position in the topological order
     pub current_position: usize,
@@ -37,10 +37,10 @@ pub struct DagFlowContext<IdType> {
     pub is_initial: bool,
 
     /// The original task ID that started this DAG execution
-    pub root_task_id: Option<TaskId<IdType>>,
+    pub root_task_id: Option<TaskId<Id>>,
 }
 
-impl<IdType: Clone> Clone for DagFlowContext<IdType> {
+impl<Id: Clone> Clone for DagFlowContext<Id> {
     fn clone(&self) -> Self {
         Self {
             prev_node: self.prev_node,
@@ -54,9 +54,9 @@ impl<IdType: Clone> Clone for DagFlowContext<IdType> {
     }
 }
 
-impl<IdType: Clone> DagFlowContext<IdType> {
+impl<Id: Clone> DagFlowContext<Id> {
     /// Create initial context for DAG execution
-    pub fn new(root_task_id: Option<TaskId<IdType>>) -> Self {
+    pub fn new(root_task_id: Option<TaskId<Id>>) -> Self {
         Self {
             prev_node: None,
             current_node: NodeIndex::new(0),
@@ -71,7 +71,7 @@ impl<IdType: Clone> DagFlowContext<IdType> {
     pub fn get_dependency_task_ids(
         &self,
         dependencies: &[NodeIndex],
-    ) -> HashMap<NodeIndex, TaskId<IdType>> {
+    ) -> HashMap<NodeIndex, TaskId<Id>> {
         dependencies
             .iter()
             .filter_map(|dep| {
@@ -122,10 +122,10 @@ pub enum DagFlowContextError {
     DuplicateEntry(#[from] MetadataError),
 }
 
-impl<IdType> Metadata for DagFlowContext<IdType>
+impl<Id> Metadata for DagFlowContext<Id>
 where
-    IdType: FromStr + Display,
-    <IdType as FromStr>::Err: std::error::Error + Send + Sync + 'static,
+    Id: FromStr + Display,
+    <Id as FromStr>::Err: std::error::Error + Send + Sync + 'static,
 {
     type Error = DagFlowContextError;
 
@@ -166,7 +166,7 @@ where
                                     .map(NodeIndex::new)
                                     .map_err(DagFlowContextError::ParseNodeIndex)?;
                                 let task_id = v
-                                    .parse::<TaskId<IdType>>()
+                                    .parse::<TaskId<Id>>()
                                     .map_err(|e| DagFlowContextError::ParseTaskId(e.into()))?;
                                 Ok((node, task_id))
                             })
@@ -190,7 +190,7 @@ where
 
         let root_task_id = map
             .get(DAG_FLOW_ROOT_TASK_ID_KEY)
-            .map(|v| v.parse::<IdType>().map(TaskId::new))
+            .map(|v| v.parse::<Id>().map(TaskId::new))
             .transpose()
             .map_err(|e| DagFlowContextError::ParseTaskId(e.into()))?;
 

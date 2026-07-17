@@ -10,22 +10,22 @@ use super::DEFAULT_MESSAGE_LEVEL;
 ///
 /// [`Span`]: tracing::Span
 /// [`Trace`]: super::Trace
-pub trait MakeSpan<Args, Conn, IdType> {
+pub trait MakeSpan<Args, Conn, Id> {
     /// Make a span from a request.
-    fn make_span(&mut self, request: &Task<Args, Conn, IdType>) -> Span;
+    fn make_span(&mut self, request: &Task<Args, Conn, Id>) -> Span;
 }
 
-impl<Args, Conn, IdType> MakeSpan<Args, Conn, IdType> for Span {
-    fn make_span(&mut self, _request: &Task<Args, Conn, IdType>) -> Span {
+impl<Args, Conn, Id> MakeSpan<Args, Conn, Id> for Span {
+    fn make_span(&mut self, _request: &Task<Args, Conn, Id>) -> Span {
         self.clone()
     }
 }
 
-impl<F, Args, Conn, IdType> MakeSpan<Args, Conn, IdType> for F
+impl<F, Args, Conn, Id> MakeSpan<Args, Conn, Id> for F
 where
-    F: FnMut(&Task<Args, Conn, IdType>) -> Span,
+    F: FnMut(&Task<Args, Conn, Id>) -> Span,
 {
-    fn make_span(&mut self, request: &Task<Args, Conn, IdType>) -> Span {
+    fn make_span(&mut self, request: &Task<Args, Conn, Id>) -> Span {
         self(request)
     }
 }
@@ -64,8 +64,8 @@ impl Default for DefaultMakeSpan {
     }
 }
 
-impl<Args, Conn, IdType: Display> MakeSpan<Args, Conn, IdType> for DefaultMakeSpan {
-    fn make_span(&mut self, req: &Task<Args, Conn, IdType>) -> Span {
+impl<Args, Conn, Id: Display> MakeSpan<Args, Conn, Id> for DefaultMakeSpan {
+    fn make_span(&mut self, req: &Task<Args, Conn, Id>) -> Span {
         // This ugly macro is needed, unfortunately, because `tracing::span!`
         // required the level argument to be static. Meaning we can't just pass
         // `self.level`.

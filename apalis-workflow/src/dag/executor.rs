@@ -7,7 +7,10 @@ use std::{
 };
 
 use apalis_core::{
-    backend::{BackendExt, codec::RawDataBackend},
+    backend::{
+        Backend,
+        ext::{BackendExt, raw::RawDataBackend},
+    },
     task::{Task, metadata::Meta},
     worker::builder::{IntoWorkerService, WorkerService},
 };
@@ -27,19 +30,20 @@ use crate::{
 #[derive(Debug)]
 pub struct DagExecutor<B>
 where
-    B: BackendExt,
+    B: Backend,
 {
-    pub(super) graph: DiGraph<DagService<B::Compact, B::Connection, B::IdType>, ()>,
+    pub(super) graph: DiGraph<DagService<B::Compact, B::Connection, B::Id>, ()>,
     pub(super) node_mapping: HashMap<String, NodeIndex>,
     pub(super) topological_order: Vec<NodeIndex>,
     pub(super) start_nodes: Vec<NodeIndex>,
     pub(super) end_nodes: Vec<NodeIndex>,
     pub(super) not_ready: VecDeque<NodeIndex>,
+    pub(super) backend: B,
 }
 
 impl<B> Clone for DagExecutor<B>
 where
-    B: BackendExt,
+    B: Backend + Clone,
 {
     fn clone(&self) -> Self {
         Self {
@@ -49,32 +53,33 @@ where
             start_nodes: self.start_nodes.clone(),
             end_nodes: self.end_nodes.clone(),
             not_ready: self.not_ready.clone(),
+            backend: self.backend.clone(),
         }
     }
 }
 
 impl<B> DagExecutor<B>
 where
-    B: BackendExt,
+    B: Backend,
 {
     /// Get a node by name
     pub fn get_node_by_name_mut(
         &mut self,
         name: &str,
-    ) -> Option<&mut DagService<B::Compact, B::Connection, B::IdType>> {
+    ) -> Option<&mut DagService<B::Compact, B::Connection, B::Id>> {
         self.node_mapping
             .get(name)
             .and_then(|&idx| self.graph.node_weight_mut(idx))
     }
 }
 
-impl<B> Service<Task<B::Compact, B::Connection, B::IdType>> for DagExecutor<B>
+impl<B> Service<Task<B::Compact, B::Connection, B::Id>> for DagExecutor<B>
 where
-    B: BackendExt,
+    B: Backend,
     B::Connection: Send + Sync + 'static,
-    B::IdType: Clone + Send + Sync + 'static + GenerateId + Debug + FromStr + Display,
+    B::Id: Clone + Send + Sync + 'static + GenerateId + Debug + FromStr + Display,
     B::Compact: Send + Sync + 'static,
-    <B::IdType as FromStr>::Err: std::error::Error + Send + Sync + 'static,
+    <B::Id as FromStr>::Err: std::error::Error + Send + Sync + 'static,
 {
     type Response = B::Compact;
     type Error = DagFlowError;
@@ -104,12 +109,12 @@ where
         }
     }
 
-    fn call(&mut self, req: Task<B::Compact, B::Connection, B::IdType>) -> Self::Future {
+    fn call(&mut self, req: Task<B::Compact, B::Connection, B::Id>) -> Self::Future {
         let mut graph = self.graph.clone();
 
         Box::pin(async move {
             let context = req
-                .extract::<Meta<DagFlowContext<B::IdType>>>()
+                .extract::<Meta<DagFlowContext<B::Id>>>()
                 .await
                 .map_err(|e| DagFlowError::Metadata(e.into()))?
                 .0;
@@ -131,19 +136,19 @@ where
 impl<B, Compact, Err> IntoWorkerService<B, RootDagService<B>, B::Compact, B::Connection>
     for DagFlow<B>
 where
-    B: BackendExt<Compact = Compact, Args = Compact, Error = Err> + Clone,
+    B: Backend<Compact = Compact, Args = Compact, Error = Err> + Clone,
     Err: std::error::Error + Send + Sync + 'static,
     B::Connection: Send + Sync + 'static,
-    B::IdType: Send + Sync + 'static + Default + GenerateId + PartialEq + Debug,
+    B::Id: Send + Sync + 'static + Default + GenerateId + PartialEq + Debug,
     B::Compact: Send + Sync + 'static + Clone,
-    RootDagService<B>: Service<Task<Compact, B::Connection, B::IdType>>,
+    RootDagService<B>: Service<Task<Compact, B::Connection, B::Id>>,
 {
     type Backend = RawDataBackend<B>;
     fn into_service(self, b: B) -> WorkerService<RawDataBackend<B>, RootDagService<B>> {
-        let executor = self.build().expect("Execution should be valid");
+        let executor = self.build(b.clone()).expect("Execution should be valid");
         WorkerService {
-            backend: RawDataBackend::new(b.clone()),
-            service: RootDagService::new(executor, b),
+            backend: b.raw(),
+            service: RootDagService::new(executor),
         }
     }
 }

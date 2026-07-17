@@ -29,12 +29,12 @@ pub mod prelude {
     };
     pub use apalis_core::{
         backend::{
-            Backend, BackendExt, Expose, FetchById, Filter, ListAllTasks, ListQueues, ListTasks,
-            ListWorkers, Metrics, QueueInfo, RegisterWorker, Reschedule, ResumeAbandoned,
-            ResumeById, RunningWorker, StatType, Statistic, TaskResult, TaskSink, TaskSinkError,
-            TaskStream, Update, WaitForCompletion,
+            Backend, Expose, FetchById, Filter, ListAllTasks, ListQueues, ListTasks, ListWorkers,
+            Metrics, QueueInfo, RegisterWorker, Reschedule, ResumeAbandoned, ResumeById,
+            RunningWorker, StatType, Statistic, TaskResult, TaskSink, TaskSinkError, Update,
+            WaitForCompletion,
         },
-        backend::{codec::*, custom::*, memory::*, pipe::*, poll_strategy::*, shared::*},
+        backend::{codec::*, custom::*, ext::pipe::*, memory::*, poll_strategy::*, shared::*},
         error::*,
         layers::*,
         monitor::{ExitError, Monitor, MonitorError, MonitoredWorkerError, shutdown::Shutdown},

@@ -3,9 +3,8 @@
 use apalis_codec::json::JsonCodec;
 use futures_core::{Stream, stream::BoxStream};
 use futures_util::{
-    StreamExt, TryStreamExt,
+    StreamExt,
     future::{Ready, ready},
-    stream,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -29,7 +28,7 @@ use crate::error::FileStorageError;
 
 use self::util::RawTask;
 use apalis_core::{
-    backend::{Backend, BackendExt, TaskResult, TaskStream, WaitForCompletion, queue::Queue},
+    backend::{Backend, TaskResult, WaitForCompletion, queue::Queue},
     error::BoxDynError,
     features_table,
     task::{
@@ -130,6 +129,7 @@ pub struct FileStorage<Args, A: Adapter> {
     read_cursor: usize,
     sync_policy: SyncPolicy,
     last_flush: std::time::Instant,
+    codec: JsonCodec<Value>,
     _args: PhantomData<Args>,
 }
 
@@ -147,6 +147,7 @@ where
             read_cursor: self.read_cursor,
             sync_policy: self.sync_policy.clone(),
             last_flush: self.last_flush,
+            codec: self.codec.clone(),
             _args: PhantomData,
         }
     }
@@ -224,6 +225,7 @@ impl<A: Adapter, Args> FileStorage<Args, A> {
             read_cursor: 0,
             sync_policy: SyncPolicy::Instant,
             last_flush: std::time::Instant::now(),
+            codec: JsonCodec::default(),
             _args: PhantomData,
         })
     }
@@ -462,62 +464,60 @@ impl<Args, A> Backend for FileStorage<Args, A>
 where
     Args: 'static + Send + Serialize + for<'de> Deserialize<'de> + Unpin,
     A: Adapter + Unpin + Clone,
+    A::Error: std::error::Error + Send + Sync + 'static,
 {
     type Args = Args;
-    type IdType = RandomId;
+    type Id = RandomId;
     type Error = FileStorageError<A>;
     type Connection = MetadataStore;
-    type Stream = TaskStream<Task<Args, MetadataStore, RandomId>, Self::Error>;
     type Layer = AcknowledgeLayer<Self>;
-    type Beat = BoxStream<'static, Result<(), Self::Error>>;
-
-    fn heartbeat(&self, _: &WorkerContext) -> Self::Beat {
-        stream::once(async { Ok(()) }).boxed()
-    }
+    type Codec = JsonCodec<Value>;
+    type Compact = Value;
     fn middleware(&self) -> Self::Layer {
         AcknowledgeLayer::new(self.clone())
     }
-    fn poll(self, _worker: &WorkerContext) -> Self::Stream {
-        (self
-            .map_ok(|(line_id, mut job)| {
-                let args = Args::deserialize(&job.args).unwrap();
-                job.ctx.insert("line_id", line_id.to_string()).unwrap();
-                let mut task = TaskBuilder::new(args).with_metadata(job.ctx);
-
-                if let Some(task_id) = job.task_id {
-                    task = task.task_id(task_id);
-                }
-                Some(task.build())
-            })
-            .boxed()) as _
+    fn codec(&self) -> &Self::Codec {
+        &self.codec
     }
-}
-
-impl<A, Args> BackendExt for FileStorage<Args, A>
-where
-    Args: 'static + Send + Serialize + for<'de> Deserialize<'de> + Unpin,
-    A: Adapter + Unpin + Clone,
-{
-    type Codec = JsonCodec<Value>;
-    type Compact = Value;
-
-    type CompactStream =
-        TaskStream<Task<Self::Compact, MetadataStore, RandomId>, FileStorageError<A>>;
-
-    fn get_queue(&self) -> Queue {
+    fn queue(&self) -> Queue {
         std::any::type_name::<Args>().into()
     }
+    fn poll_ready(
+        &mut self,
+        cx: &mut Context<'_>,
+        _: &WorkerContext,
+    ) -> Poll<Result<(), Self::Error>> {
+        if self.lock.try_read().is_ok() {
+            Poll::Ready(Ok(()))
+        } else {
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        }
+    }
 
-    fn poll_compact(self, worker: &WorkerContext) -> Self::CompactStream {
-        self.poll(worker)
-            .map_ok(|c| {
-                c.map(|t| {
-                    t.into_builder()
-                        .map(|args| serde_json::to_value(args).expect("to be encodable"))
-                        .build()
-                })
-            })
-            .boxed()
+    fn poll_next(
+        &mut self,
+        cx: &mut Context<'_>,
+        _: &WorkerContext,
+    ) -> Poll<Option<Result<Task<Self::Compact, Self::Connection, Self::Id>, Self::Error>>> {
+        self.poll_next_unpin(cx).map_ok(|(line_id, mut job)| {
+            job.ctx.insert("line_id", line_id.to_string()).unwrap();
+            let mut task = TaskBuilder::new(job.args).with_metadata(job.ctx);
+
+            if let Some(task_id) = job.task_id {
+                task = task.task_id(task_id);
+            }
+            task.build()
+        })
+    }
+
+    fn poll_close(
+        &mut self,
+        _: &mut Context<'_>,
+        _: &WorkerContext,
+    ) -> Poll<Result<(), Self::Error>> {
+        self.flush()?;
+        Poll::Ready(Ok(()))
     }
 }
 
@@ -716,17 +716,15 @@ where
     }
 }
 
-impl<Res: 'static + DeserializeOwned + Send, Args: 'static + Sync, A> WaitForCompletion<Res>
-    for FileStorage<Args, A>
+impl<Args: 'static + Sync, A> WaitForCompletion for FileStorage<Args, A>
 where
     Args: Send + DeserializeOwned + 'static + Unpin + Serialize,
     A: Adapter + Unpin + Sync + Clone,
+    A::Error: std::error::Error + Send + Sync + 'static,
 {
-    type ResultStream = BoxStream<'static, Result<TaskResult<Res, RandomId>, FileStorageError<A>>>;
-    fn wait_for(
-        &self,
-        task_ids: impl IntoIterator<Item = TaskId<Self::IdType>>,
-    ) -> Self::ResultStream {
+    type ResultStream =
+        BoxStream<'static, Result<TaskResult<Value, RandomId>, FileStorageError<A>>>;
+    fn wait_for(&self, task_ids: impl IntoIterator<Item = TaskId<Self::Id>>) -> Self::ResultStream {
         use futures_util::StreamExt;
         use std::{collections::HashSet, time::Duration};
 
@@ -743,7 +741,7 @@ where
             poll_interval: Duration::from_millis(100),
             _phantom: std::marker::PhantomData,
         };
-        futures_util::stream::unfold(state, |mut state: PollState<Res, Args, A>| {
+        futures_util::stream::unfold(state, |mut state: PollState<Value, Args, A>| {
             async move {
                 if state.pending_tasks.is_empty() {
                     return None;
@@ -767,7 +765,7 @@ where
 
                     if let Some((task_id, result)) = completed_task {
                         state.pending_tasks.remove(&task_id);
-                        let result: Result<Res, String> = serde_json::from_value(result).unwrap();
+                        let result: Result<Value, String> = serde_json::from_value(result).unwrap();
                         return Some((
                             Ok(TaskResult {
                                 task_id,
@@ -788,8 +786,8 @@ where
 
     async fn check_status(
         &self,
-        task_ids: impl IntoIterator<Item = TaskId<Self::IdType>> + Send,
-    ) -> Result<Vec<TaskResult<Res, RandomId>>, Self::Error> {
+        task_ids: impl IntoIterator<Item = TaskId<Self::Id>> + Send,
+    ) -> Result<Vec<TaskResult<Value, RandomId>>, Self::Error> {
         use apalis_core::task::status::Status;
         use std::collections::HashSet;
         let task_ids: HashSet<_> = task_ids.into_iter().collect();
@@ -810,7 +808,7 @@ where
                     });
                     continue;
                 }
-                let result = match serde_json::from_value::<Result<Res, String>>(
+                let result = match serde_json::from_value::<Result<Value, String>>(
                     value.result.clone().unwrap(),
                 ) {
                     Ok(result) => TaskResult {

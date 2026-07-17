@@ -16,7 +16,7 @@ impl GenerateId for uuid::Uuid {
 #[cfg(feature = "ulid")]
 impl GenerateId for ulid::Ulid {
     fn generate() -> Self {
-        Self::new()
+        Self::r#gen()
     }
 }
 

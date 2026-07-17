@@ -43,11 +43,11 @@ impl Default for ContextualTaskSpan {
     }
 }
 
-impl<Args, Conn, IdType> MakeSpan<Args, Conn, IdType> for ContextualTaskSpan
+impl<Args, Conn, Id> MakeSpan<Args, Conn, Id> for ContextualTaskSpan
 where
-    IdType: Display,
+    Id: Display,
 {
-    fn make_span(&mut self, req: &Task<Args, Conn, IdType>) -> Span {
+    fn make_span(&mut self, req: &Task<Args, Conn, Id>) -> Span {
         let task_id = req
             .ctx
             .task_id

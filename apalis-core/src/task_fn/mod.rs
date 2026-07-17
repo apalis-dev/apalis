@@ -134,14 +134,14 @@ type FnFuture<F, O, R, E> = Map<F, fn(O) -> std::result::Result<R, E>>;
 macro_rules! impl_service_fn {
     ($($K:ident),+) => {
         #[allow(unused_parens)]
-        impl<T, F, Args: Send + 'static, R, Conn: Send + Sync + 'static, IdType: Send + Sync + 'static, $($K),+> Service<Task<Args, Conn, IdType>> for TaskFn<T, Args, Conn, ($($K),+)>
+        impl<T, F, Args: Send + 'static, R, Conn: Send + Sync + 'static, Id: Send + Sync + 'static, $($K),+> Service<Task<Args, Conn, Id>> for TaskFn<T, Args, Conn, ($($K),+)>
         where
             T: FnMut(Args, $($K),+) -> F + Send + Clone + 'static,
             F: Future + Send,
             F::Output: IntoResponse<Output = R>,
             $(
-                $K: FromRequest<Task<Args, Conn, IdType>> + Send,
-                < $K as FromRequest<Task<Args, Conn, IdType>> >::Error: std::error::Error + 'static + Send + Sync,
+                $K: FromRequest<Task<Args, Conn, Id>> + Send,
+                < $K as FromRequest<Task<Args, Conn, Id>> >::Error: std::error::Error + 'static + Send + Sync,
             )+
         {
             type Response = R;
@@ -152,7 +152,7 @@ macro_rules! impl_service_fn {
                 Poll::Ready(Ok(()))
             }
 
-            fn call(&mut self, task: Task<Args, Conn, IdType>) -> Self::Future {
+            fn call(&mut self, task: Task<Args, Conn, Id>) -> Self::Future {
                 let mut svc = self.f.clone();
                 #[allow(non_snake_case)]
                 let fut = async move {
@@ -179,11 +179,11 @@ macro_rules! impl_service_fn {
             F: Future + Send,
             Args: Send + 'static,
             Conn: Send + Sync + 'static,
-            B::IdType: Send + Sync + 'static,
+            B::Id: Send + Sync + 'static,
             F::Output: IntoResponse<Output = R>,
             $(
-                $K: FromRequest<Task<Args, Conn, B::IdType>> + Send,
-                < $K as FromRequest<Task<Args, Conn, B::IdType>> >::Error: std::error::Error + 'static + Send + Sync,
+                $K: FromRequest<Task<Args, Conn, B::Id>> + Send,
+                < $K as FromRequest<Task<Args, Conn, B::Id>> >::Error: std::error::Error + 'static + Send + Sync,
             )+
         {
             type Backend = B;
@@ -197,7 +197,7 @@ macro_rules! impl_service_fn {
     };
 }
 
-impl<T, F, Args, R, Conn, IdType> Service<Task<Args, Conn, IdType>> for TaskFn<T, Args, Conn, ()>
+impl<T, F, Args, R, Conn, Id> Service<Task<Args, Conn, Id>> for TaskFn<T, Args, Conn, ()>
 where
     T: FnMut(Args) -> F,
     F: Future,
@@ -211,7 +211,7 @@ where
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, task: Task<Args, Conn, IdType>) -> Self::Future {
+    fn call(&mut self, task: Task<Args, Conn, Id>) -> Self::Future {
         let fut = (self.f)(task.args);
 
         fut.map(F::Output::into_response)
@@ -238,7 +238,7 @@ where
 
 impl<Args, Conn, S, B> IntoWorkerService<B, S, Args, Conn> for S
 where
-    S: Service<Task<Args, Conn, B::IdType>>,
+    S: Service<Task<Args, Conn, B::Id>>,
     B: Backend<Args = Args, Connection = Conn>,
 {
     type Backend = B;

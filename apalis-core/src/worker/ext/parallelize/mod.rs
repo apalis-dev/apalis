@@ -76,10 +76,10 @@ pub struct ParallelizeService<S, Executor> {
     executor: Executor,
 }
 
-impl<S, Args, Conn, IdType, Fut, T, Executor, ExecErr> Service<Task<Args, Conn, IdType>>
+impl<S, Args, Conn, Id, Fut, T, Executor, ExecErr> Service<Task<Args, Conn, Id>>
     for ParallelizeService<S, Executor>
 where
-    S: Service<Task<Args, Conn, IdType>, Future = Fut>,
+    S: Service<Task<Args, Conn, Id>, Future = Fut>,
     Executor: Fn(Fut) -> T + Send + 'static,
     Fut: Future<Output = Result<S::Response, S::Error>> + Send + 'static,
     T: Future<Output = Result<Result<S::Response, S::Error>, ExecErr>> + Send + 'static,
@@ -98,7 +98,7 @@ where
         self.service.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, request: Task<Args, Conn, IdType>) -> Self::Future {
+    fn call(&mut self, request: Task<Args, Conn, Id>) -> Self::Future {
         (self.executor)(self.service.call(request))
             .map_err(|e| e.into())
             .and_then(|s| ready(s.map_err(|e| e.into())))

@@ -296,24 +296,24 @@ pub trait Metadata: Sized {
     fn inject(&self, map: &mut MetadataStore) -> Result<(), Self::Error>;
 }
 
-impl<T: Metadata, Args: Send + Sync, Conn: Send + Sync, IdType: Send + Sync>
-    FromRequest<Task<Args, Conn, IdType>> for Meta<T>
+impl<T: Metadata, Args: Send + Sync, Conn: Send + Sync, Id: Send + Sync>
+    FromRequest<Task<Args, Conn, Id>> for Meta<T>
 {
     type Error = T::Error;
 
-    async fn from_request(task: &Task<Args, Conn, IdType>) -> Result<Self, Self::Error> {
+    async fn from_request(task: &Task<Args, Conn, Id>) -> Result<Self, Self::Error> {
         let metadata = &task.ctx.metadata;
         let value = T::extract(metadata)?;
         Ok(Self(value))
     }
 }
 
-impl<Args: Send + Sync, Conn: Send + Sync, IdType: Send + Sync>
-    FromRequest<Task<Args, Conn, IdType>> for MetadataStore
+impl<Args: Send + Sync, Conn: Send + Sync, Id: Send + Sync> FromRequest<Task<Args, Conn, Id>>
+    for MetadataStore
 {
     type Error = Infallible;
 
-    async fn from_request(task: &Task<Args, Conn, IdType>) -> Result<Self, Self::Error> {
+    async fn from_request(task: &Task<Args, Conn, Id>) -> Result<Self, Self::Error> {
         Ok(task.ctx.metadata.clone())
     }
 }
@@ -545,10 +545,10 @@ mod tests {
         }
     }
 
-    impl<S, Args: Send + Sync + 'static, Conn: Send + Sync + 'static, IdType: Send + Sync + 'static>
-        Service<Task<Args, Conn, IdType>> for ExampleService<S>
+    impl<S, Args: Send + Sync + 'static, Conn: Send + Sync + 'static, Id: Send + Sync + 'static>
+        Service<Task<Args, Conn, Id>> for ExampleService<S>
     where
-        S: Service<Task<Args, Conn, IdType>> + Clone + Send + 'static,
+        S: Service<Task<Args, Conn, Id>> + Clone + Send + 'static,
         Conn: Send,
         S::Future: Send + 'static,
     {
@@ -560,7 +560,7 @@ mod tests {
             self.service.poll_ready(cx)
         }
 
-        fn call(&mut self, request: Task<Args, Conn, IdType>) -> Self::Future {
+        fn call(&mut self, request: Task<Args, Conn, Id>) -> Self::Future {
             let mut svc = self.service.clone();
 
             // Do something with config

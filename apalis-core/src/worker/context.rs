@@ -78,6 +78,7 @@ use crate::{
 pub struct WorkerContext {
     pub(super) name: Arc<String>,
     task_count: Arc<AtomicUsize>,
+    /// The waker used to wake the worker when tasks complete or shutdown is triggered.
     waker: Arc<Mutex<Option<Waker>>>,
     state: Arc<WorkerState>,
     pub(crate) shutdown: Option<Shutdown>,
@@ -160,7 +161,6 @@ impl WorkerContext {
         self.state
             .store(InnerWorkerState::Running, Ordering::SeqCst);
         self.is_ready.store(false, Ordering::SeqCst);
-        self.emit(&Event::Start);
         info!("Worker {} started", self.name());
         Ok(())
     }
@@ -296,25 +296,18 @@ impl WorkerContext {
         self.event_handler = Arc::new(new);
     }
 
-    pub(crate) fn add_waker(&self, cx: &Context<'_>) {
-        if let Ok(mut waker_guard) = self.waker.lock() {
-            if waker_guard
+    /// Register the current waker for the worker
+    ///
+    /// This is used to wake the worker when tasks complete or shutdown is triggered.
+    pub(crate) fn register_waker(&self, cx: &Context<'_>) {
+        if let Ok(mut guard) = self.waker.lock() {
+            if guard
                 .as_ref()
-                .is_none_or(|stored_waker| !stored_waker.will_wake(cx.waker()))
+                .is_none_or(|stored| !stored.will_wake(cx.waker()))
             {
-                *waker_guard = Some(cx.waker().clone());
+                *guard = Some(cx.waker().clone());
             }
         }
-    }
-
-    /// Checks if the stored waker matches the current one.
-    fn has_recent_waker(&self, cx: &Context<'_>) -> bool {
-        if let Ok(waker_guard) = self.waker.lock() {
-            if let Some(stored_waker) = &*waker_guard {
-                return stored_waker.will_wake(cx.waker());
-            }
-        }
-        false
     }
 
     fn start_task(&self) {
@@ -336,31 +329,54 @@ impl WorkerContext {
     }
 }
 
-impl Future for WorkerContext {
+/// Internal handle used to await worker shutdown completion.
+///
+/// This owns the `Future` impl that used to live on `WorkerContext` directly.
+/// `WorkerContext` itself is `Clone` and handed out freely to backends,
+/// middleware, and user code — it deliberately does NOT implement `Future`,
+/// so nothing outside this module can accidentally spawn a second task
+/// awaiting worker completion with its own independent waker. Only
+/// `stream_with_ctx`'s single unified `stream_select!` loop drives shutdown
+/// awaiting, via this private handle.
+pub(super) struct WorkerHandle {
+    inner: WorkerContext,
+}
+
+impl WorkerHandle {
+    pub(super) fn new(ctx: WorkerContext) -> Self {
+        Self { inner: ctx }
+    }
+}
+
+impl Future for WorkerHandle {
     type Output = Result<(), WorkerError>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let task_count = self.task_count.load(Ordering::Relaxed);
-        let state = self.state.load(Ordering::SeqCst);
+        let this = &self.inner;
+        let task_count = this.task_count.load(Ordering::Relaxed);
+        let state = this.state.load(Ordering::SeqCst);
+
         if state == InnerWorkerState::Pending {
             return Poll::Ready(Err(WorkerError::StateError(WorkerStateError::NotStarted)));
         }
-        if self.is_shutting_down() && task_count == 0 {
+        if this.is_shutting_down() && task_count == 0 {
             Poll::Ready(Ok(()))
         } else {
-            if !self.has_recent_waker(cx) {
-                self.add_waker(cx);
-            }
+            // Same single shared waker slot as before — sound here because
+            // this is the only place in the codebase that ever polls a
+            // worker-completion future or drives backend polling for this
+            // worker; both live under the one stream_select! task below.
+            this.register_waker(cx);
             Poll::Pending
         }
     }
 }
 
-impl<Args: Sync, Conn: Send + Sync, IdType: Sync + Send> FromRequest<Task<Args, Conn, IdType>>
+impl<Args: Sync, Conn: Send + Sync, Id: Sync + Send> FromRequest<Task<Args, Conn, Id>>
     for WorkerContext
 {
     type Error = MissingDataError;
-    async fn from_request(task: &Task<Args, Conn, IdType>) -> Result<Self, Self::Error> {
+    async fn from_request(task: &Task<Args, Conn, Id>) -> Result<Self, Self::Error> {
         task.ctx.data.get_checked().cloned()
     }
 }

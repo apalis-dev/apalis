@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use crate::{
-    backend::{Backend, BackendExt, TaskSink},
+    backend::{Backend, TaskSink},
     task::{Task, status::Status},
 };
 
@@ -43,18 +43,18 @@ pub trait ListTasks<Args>: Backend {
     fn list_tasks(
         &self,
         filter: &Filter,
-    ) -> impl Future<Output = Result<Vec<Task<Args, Self::Connection, Self::IdType>>, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<Vec<Task<Args, Self::Connection, Self::Id>>, Self::Error>> + Send;
 }
 
 /// Allows listing tasks across all queues with optional filtering
-pub trait ListAllTasks: BackendExt {
+pub trait ListAllTasks: Backend {
     /// List tasks matching the given filter in all queues
     #[allow(clippy::type_complexity)]
     fn list_all_tasks(
         &self,
         filter: &Filter,
     ) -> impl Future<
-        Output = Result<Vec<Task<Self::Compact, Self::Connection, Self::IdType>>, Self::Error>,
+        Output = Result<Vec<Task<Self::Compact, Self::Connection, Self::Id>>, Self::Error>,
     > + Send;
 }
 

@@ -19,12 +19,12 @@ pub enum BincodeCodecError {
 impl<T: Encode + Decode<()>> Codec<T> for BincodeCodec {
     type Compact = Vec<u8>;
     type Error = BincodeCodecError;
-    fn encode(input: &T) -> Result<Vec<u8>, Self::Error> {
+    fn encode(&self, input: &T) -> Result<Vec<u8>, Self::Error> {
         let config = bincode::config::standard();
         Ok(bincode::encode_to_vec(input, config)?)
     }
 
-    fn decode(compact: &Vec<u8>) -> Result<T, Self::Error> {
+    fn decode(&self, compact: &Vec<u8>) -> Result<T, Self::Error> {
         let config = bincode::config::standard();
         Ok(bincode::decode_from_slice(compact, config)?.0)
     }
@@ -46,8 +46,8 @@ mod tests {
             name: "test".to_string(),
         };
 
-        let encoded = BincodeCodec::encode(&original).expect("encoding failed");
-        let decoded: TestData = BincodeCodec::decode(&encoded).expect("decoding failed");
+        let encoded = BincodeCodec.encode(&original).expect("encoding failed");
+        let decoded: TestData = BincodeCodec.decode(&encoded).expect("decoding failed");
 
         assert_eq!(original, decoded);
     }

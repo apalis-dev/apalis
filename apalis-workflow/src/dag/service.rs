@@ -1,4 +1,4 @@
-use apalis_core::backend::BackendExt;
+use apalis_core::backend::Backend;
 use apalis_core::backend::codec::Codec;
 use apalis_core::task::builder::TaskBuilder;
 use apalis_core::task::metadata::Meta;
@@ -28,15 +28,14 @@ use crate::id_generator::GenerateId;
 /// Service that manages the execution of a DAG workflow
 pub struct RootDagService<B>
 where
-    B: BackendExt,
+    B: Backend,
 {
     executor: DagExecutor<B>,
-    backend: B,
 }
 
 impl<B> std::fmt::Debug for RootDagService<B>
 where
-    B: BackendExt,
+    B: Backend,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RootDagService")
@@ -48,21 +47,20 @@ where
 
 impl<B> RootDagService<B>
 where
-    B: BackendExt,
+    B: Backend,
 {
-    pub(crate) fn new(executor: DagExecutor<B>, backend: B) -> Self {
-        Self { executor, backend }
+    pub(crate) fn new(executor: DagExecutor<B>) -> Self {
+        Self { executor }
     }
 }
 
 impl<B> Clone for RootDagService<B>
 where
-    B: BackendExt + Clone,
+    B: Backend + Clone,
 {
     fn clone(&self) -> Self {
         Self {
             executor: self.executor.clone(),
-            backend: self.backend.clone(),
         }
     }
 }
@@ -75,27 +73,28 @@ fn find_designated_fan_in_handler(
     designated_handler.ok_or(DagFlowError::Service(DagServiceError::MissingFaninHandler))
 }
 
-impl<B, Err, CdcErr, IdType> Service<Task<B::Compact, B::Connection, B::IdType>>
-    for RootDagService<B>
+impl<B, Err, CdcErr, Id, Compact> Service<Task<Compact, B::Connection, B::Id>> for RootDagService<B>
 where
-    B: BackendExt<Error = Err, IdType = IdType>
+    B: Backend<Error = Err, Id = Id, Compact = Compact>
         + Send
         + Sync
         + 'static
         + Clone
-        + WaitForCompletion<DagExecutionResponse<B::Compact, IdType>>,
-    IdType: GenerateId + Send + Sync + 'static + PartialEq + Debug + Clone + FromStr + Display,
-    B::Compact: Send + Sync + 'static + Clone,
+        + WaitForCompletion,
+    Id: GenerateId + Send + Sync + 'static + PartialEq + Debug + Clone + FromStr + Display,
+    Compact: Send + Sync + 'static + Clone,
     B::Connection: Send + Sync + Default + 'static,
     Err: std::error::Error + Send + Sync + 'static,
-    B: Sink<Task<B::Compact, B::Connection, B::IdType>, Error = Err> + Unpin,
-    B::Codec: Codec<Vec<B::Compact>, Compact = B::Compact, Error = CdcErr>
+    B: Sink<Task<B::Compact, B::Connection, B::Id>, Error = Err> + Unpin,
+    B::Codec: Codec<Vec<Compact>, Compact = Compact, Error = CdcErr>
+        + Send
+        + Clone
         + 'static
-        + Codec<DagExecutionResponse<B::Compact, B::IdType>, Compact = B::Compact, Error = CdcErr>,
+        + Codec<DagExecutionResponse<B::Compact, B::Id>, Compact = B::Compact, Error = CdcErr>,
     CdcErr: Into<BoxDynError>,
-    <IdType as FromStr>::Err: std::error::Error + Send + Sync + 'static,
+    <Id as FromStr>::Err: std::error::Error + Send + Sync + 'static,
 {
-    type Response = DagExecutionResponse<B::Compact, B::IdType>;
+    type Response = DagExecutionResponse<B::Compact, B::Id>;
     type Error = DagFlowError;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
@@ -106,13 +105,19 @@ where
         self.executor.poll_ready(cx)
     }
 
-    fn call(&mut self, mut req: Task<B::Compact, B::Connection, B::IdType>) -> Self::Future {
+    fn call(&mut self, req: Task<B::Compact, B::Connection, B::Id>) -> Self::Future {
         let mut executor = self.executor.clone();
-        let mut backend = self.backend.clone();
+        let codec = executor.backend.codec().clone();
         let start_nodes = executor.start_nodes.clone();
         let end_nodes = executor.end_nodes.clone();
+
+        let mut task = req.into_builder();
+        task.ctx.data.insert(executor.clone()); // Inject executor
+
+        let mut req = task.build();
+
         async move {
-            let ctx = req.extract::<Meta<DagFlowContext<B::IdType>>>().await;
+            let ctx = req.extract::<Meta<DagFlowContext<B::Id>>>().await;
             let (response, context) = if let Ok(Meta(context)) = ctx {
                 #[cfg(feature = "tracing")]
                 tracing::debug!(
@@ -160,7 +165,8 @@ where
                             });
                         }
 
-                        let results = backend
+                        let results = executor
+                            .backend
                             .wait_for(dependency_task_ids.values().cloned().collect::<Vec<_>>())
                             .collect::<Vec<_>>()
                             .await
@@ -206,27 +212,32 @@ where
                             let res = sorted_results
                                 .iter()
                                 .map(|s| match &s.result {
-                                    Ok(val) => match val {
-                                        DagExecutionResponse::FanOut { response, .. } => {
-                                            Ok(response.clone())
+                                    Ok(val) => {
+                                        let res = codec.decode(val).map_err(|e: CdcErr| {
+                                            DagServiceError::Codec(e.into())
+                                        })?;
+                                        match res {
+                                            DagExecutionResponse::FanOut { response, .. } => {
+                                                Ok(response)
+                                            }
+                                            DagExecutionResponse::EnqueuedNext { result }
+                                            | DagExecutionResponse::Complete { result } => {
+                                                Ok(result)
+                                            }
+                                            _ => Err(DagFlowError::Service(
+                                                DagServiceError::InvalidFanInDependencyResult,
+                                            )),
                                         }
-                                        DagExecutionResponse::EnqueuedNext { result }
-                                        | DagExecutionResponse::Complete { result } => {
-                                            Ok(result.clone())
-                                        }
-                                        _ => Err(DagFlowError::Service(
-                                            DagServiceError::InvalidFanInDependencyResult,
-                                        )),
-                                    },
+                                    }
                                     Err(e) => Err(DagFlowError::Service(
                                         DagServiceError::DependencyTaskFailed(e.as_str().into()),
                                     )),
                                 })
                                 .collect::<Result<Vec<_>, _>>()?;
-                            let encoded_input = B::Codec::encode(&res)
+                            let encoded_input = B::Codec::encode(&codec, &res)
                                 .map_err(|e| DagFlowError::Codec(e.into()))?;
 
-                            let req = req.into_builder().map(|_| encoded_input).build(); // Replace args with fan-in input
+                            let req = req.map_args(|_| encoded_input); // Replace args with fan-in input
                             let response = executor.call(req).await?;
                             (response, context)
                         } else {
@@ -257,7 +268,6 @@ where
                 } else {
                     let new_node_task_ids = fan_out_entry_nodes(
                         &executor,
-                        &backend,
                         &DagFlowContext::new(req.ctx.task_id.clone()),
                         &req.args,
                     )
@@ -294,10 +304,11 @@ where
                     new_context.is_initial = false;
 
                     let task = TaskBuilder::new(response.clone())
-                        .task_id(TaskId::new(B::IdType::generate()))
+                        .task_id(TaskId::new(B::Id::generate()))
                         .metadata(&new_context)
                         .build();
-                    backend
+                    executor
+                        .backend
                         .send(task)
                         .await
                         .map_err(|e| DagFlowError::Backend(e.into()))?;
@@ -309,14 +320,9 @@ where
                     new_context.current_position += 1;
                     new_context.is_initial = false;
 
-                    let next_task_ids = fan_out_next_nodes(
-                        &executor,
-                        outgoing_nodes,
-                        &backend,
-                        &new_context,
-                        &response,
-                    )
-                    .await?;
+                    let next_task_ids =
+                        fan_out_next_nodes(&executor, outgoing_nodes, &new_context, &response)
+                            .await?;
                     return Ok(DagExecutionResponse::FanOut {
                         response,
                         node_task_ids: next_task_ids,
@@ -330,29 +336,28 @@ where
 }
 
 async fn fan_out_next_nodes<B, Err, CdcErr>(
-    _executor: &DagExecutor<B>,
+    executor: &DagExecutor<B>,
     outgoing_nodes: Vec<NodeIndex>,
-    backend: &B,
-    context: &DagFlowContext<B::IdType>,
+    context: &DagFlowContext<B::Id>,
     input: &B::Compact,
-) -> Result<HashMap<NodeIndex, TaskId<B::IdType>>, DagFlowError>
+) -> Result<HashMap<NodeIndex, TaskId<B::Id>>, DagFlowError>
 where
-    B::IdType: GenerateId + Send + Sync + 'static + PartialEq,
+    B::Id: GenerateId + Send + Sync + 'static + PartialEq,
     B::Compact: Send + Sync + 'static + Clone,
     B::Connection: Send + Sync + Default + 'static,
-    B: Sink<Task<B::Compact, B::Connection, B::IdType>, Error = Err> + Unpin,
+    B: Sink<Task<B::Compact, B::Connection, B::Id>, Error = Err> + Unpin,
     Err: std::error::Error + Send + Sync + 'static,
-    B: BackendExt<Error = Err> + Send + Sync + 'static + Clone,
+    B: Backend<Error = Err> + Send + Sync + 'static + Clone,
     B::Codec: Codec<Vec<B::Compact>, Compact = B::Compact, Error = CdcErr>,
     CdcErr: Into<BoxDynError>,
-    B::IdType: FromStr + Display,
-    <B::IdType as FromStr>::Err: std::error::Error + Send + Sync + 'static,
+    B::Id: FromStr + Display,
+    <B::Id as FromStr>::Err: std::error::Error + Send + Sync + 'static,
 {
     let mut enqueue_futures = vec![];
     let next_nodes = outgoing_nodes
         .iter()
-        .map(|node| (*node, TaskId::new(B::IdType::generate())))
-        .collect::<HashMap<NodeIndex, TaskId<B::IdType>>>();
+        .map(|node| (*node, TaskId::new(B::Id::generate())))
+        .collect::<HashMap<NodeIndex, TaskId<B::Id>>>();
     let mut node_task_ids = next_nodes.clone();
     node_task_ids.extend(context.node_task_ids.clone());
     for outgoing_node in outgoing_nodes.into_iter() {
@@ -372,7 +377,7 @@ where
                 root_task_id: context.root_task_id.clone(),
             })
             .build();
-        let mut b = backend.clone();
+        let mut b = executor.backend.clone();
         enqueue_futures.push(
             async move {
                 b.send(task)
@@ -389,24 +394,24 @@ where
 
 async fn fan_out_entry_nodes<B, Err, CdcErr>(
     executor: &DagExecutor<B>,
-    backend: &B,
-    context: &DagFlowContext<B::IdType>,
+    context: &DagFlowContext<B::Id>,
     input: &B::Compact,
-) -> Result<HashMap<NodeIndex, TaskId<B::IdType>>, DagFlowError>
+) -> Result<HashMap<NodeIndex, TaskId<B::Id>>, DagFlowError>
 where
-    B::IdType: GenerateId + Send + Sync + 'static + PartialEq + Debug,
+    B::Id: GenerateId + Send + Sync + 'static + PartialEq + Debug,
     B::Compact: Send + Sync + 'static + Clone,
     B::Connection: Send + Sync + Default + 'static,
-    B: Sink<Task<B::Compact, B::Connection, B::IdType>, Error = Err> + Unpin,
+    B: Sink<Task<B::Compact, B::Connection, B::Id>, Error = Err> + Unpin,
     Err: std::error::Error + Send + Sync + 'static,
-    B: BackendExt<Error = Err> + Send + Sync + 'static + Clone,
-    B::Codec: Codec<Vec<B::Compact>, Compact = B::Compact, Error = CdcErr>,
+    B: Backend<Error = Err> + Send + Sync + 'static + Clone,
+    B::Codec: Codec<Vec<B::Compact>, Compact = B::Compact, Error = CdcErr> + Clone,
     CdcErr: Into<BoxDynError>,
-    B::IdType: FromStr + Display,
-    <B::IdType as FromStr>::Err: std::error::Error + Send + Sync + 'static,
+    B::Id: FromStr + Display,
+    <B::Id as FromStr>::Err: std::error::Error + Send + Sync + 'static,
 {
+    let codec = executor.backend.codec().clone();
     let values: Vec<B::Compact> =
-        B::Codec::decode(input).map_err(|e: CdcErr| DagFlowError::Codec(e.into()))?;
+        B::Codec::decode(&codec, input).map_err(|e: CdcErr| DagFlowError::Codec(e.into()))?;
     let start_nodes = executor.start_nodes.clone();
     if values.len() != start_nodes.len() {
         return Err(DagFlowError::InputCountMismatch {
@@ -417,8 +422,8 @@ where
     let mut enqueue_futures = vec![];
     let next_nodes = start_nodes
         .iter()
-        .map(|node| (*node, TaskId::new(B::IdType::generate())))
-        .collect::<HashMap<NodeIndex, TaskId<B::IdType>>>();
+        .map(|node| (*node, TaskId::new(B::Id::generate())))
+        .collect::<HashMap<NodeIndex, TaskId<B::Id>>>();
     let mut node_task_ids = next_nodes.clone();
     node_task_ids.extend(context.node_task_ids.clone());
     for (outgoing_node, input) in start_nodes.into_iter().zip(values) {
@@ -437,7 +442,7 @@ where
                 root_task_id: context.root_task_id.clone(),
             })
             .build();
-        let mut b = backend.clone();
+        let mut b = executor.backend.clone();
         enqueue_futures.push(
             async move {
                 b.send(task)

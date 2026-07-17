@@ -198,7 +198,7 @@ where
     /// Consumes the builder and a service to construct the final worker
     pub fn build<W, Svc>(self, service: W) -> Worker<Args, Conn, W::Backend, Svc, M>
     where
-        Svc: Service<Task<Args, Conn, B::IdType>>,
+        Svc: Service<Task<Args, Conn, B::Id>>,
         W: IntoWorkerServiceExt<Args, Conn, Svc, B, M>,
     {
         service.build_with(self)
@@ -218,7 +218,7 @@ pub struct WorkerService<Backend, Svc> {
 pub trait IntoWorkerService<B, Svc, Args, Conn>
 where
     B: crate::backend::Backend<Args = Args, Connection = Conn>,
-    Svc: Service<Task<Args, Conn, B::IdType>>,
+    Svc: Service<Task<Args, Conn, B::Id>>,
 {
     /// The backend type for the worker
     type Backend;
@@ -230,7 +230,7 @@ where
 pub trait IntoWorkerServiceExt<Args, Conn, Svc, Backend, M>: Sized
 where
     Backend: crate::backend::Backend<Args = Args, Connection = Conn>,
-    Svc: Service<Task<Args, Conn, Backend::IdType>>,
+    Svc: Service<Task<Args, Conn, Backend::Id>>,
     Self: IntoWorkerService<Backend, Svc, Args, Conn>,
 {
     /// Consumes the builder and returns a worker
@@ -248,7 +248,7 @@ impl<T, Args, Conn, Svc, B, M> IntoWorkerServiceExt<Args, Conn, Svc, B, M> for T
 where
     T: IntoWorkerService<B, Svc, Args, Conn>,
     B: Backend<Args = Args, Connection = Conn>,
-    Svc: Service<Task<Args, Conn, B::IdType>>,
+    Svc: Service<Task<Args, Conn, B::Id>>,
 {
     fn build_with(
         self,
@@ -288,11 +288,11 @@ pub mod task_fn_validator {
                 #[doc = concat!("A helper for checking that the builder can build a worker with the provided service (", stringify!($num), " arguments)")]
                 pub fn $num<
                     F, B, Args, Conn,
-                    $($arg: FromRequest<Task<Args, Conn, B::IdType>>),+
+                    $($arg: FromRequest<Task<Args, Conn, B::Id>>),+
                 >(
                     _: F,
                 ) where
-                    TaskFn<F, Args, Conn, ($($arg,)+)>: Service<Task<Args, Conn, B::IdType>>,
+                    TaskFn<F, Args, Conn, ($($arg,)+)>: Service<Task<Args, Conn, B::Id>>,
                     B: Backend<Args = Args>
                 {
                 }

@@ -64,9 +64,9 @@ pub struct EventListenerService<S> {
     service: S,
 }
 
-impl<S, Args, Conn, IdType> Service<Task<Args, Conn, IdType>> for EventListenerService<S>
+impl<S, Args, Conn, Id> Service<Task<Args, Conn, Id>> for EventListenerService<S>
 where
-    S: Service<Task<Args, Conn, IdType>>,
+    S: Service<Task<Args, Conn, Id>>,
 {
     type Response = S::Response;
     type Error = S::Error;
@@ -79,7 +79,7 @@ where
         self.service.poll_ready(cx)
     }
 
-    fn call(&mut self, request: Task<Args, Conn, IdType>) -> Self::Future {
+    fn call(&mut self, request: Task<Args, Conn, Id>) -> Self::Future {
         self.service.call(request)
     }
 }

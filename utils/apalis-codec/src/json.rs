@@ -13,11 +13,11 @@ pub struct JsonCodec<Output> {
 impl<T: Serialize + for<'de> Deserialize<'de>> Codec<T> for JsonCodec<Vec<u8>> {
     type Compact = Vec<u8>;
     type Error = serde_json::Error;
-    fn encode(input: &T) -> Result<Vec<u8>, Self::Error> {
+    fn encode(&self, input: &T) -> Result<Vec<u8>, Self::Error> {
         serde_json::to_vec(input)
     }
 
-    fn decode(compact: &Vec<u8>) -> Result<T, Self::Error> {
+    fn decode(&self, compact: &Vec<u8>) -> Result<T, Self::Error> {
         serde_json::from_slice(compact)
     }
 }
@@ -25,10 +25,10 @@ impl<T: Serialize + for<'de> Deserialize<'de>> Codec<T> for JsonCodec<Vec<u8>> {
 impl<T: Serialize + for<'de> Deserialize<'de>> Codec<T> for JsonCodec<String> {
     type Compact = String;
     type Error = serde_json::Error;
-    fn encode(input: &T) -> Result<String, Self::Error> {
+    fn encode(&self, input: &T) -> Result<String, Self::Error> {
         serde_json::to_string(input)
     }
-    fn decode(compact: &String) -> Result<T, Self::Error> {
+    fn decode(&self, compact: &String) -> Result<T, Self::Error> {
         serde_json::from_str(compact)
     }
 }
@@ -36,11 +36,11 @@ impl<T: Serialize + for<'de> Deserialize<'de>> Codec<T> for JsonCodec<String> {
 impl<T: Serialize + for<'de> Deserialize<'de>> Codec<T> for JsonCodec<Value> {
     type Compact = Value;
     type Error = serde_json::Error;
-    fn encode(input: &T) -> Result<Value, Self::Error> {
+    fn encode(&self, input: &T) -> Result<Value, Self::Error> {
         serde_json::to_value(input)
     }
 
-    fn decode(compact: &Value) -> Result<T, Self::Error> {
+    fn decode(&self, compact: &Value) -> Result<T, Self::Error> {
         T::deserialize(compact)
     }
 }
@@ -61,8 +61,9 @@ mod tests {
             id: 1,
             name: "Test".to_string(),
         };
-        let encoded = JsonCodec::<Vec<u8>>::encode(&original).unwrap();
-        let decoded: TestStruct = JsonCodec::<Vec<u8>>::decode(&encoded).unwrap();
+        let codec = JsonCodec::<Vec<u8>>::default();
+        let encoded = codec.encode(&original).unwrap();
+        let decoded: TestStruct = codec.decode(&encoded).unwrap();
         assert_eq!(original, decoded);
     }
 
@@ -72,8 +73,9 @@ mod tests {
             id: 2,
             name: "Example".to_string(),
         };
-        let encoded = JsonCodec::<String>::encode(&original).unwrap();
-        let decoded: TestStruct = JsonCodec::<String>::decode(&encoded).unwrap();
+        let codec = JsonCodec::<String>::default();
+        let encoded = codec.encode(&original).unwrap();
+        let decoded: TestStruct = codec.decode(&encoded).unwrap();
         assert_eq!(original, decoded);
     }
 
@@ -83,8 +85,9 @@ mod tests {
             id: 3,
             name: "Sample".to_string(),
         };
-        let encoded = JsonCodec::<Value>::encode(&original).unwrap();
-        let decoded: TestStruct = JsonCodec::<Value>::decode(&encoded).unwrap();
+        let codec = JsonCodec::<Value>::default();
+        let encoded = codec.encode(&original).unwrap();
+        let decoded: TestStruct = codec.decode(&encoded).unwrap();
         assert_eq!(original, decoded);
     }
 }

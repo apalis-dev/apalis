@@ -1,7 +1,7 @@
 use std::{marker::PhantomData, task::Context};
 
 use apalis_core::{
-    backend::{BackendExt, TaskSinkError, codec::Codec},
+    backend::{Backend, TaskSinkError, codec::Codec},
     error::BoxDynError,
     task::{
         Task,
@@ -46,7 +46,7 @@ where
         }
     }
 }
-impl<Start, C, L, I: IntoIterator<Item = C>, B: BackendExt> Workflow<Start, I, B, L> {
+impl<Start, C, L, I: IntoIterator<Item = C>, B: Backend> Workflow<Start, I, B, L> {
     /// Folds over a collection of items in the workflow.
     pub fn fold<F, Output, FnArgs, Init>(
         self,
@@ -54,7 +54,7 @@ impl<Start, C, L, I: IntoIterator<Item = C>, B: BackendExt> Workflow<Start, I, B
     ) -> Workflow<Start, Output, B, Stack<Fold<TaskFn<F, (Init, C), B::Connection, FnArgs>, Init>, L>>
     where
         TaskFn<F, (Init, C), B::Connection, FnArgs>:
-            Service<Task<(Init, C), B::Connection, B::IdType>, Response = Output>,
+            Service<Task<(Init, C), B::Connection, B::Id>, Response = Output>,
     {
         self.add_step(Fold {
             fold: task_fn(fold),
@@ -74,17 +74,17 @@ pub struct FoldStep<S, F, Init> {
 impl<S, F, Input, I: IntoIterator<Item = Input>, Init, B, Err, CodecError> Step<I, B>
     for FoldStep<S, F, Init>
 where
-    F: Service<Task<(Init, Input), B::Connection, B::IdType>, Response = Init>
+    F: Service<Task<(Init, Input), B::Connection, B::Id>, Response = Init>
         + Send
         + Sync
         + 'static
         + Clone,
     S: Step<Init, B>,
-    B: BackendExt<Error = Err>
+    B: Backend<Error = Err>
         + Send
         + Sync
         + Clone
-        + Sink<Task<B::Compact, B::Connection, B::IdType>, Error = Err>
+        + Sink<Task<B::Compact, B::Connection, B::Id>, Error = Err>
         + Unpin
         + 'static,
     I: IntoIterator<Item = Input> + Send + Sync + 'static,
@@ -93,8 +93,10 @@ where
         + Codec<Init, Error = CodecError, Compact = B::Compact>
         + Codec<I, Error = CodecError, Compact = B::Compact>
         + Codec<(Init, Input), Error = CodecError, Compact = B::Compact>
+        + Send
+        + Clone
         + 'static,
-    B::IdType: GenerateId + Sync + Send + 'static + Clone,
+    B::Id: GenerateId + Sync + Send + 'static + Clone,
     Init: Default + Send + Sync + 'static,
     Err: std::error::Error + Send + Sync + 'static,
     CodecError: std::error::Error + Send + Sync + 'static,
@@ -142,18 +144,15 @@ impl<F, Init, I, B> FoldService<F, Init, I, B> {
     }
 }
 
-impl<F, Init, I, B, Input, CodecError, Err> Service<Task<B::Compact, B::Connection, B::IdType>>
+impl<F, Init, I, B, Input, CodecError, Err> Service<Task<B::Compact, B::Connection, B::Id>>
     for FoldService<F, Init, I, B>
 where
-    F: Service<Task<(Init, Input), B::Connection, B::IdType>, Response = Init>
-        + Send
-        + 'static
-        + Clone,
-    B: BackendExt<Error = Err>
+    F: Service<Task<(Init, Input), B::Connection, B::Id>, Response = Init> + Send + 'static + Clone,
+    B: Backend<Error = Err>
         + Send
         + Sync
         + Clone
-        + Sink<Task<B::Compact, B::Connection, B::IdType>, Error = Err>
+        + Sink<Task<B::Compact, B::Connection, B::Id>, Error = Err>
         + Unpin
         + 'static,
     I: IntoIterator<Item = Input> + Send + 'static,
@@ -162,8 +161,10 @@ where
         + Codec<Init, Error = CodecError, Compact = B::Compact>
         + Codec<I, Error = CodecError, Compact = B::Compact>
         + Codec<(Init, Input), Error = CodecError, Compact = B::Compact>
+        + Send
+        + Clone
         + 'static,
-    B::IdType: GenerateId + Sync + Send + 'static,
+    B::Id: GenerateId + Sync + Send + 'static,
     Init: Default + Send + 'static,
     Err: std::error::Error + Send + Sync + 'static,
     CodecError: std::error::Error + Send + Sync + 'static,
@@ -172,7 +173,7 @@ where
     B::Compact: Send + 'static,
     Input: Send + 'static,
 {
-    type Response = GoTo<StepResult<B::Compact, B::IdType>>;
+    type Response = GoTo<StepResult<B::Compact, B::Id>>;
     type Error = BoxDynError;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
@@ -180,20 +181,19 @@ where
         self.fold.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, task: Task<B::Compact, B::Connection, B::IdType>) -> Self::Future {
+    fn call(&mut self, task: Task<B::Compact, B::Connection, B::Id>) -> Self::Future {
         let state = FoldState::extract(&task.ctx.metadata).unwrap_or(FoldState::Init);
         let mut ctx = task.ctx.data.get::<StepContext<B>>().cloned().unwrap();
+        let codec = ctx.backend.codec().clone();
         let mut fold = self.fold.clone();
 
         match state {
             FoldState::Init => async move {
-                let task_id = TaskId::new(B::IdType::generate());
-                let steps: Task<I, _, _> = task
-                    .into_builder()
-                    .try_map(|arg| B::Codec::decode(&arg))?
-                    .build();
+                let task_id = TaskId::new(B::Id::generate());
+                let steps: Task<I, _, _> =
+                    task.try_map_args(|arg| B::Codec::decode(&codec, &arg))?;
                 let steps = steps.args.into_iter().collect::<Vec<_>>();
-                let task = TaskBuilder::new(B::Codec::encode(&(Init::default(), steps))?)
+                let task = TaskBuilder::new(B::Codec::encode(&codec, &(Init::default(), steps))?)
                     .metadata(&WorkflowContext {
                         step_index: ctx.current_step,
                     })
@@ -205,25 +205,25 @@ where
                     .await
                     .map_err(|e| TaskSinkError::PushError(e))?;
                 Ok(GoTo::Next(StepResult {
-                    result: B::Codec::encode(&Init::default())?,
+                    result: B::Codec::encode(&codec, &Init::default())?,
                     next_task_id: Some(task_id),
                 }))
             }
             .boxed(),
             FoldState::Collection => async move {
-                let args: (Init, Vec<Input>) = B::Codec::decode(&task.args)?;
+                let args: (Init, Vec<Input>) = B::Codec::decode(&codec, &task.args)?;
                 let (acc, items) = args;
 
                 let mut items = items.into_iter();
                 let next = items.next().unwrap();
                 let rest = items.collect::<Vec<_>>();
-                let fold_task = task.into_builder().map(|_| (acc, next)).build();
+                let fold_task = task.map_args(|_| (acc, next));
                 let response = fold.call(fold_task).await.map_err(|e| e.into())?;
 
                 match rest.len() {
                     0 if ctx.has_next => {
-                        let task_id = TaskId::new(B::IdType::generate());
-                        let result = B::Codec::encode(&response)?;
+                        let task_id = TaskId::new(B::Id::generate());
+                        let result = B::Codec::encode(&codec, &response)?;
                         let next_step = TaskBuilder::new(result)
                             .task_id(task_id.clone())
                             .metadata(&WorkflowContext {
@@ -235,19 +235,19 @@ where
                             .await
                             .map_err(|e| TaskSinkError::PushError(e))?;
                         Ok(GoTo::Break(StepResult {
-                            result: B::Codec::encode(&response)?,
+                            result: B::Codec::encode(&codec, &response)?,
                             next_task_id: Some(task_id),
                         }))
                     }
                     0 => Ok(GoTo::Break(StepResult {
-                        result: B::Codec::encode(&response)?,
+                        result: B::Codec::encode(&codec, &response)?,
                         next_task_id: None,
                     })),
                     1.. => {
                         // Shouldn't this be limited?
-                        let task_id = TaskId::new(B::IdType::generate());
-                        let result = B::Codec::encode(&response)?;
-                        let steps = TaskBuilder::new(B::Codec::encode(&(response, rest))?)
+                        let task_id = TaskId::new(B::Id::generate());
+                        let result = B::Codec::encode(&codec, &response)?;
+                        let steps = TaskBuilder::new(B::Codec::encode(&codec, &(response, rest))?)
                             .task_id(task_id.clone())
                             .metadata(&WorkflowContext {
                                 step_index: ctx.current_step,
