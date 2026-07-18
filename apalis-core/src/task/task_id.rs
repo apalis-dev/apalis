@@ -18,15 +18,15 @@ pub use random_id::RandomId;
 /// A wrapper type that defines a task id.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, Eq, Hash, PartialEq, PartialOrd, Ord)]
-pub struct TaskId<IdType>(IdType);
+pub struct TaskId<Id>(Id);
 
-impl<IdType> TaskId<IdType> {
+impl<Id> TaskId<Id> {
     /// Generate a new [`TaskId`]
-    pub fn new(id: IdType) -> Self {
+    pub fn new(id: Id) -> Self {
         Self(id)
     }
     /// Get the inner value
-    pub fn inner(&self) -> &IdType {
+    pub fn inner(&self) -> &Id {
         &self.0
     }
 }
@@ -39,32 +39,32 @@ pub enum TaskIdError<E> {
     Decode(E),
 }
 
-impl<IdType: FromStr> FromStr for TaskId<IdType> {
-    type Err = TaskIdError<IdType::Err>;
+impl<Id: FromStr> FromStr for TaskId<Id> {
+    type Err = TaskIdError<Id::Err>;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self::new(IdType::from_str(s).map_err(TaskIdError::Decode)?))
+        Ok(Self::new(Id::from_str(s).map_err(TaskIdError::Decode)?))
     }
 }
 
-impl<IdType: FromStr> TryFrom<&'_ str> for TaskId<IdType> {
-    type Error = TaskIdError<IdType::Err>;
+impl<Id: FromStr> TryFrom<&'_ str> for TaskId<Id> {
+    type Error = TaskIdError<Id::Err>;
 
     fn try_from(value: &'_ str) -> Result<Self, Self::Error> {
         Self::from_str(value)
     }
 }
 
-impl<IdType: Display> Display for TaskId<IdType> {
+impl<Id: Display> Display for TaskId<Id> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self.0, f)
     }
 }
 
-impl<Args: Sync, Conn: Send + Sync, IdType: Sync + Send + Clone>
-    FromRequest<Task<Args, Conn, IdType>> for TaskId<IdType>
+impl<Args: Sync, Conn: Send + Sync, Id: Sync + Send + Clone> FromRequest<Task<Args, Conn, Id>>
+    for TaskId<Id>
 {
     type Error = MissingDataError;
-    async fn from_request(task: &Task<Args, Conn, IdType>) -> Result<Self, Self::Error> {
+    async fn from_request(task: &Task<Args, Conn, Id>) -> Result<Self, Self::Error> {
         task.ctx.task_id.clone().ok_or(MissingDataError::NotFound(
             std::any::type_name::<Self>().to_owned(),
         ))

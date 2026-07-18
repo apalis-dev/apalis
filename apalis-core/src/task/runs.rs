@@ -1,12 +1,10 @@
 //! This module contains the definition of a `Run` struct, which represents a single execution attempt of a task.
 //! It includes information about the attempt number, the serialized value of the run, timestamps for when the task was locked and completed, and the identifier of the worker that executed the task.
 
-use bytes::Bytes;
-
 /// Represents a run of a task
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
-pub struct Run<T = Bytes> {
+pub struct Run<T = Vec<u8>> {
     /// The attempt number of the run
     pub attempt: usize,
     /// The serialized value of the run

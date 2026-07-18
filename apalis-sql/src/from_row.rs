@@ -62,17 +62,18 @@ pub struct TaskRow {
 
 impl TaskRow {
     /// Convert the TaskRow into a Task with decoded arguments
-    pub fn try_into_task<D, Args, IdType, Conn>(
+    pub fn try_into_task<D, Args, Id, Conn>(
         self,
-    ) -> Result<Task<Args, Conn, IdType>, FromRowError>
+        codec: &D,
+    ) -> Result<Task<Args, Conn, Id>, FromRowError>
     where
         D::Error: Into<BoxDynError> + Send + Sync + 'static,
-        IdType: FromStr,
-        <IdType as FromStr>::Err: std::error::Error + Send + Sync + 'static,
+        Id: FromStr,
+        <Id as FromStr>::Err: std::error::Error + Send + Sync + 'static,
         D: Codec<Args, Compact = Vec<u8>>,
         Args: 'static,
     {
-        let args = D::decode(&self.job).map_err(|e| FromRowError::DecodeError(e.into()))?;
+        let args = D::decode(codec, &self.job).map_err(|e| FromRowError::DecodeError(e.into()))?;
         let mut task = TaskBuilder::new(args)
             .done_at(self.done_at.map(|dt| dt.to_unix_timestamp() as u64))
             .lock_by(self.lock_by)
@@ -99,12 +100,10 @@ impl TaskRow {
     }
 
     /// Convert the TaskRow into a Task with compacted arguments
-    pub fn try_into_task_compact<IdType, Conn>(
-        self,
-    ) -> Result<Task<Vec<u8>, Conn, IdType>, FromRowError>
+    pub fn try_into_task_compact<Id, Conn>(self) -> Result<Task<Vec<u8>, Conn, Id>, FromRowError>
     where
-        IdType: FromStr,
-        <IdType as FromStr>::Err: std::error::Error + Send + Sync + 'static,
+        Id: FromStr,
+        <Id as FromStr>::Err: std::error::Error + Send + Sync + 'static,
     {
         let mut task = TaskBuilder::new(self.job)
             .done_at(self.done_at.map(|dt| dt.to_unix_timestamp() as u64))

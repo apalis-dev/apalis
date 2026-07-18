@@ -71,15 +71,15 @@ impl<'de> serde::Deserialize<'de> for Queue {
     }
 }
 
-impl<Args, Conn, IdType> FromRequest<Task<Args, Conn, IdType>> for Queue
+impl<Args, Conn, Id> FromRequest<Task<Args, Conn, Id>> for Queue
 where
     Args: Sync,
     Conn: Send + Sync,
-    IdType: Sync + Send,
+    Id: Sync + Send,
 {
     type Error = QueueError;
 
-    async fn from_request(req: &Task<Args, Conn, IdType>) -> Result<Self, Self::Error> {
+    async fn from_request(req: &Task<Args, Conn, Id>) -> Result<Self, Self::Error> {
         let queue = req.ctx.queue.clone().ok_or(QueueError::NotFound)?;
         Ok(queue)
     }

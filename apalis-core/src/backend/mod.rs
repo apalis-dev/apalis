@@ -18,20 +18,22 @@
 //! - [`MemoryStorage`](memory::MemoryStorage): An in-memory backend for testing and lightweight use cases
 //! - [`Pipe`](pipe::Pipe): A simple pipe-based backend for inter-thread communication
 //! - [`CustomBackend`](custom::CustomBackend): A flexible backend allowing custom functions for task management
-use std::{future::Future, time::Duration};
-
-use futures_util::{Stream, stream::BoxStream};
+use futures_util::Stream;
+use std::{
+    future::Future,
+    task::{Context, Poll},
+    time::Duration,
+};
 
 use crate::{
     backend::{codec::Codec, queue::Queue},
-    error::BoxDynError,
     task::{Task, status::Status, task_id::TaskId},
     worker::context::WorkerContext,
 };
 
 pub mod codec;
 pub mod custom;
-pub mod pipe;
+pub mod ext;
 pub mod poll_strategy;
 pub mod queue;
 pub mod shared;
@@ -51,7 +53,6 @@ pub mod memory {
 }
 
 /// In-memory dequeue backend
-#[cfg(feature = "sleep")]
 pub mod dequeue {
     pub use crate::backend::impls::dequeue::*;
 }
@@ -59,61 +60,66 @@ pub mod dequeue {
 /// The `Backend` trait defines how workers get and manage tasks from a backend.
 ///
 /// In other languages, this might be called a "Queue", "Broker", etc.
-pub trait Backend {
+pub trait Backend: Sized {
     /// The type of arguments the backend handles.
     type Args;
     /// The type used to uniquely identify tasks.
-    type IdType: Clone;
+    type Id: Clone + Send + Sync + 'static;
     /// The type of connection used by the backend.
     type Connection;
     /// The error type returned by backend operations
-    type Error;
-    /// A stream of tasks provided by the backend.
-    type Stream: Stream<
-        Item = Result<Option<Task<Self::Args, Self::Connection, Self::IdType>>, Self::Error>,
-    >;
-    /// A stream representing heartbeat signals.
-    type Beat: Stream<Item = Result<(), Self::Error>>;
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    /// The codec used for serialization/deserialization of tasks.
+    type Codec: Codec<Self::Args, Compact = Self::Compact> + Send + 'static;
+    /// The compact representation of task arguments.
+    type Compact;
     /// The type representing backend middleware layer.
     type Layer;
 
-    /// Returns a heartbeat stream for the given worker.
-    fn heartbeat(&self, worker: &WorkerContext) -> Self::Beat;
-    /// Returns the backend's middleware layer.
-    fn middleware(&self) -> Self::Layer;
-    /// Polls the backend for tasks for the given worker.
-    fn poll(self, worker: &WorkerContext) -> Self::Stream;
-}
-
-/// Defines the encoding/serialization aspects of a backend.
-pub trait BackendExt: Backend {
-    /// The codec used for serialization/deserialization of tasks.
-    type Codec: Codec<Self::Args, Compact = Self::Compact>;
-    /// The compact representation of task arguments.
-    type Compact;
-    /// A stream of encoded tasks provided by the backend.
-    type CompactStream: Stream<
-        Item = Result<Option<Task<Self::Compact, Self::Connection, Self::IdType>>, Self::Error>,
-    >;
+    /// The encoding and decoding mechanism
+    fn codec(&self) -> &Self::Codec;
 
     /// Returns the queue associated with the backend.
-    fn get_queue(&self) -> Queue;
+    fn queue(&self) -> Queue;
 
-    /// Polls the backend for encoded tasks for the given worker.
-    fn poll_compact(self, worker: &WorkerContext) -> Self::CompactStream;
+    /// Returns the backend's middleware layer.
+    fn middleware(&self) -> Self::Layer;
+
+    /// Drives the readiness of the backend to poll for new tasks
+    ///
+    /// This can be important for flushing any pending actions
+    fn poll_ready(
+        &mut self,
+        cx: &mut Context<'_>,
+        worker: &WorkerContext,
+    ) -> Poll<Result<(), Self::Error>>;
+
+    /// Polls the backend for tasks for the given worker.
+    fn poll_next(
+        &mut self,
+        cx: &mut Context<'_>,
+        worker: &WorkerContext,
+    ) -> Poll<Option<Result<Task<Self::Compact, Self::Connection, Self::Id>, Self::Error>>>;
+
+    /// Flushes/releases any resources the backend holds (pending acks,
+    /// open subscriptions, connections) before the worker fully shuts down.
+    /// Default no-op for backends with nothing to flush.
+    fn poll_close(
+        &mut self,
+        cx: &mut Context<'_>,
+        worker: &WorkerContext,
+    ) -> Poll<Result<(), Self::Error>>;
 }
-
-/// Represents a stream for T.
-pub type TaskStream<T, E = BoxDynError> = BoxStream<'static, Result<Option<T>, E>>;
 /// Allows fetching a task by its ID
-pub trait FetchById<Args>: Backend {
+pub trait FetchById: Backend {
     /// Fetch a task by its unique identifier
     #[allow(clippy::type_complexity)]
     fn fetch_by_id(
         &mut self,
-        task_id: &TaskId<Self::IdType>,
+        task_id: &TaskId<Self::Id>,
     ) -> impl Future<
-        Output = Result<Option<Task<Args, Self::Connection, Self::IdType>>, Self::Error>,
+        Output = Result<Option<Task<Self::Compact, Self::Connection, Self::Id>>, Self::Error>,
     > + Send;
 }
 
@@ -122,7 +128,7 @@ pub trait Update: Backend {
     /// Update the given task
     fn update(
         &mut self,
-        task: Task<Self::Args, Self::Connection, Self::IdType>,
+        task: Task<Self::Compact, Self::Connection, Self::Id>,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
@@ -131,7 +137,7 @@ pub trait Reschedule: Backend {
     /// Reschedule the task after a specified duration
     fn reschedule(
         &mut self,
-        task: Task<Self::Args, Self::Connection, Self::IdType>,
+        task: Task<Self::Compact, Self::Connection, Self::Id>,
         wait: Duration,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
@@ -147,11 +153,11 @@ pub trait ResumeById: Backend {
     /// Resume a task by its ID
     fn resume_by_id(
         &mut self,
-        id: TaskId<Self::IdType>,
+        id: TaskId<Self::Id>,
     ) -> impl Future<Output = Result<bool, Self::Error>> + Send;
 }
 
-/// Allows fetching multiple tasks by their IDs
+/// Allows resuming all abandoned tasks in the backend
 pub trait ResumeAbandoned: Backend {
     /// Resume all abandoned tasks
     fn resume_abandoned(&mut self) -> impl Future<Output = Result<usize, Self::Error>> + Send;
@@ -169,18 +175,18 @@ pub trait RegisterWorker: Backend {
 /// Represents the result of a task execution
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
-pub struct TaskResult<T, IdType> {
+pub struct TaskResult<T, Id> {
     /// The unique identifier of the task
-    pub task_id: TaskId<IdType>,
+    pub task_id: TaskId<Id>,
     /// The status of the task
     pub status: Status,
     /// The result of the task execution
     pub result: Result<T, String>,
 }
 
-impl<T, IdType> TaskResult<T, IdType> {
+impl<T, Id> TaskResult<T, Id> {
     /// Create a new TaskResult
-    pub fn new(task_id: TaskId<IdType>, status: Status, result: Result<T, String>) -> Self {
+    pub fn new(task_id: TaskId<Id>, status: Status, result: Result<T, String>) -> Self {
         Self {
             task_id,
             status,
@@ -188,7 +194,7 @@ impl<T, IdType> TaskResult<T, IdType> {
         }
     }
     /// Get the ID of the task
-    pub fn task_id(&self) -> &TaskId<IdType> {
+    pub fn task_id(&self) -> &TaskId<Id> {
         &self.task_id
     }
 
@@ -209,52 +215,23 @@ impl<T, IdType> TaskResult<T, IdType> {
 }
 
 /// Allows waiting for tasks to complete and checking their status
-pub trait WaitForCompletion<T>: Backend {
+pub trait WaitForCompletion: Backend {
     /// The result stream type yielding task results
-    type ResultStream: Stream<Item = Result<TaskResult<T, Self::IdType>, Self::Error>>
+    type ResultStream: Stream<Item = Result<TaskResult<Self::Compact, Self::Id>, Self::Error>>
         + Send
         + 'static;
 
     /// Wait for multiple tasks to complete, yielding results as they become available
-    fn wait_for(
-        &self,
-        task_ids: impl IntoIterator<Item = TaskId<Self::IdType>>,
-    ) -> Self::ResultStream;
+    fn wait_for(&self, task_ids: impl IntoIterator<Item = TaskId<Self::Id>>) -> Self::ResultStream;
 
     /// Wait for a single task to complete, yielding its result
-    fn wait_for_single(&self, task_id: TaskId<Self::IdType>) -> Self::ResultStream {
+    fn wait_for_single(&self, task_id: TaskId<Self::Id>) -> Self::ResultStream {
         self.wait_for(std::iter::once(task_id))
     }
 
     /// Check current status of tasks without waiting
     fn check_status(
         &self,
-        task_ids: impl IntoIterator<Item = TaskId<Self::IdType>> + Send,
-    ) -> impl Future<Output = Result<Vec<TaskResult<T, Self::IdType>>, Self::Error>> + Send;
-}
-
-/// A helper trait to build connections and pollers for backends
-/// This should be used in crates implementing Backend rather than end users.
-pub trait TryIntoConnectionParts {
-    /// The config for the backend
-    type Config;
-    /// The connection for the backend
-    type Connection;
-    /// The poller to be used by the backend
-    type Fetcher;
-    /// The error emitted during creation
-    type Error: std::error::Error + Send + Sync + 'static;
-    /// Generate the parts needed to build a Backend
-    fn try_into_parts(
-        self,
-        config: &Self::Config,
-    ) -> Result<(Self::Connection, Self::Fetcher), Self::Error>;
-}
-
-/// A helper to standardize building new backends
-pub trait TryNewBackend: Backend + Sized {
-    /// Build a new backend given a connection source and a config
-    fn try_new<P>(src: P, config: P::Config) -> Result<Self, P::Error>
-    where
-        P: TryIntoConnectionParts<Connection = Self::Connection>;
+        task_ids: impl IntoIterator<Item = TaskId<Self::Id>> + Send,
+    ) -> impl Future<Output = Result<Vec<TaskResult<Self::Compact, Self::Id>>, Self::Error>> + Send;
 }

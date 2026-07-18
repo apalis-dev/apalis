@@ -1,6 +1,9 @@
-use futures_core::Stream;
+use std::task::{Context, Poll};
 
-use crate::backend::poll_strategy::{PollContext, PollStrategy};
+use futures_core::Stream;
+use futures_util::StreamExt;
+
+use crate::backend::poll_strategy::{PollSnapshot, PollStrategy};
 
 /// A polling strategy that uses a provided stream
 #[derive(Debug, Clone)]
@@ -10,7 +13,7 @@ pub struct StreamStrategy<S> {
 
 impl<S> StreamStrategy<S>
 where
-    S: Stream<Item = ()> + Unpin + Send + 'static,
+    S: Stream + Unpin + Send + 'static,
 {
     /// Create a new StreamStrategy from a stream
     pub fn new(stm: S) -> Self {
@@ -18,13 +21,8 @@ where
     }
 }
 
-impl<S> PollStrategy for StreamStrategy<S>
-where
-    S: Stream<Item = ()> + Unpin + Send + 'static,
-{
-    type Stream = S;
-
-    fn poll_strategy(self: Box<Self>, _ctx: &PollContext) -> Self::Stream {
-        self.stm
+impl<S: Stream + Unpin> PollStrategy for StreamStrategy<S> {
+    fn poll_gate(&mut self, cx: &mut Context<'_>, _: &PollSnapshot) -> Poll<()> {
+        self.stm.poll_next_unpin(cx).map(|_| ())
     }
 }

@@ -12,7 +12,7 @@ It handles the conversion of task data to and from various formats for reliable 
 - Multiple codec support (JSON, MessagePack, etc.)
 - Type-safe serialization
 - Error handling for codec operations
-- Integration with all apalis backends with codec support via `BackendExt`
+- Integration with all apalis backends with codec support via `Backend`
 
 ## Usage
 

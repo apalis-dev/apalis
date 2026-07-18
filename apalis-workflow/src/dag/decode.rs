@@ -1,36 +1,36 @@
-use apalis_core::backend::{BackendExt, codec::Codec};
+use apalis_core::backend::{Backend, codec::Codec};
 
 /// An entry trait that handles the values of a fan-in/fanout entry
-pub trait DagCodec<B: BackendExt>: Sized {
+pub trait DagCodec<B: Backend>: Sized {
     /// The codec error
     type Error;
 
-    /// Encode the input into a Vec<Compact>
-    fn encode(self) -> Result<B::Compact, Self::Error>;
+    /// Encode the input into a Compact
+    fn encode(self, codec: &B::Codec) -> Result<B::Compact, Self::Error>;
 
     /// Decode the previous input
-    fn decode(response: &B::Compact) -> Result<Self, Self::Error>;
+    fn decode(response: &B::Compact, codec: &B::Codec) -> Result<Self, Self::Error>;
 }
 
 impl<B, T, Err> DagCodec<B> for Vec<T>
 where
-    B: BackendExt,
+    B: Backend,
     B::Codec: Codec<T, Compact = B::Compact, Error = Err>
         + Codec<Vec<B::Compact>, Compact = B::Compact, Error = Err>
         + Codec<Self, Compact = B::Compact, Error = Err>,
 {
     type Error = Err;
-    fn encode(self) -> Result<B::Compact, <B::Codec as Codec<Self>>::Error> {
+    fn encode(self, codec: &B::Codec) -> Result<B::Compact, <B::Codec as Codec<Self>>::Error> {
         let mut result = Vec::new();
         for input in self {
-            result.push(B::Codec::encode(&input)?);
+            result.push(B::Codec::encode(codec, &input)?);
         }
-        let compact = B::Codec::encode(&result)?;
+        let compact = B::Codec::encode(codec, &result)?;
         Ok(compact)
     }
 
-    fn decode(response: &B::Compact) -> Result<Self, Err> {
-        let decoded = B::Codec::decode(response)?;
+    fn decode(response: &B::Compact, codec: &B::Codec) -> Result<Self, Err> {
+        let decoded = B::Codec::decode(codec, response)?;
         Ok(decoded)
     }
 }
@@ -40,18 +40,18 @@ macro_rules! impl_entry_for_tuple {
     ($T1:ident) => {
         impl<B, Err, $T1> DagCodec<B> for ($T1,)
         where
-            B: BackendExt,
+            B: Backend,
             B::Codec: Codec<($T1,), Compact = B::Compact, Error = Err> + Codec<Vec<B::Compact>, Compact = B::Compact, Error = Err>,
         {
             type Error = Err;
 
-            fn encode(self) -> Result<B::Compact, Self::Error> {
-                let result = vec![B::Codec::encode(&self)?];
-                let compact = B::Codec::encode(&result)?;
+            fn encode(self, codec: &B::Codec) -> Result<B::Compact, Self::Error> {
+                let result = vec![B::Codec::encode(codec, &self)?];
+                let compact = B::Codec::encode(codec, &result)?;
                 Ok(compact)
             }
-            fn decode(response: &B::Compact) -> Result<Self, Err> {
-                let decoded = B::Codec::decode(response)?;
+            fn decode(response: &B::Compact, codec: &B::Codec) -> Result<Self, Err> {
+                let decoded = B::Codec::decode(codec, response)?;
                 Ok(decoded)
             }
         }
@@ -61,7 +61,7 @@ macro_rules! impl_entry_for_tuple {
     ($T1:ident, $($T:ident),+) => {
         impl<B, Err, $T1, $($T),+> DagCodec<B> for ($T1, $($T),+)
         where
-            B: BackendExt,
+            B: Backend,
             B::Codec: Codec<$T1, Compact = B::Compact, Error = Err> + Codec<Vec<B::Compact>, Compact = B::Compact, Error = Err>,
             $(B::Codec: Codec<$T, Compact = B::Compact, Error = Err>,)+
             // Ensure all errors are the same type as T1's error
@@ -71,20 +71,20 @@ macro_rules! impl_entry_for_tuple {
         {
             type Error = <B::Codec as Codec<$T1>>::Error;
 
-            fn encode(self) -> Result<B::Compact, Self::Error> {
+            fn encode(self, codec: &B::Codec) -> Result<B::Compact, Self::Error> {
                 #[allow(non_snake_case)]
                 let ($T1, $($T),+) = self;
 
-                let mut result = vec![B::Codec::encode(&$T1)?];
+                let mut result = vec![B::Codec::encode(codec, &$T1)?];
                 $(
-                    result.push(B::Codec::encode(&$T).map_err(Into::into)?);
+                    result.push(B::Codec::encode(codec, &$T).map_err(Into::into)?);
                 )+
-                let compact = B::Codec::encode(&result)?;
+                let compact = B::Codec::encode(codec, &result)?;
                 Ok(compact)
             }
 
-            fn decode(response: &B::Compact) -> Result<Self, Err> {
-                let decoded: Vec<B::Compact> = B::Codec::decode(response)?;
+            fn decode(response: &B::Compact, codec: &B::Codec) -> Result<Self, Err> {
+                let decoded: Vec<B::Compact> = B::Codec::decode(codec, response)?;
                 // Count the number of types in the tuple
                 let expected_len = 1 $(+ {let _ = stringify!($T); 1})+;
                 if decoded.len() != expected_len {
@@ -94,10 +94,10 @@ macro_rules! impl_entry_for_tuple {
                 let mut iter = decoded.into_iter();
 
                 #[allow(non_snake_case)]
-                let $T1 = B::Codec::decode(&iter.next().unwrap())?;
+                let $T1 = B::Codec::decode(codec, &iter.next().unwrap())?;
                 $(
                     #[allow(non_snake_case)]
-                    let $T = B::Codec::decode(&iter.next().unwrap()).map_err(Into::into)?;
+                    let $T = B::Codec::decode(codec, &iter.next().unwrap()).map_err(Into::into)?;
                 )+
 
                 Ok(($T1, $($T),+))
@@ -124,17 +124,17 @@ macro_rules! impl_entry_passthrough {
         $(
             impl<B, Err> DagCodec<B> for $T
             where
-                B: BackendExt,
+                B: Backend,
                 B::Codec: Codec<$T, Compact = B::Compact, Error = Err>,
             {
                 type Error = Err;
 
-                fn encode(self) -> Result<B::Compact, Self::Error> {
-                    B::Codec::encode(&self)
+                fn encode(self, codec: &B::Codec) -> Result<B::Compact, Self::Error> {
+                    B::Codec::encode(codec, &self)
                 }
 
-                fn decode(response: &B::Compact) -> Result<Self, Self::Error> {
-                    B::Codec::decode(response)
+                fn decode(response: &B::Compact, codec: &B::Codec) -> Result<Self, Self::Error> {
+                    B::Codec::decode(codec, response)
                 }
             }
         )+
@@ -165,32 +165,32 @@ impl_entry_passthrough!(
 
 impl<B, T, Err> DagCodec<B> for Option<T>
 where
-    B: BackendExt,
+    B: Backend,
     B::Codec: Codec<Self, Compact = B::Compact, Error = Err>,
 {
     type Error = Err;
 
-    fn encode(self) -> Result<B::Compact, Self::Error> {
-        B::Codec::encode(&self)
+    fn encode(self, codec: &B::Codec) -> Result<B::Compact, Self::Error> {
+        B::Codec::encode(codec, &self)
     }
 
-    fn decode(response: &B::Compact) -> Result<Self, Self::Error> {
-        B::Codec::decode(response)
+    fn decode(response: &B::Compact, codec: &B::Codec) -> Result<Self, Self::Error> {
+        B::Codec::decode(codec, response)
     }
 }
 
 impl<B, T, E, Err> DagCodec<B> for Result<T, E>
 where
-    B: BackendExt,
+    B: Backend,
     B::Codec: Codec<Self, Compact = B::Compact, Error = Err>,
 {
     type Error = Err;
 
-    fn encode(self) -> Result<B::Compact, Self::Error> {
-        B::Codec::encode(&self)
+    fn encode(self, codec: &B::Codec) -> Result<B::Compact, Self::Error> {
+        B::Codec::encode(codec, &self)
     }
 
-    fn decode(response: &B::Compact) -> Result<Self, Self::Error> {
-        B::Codec::decode(response)
+    fn decode(response: &B::Compact, codec: &B::Codec) -> Result<Self, Self::Error> {
+        B::Codec::decode(codec, response)
     }
 }

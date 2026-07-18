@@ -37,12 +37,11 @@
 //! ## See Also
 //! - [`Backend`]
 //! - [`WorkerContext`]
-use crate::backend::BackendExt;
+use crate::backend::Backend;
 use crate::backend::codec::IdentityCodec;
 use crate::error::BoxDynError;
 use crate::features_table;
 use crate::{
-    backend::{Backend, TaskStream},
     task::{
         Task,
         task_id::{RandomId, TaskId},
@@ -53,10 +52,7 @@ use futures_channel::mpsc::{SendError, unbounded};
 use futures_core::ready;
 use futures_sink::Sink;
 use futures_util::lock::Mutex;
-use futures_util::{
-    FutureExt, SinkExt, Stream, StreamExt,
-    stream::{self, BoxStream},
-};
+use futures_util::{FutureExt, SinkExt, Stream, StreamExt};
 use std::collections::HashSet;
 use std::{
     pin::Pin,
@@ -297,41 +293,55 @@ impl<Args, Conn> Stream for MemoryStorage<Args, Conn> {
 }
 
 // MemoryStorage as a Backend
-impl<Args: 'static + Clone + Send, Conn: 'static> Backend for MemoryStorage<Args, Conn> {
+impl<Args, Conn> Backend for MemoryStorage<Args, Conn>
+where
+    Args: 'static + Clone + Send,
+    Conn: 'static,
+{
     type Args = Args;
-    type IdType = RandomId;
+    type Id = RandomId;
 
     type Connection = Conn;
 
     type Error = MemoryStorageError;
-    type Stream = TaskStream<Task<Args, Conn, RandomId>, MemoryStorageError>;
     type Layer = Identity;
-    type Beat = BoxStream<'static, Result<(), Self::Error>>;
 
-    fn heartbeat(&self, _: &WorkerContext) -> Self::Beat {
-        stream::once(async { Ok(()) }).boxed()
+    type Codec = IdentityCodec;
+    type Compact = Args;
+
+    fn codec(&self) -> &Self::Codec {
+        &IdentityCodec
     }
+
+    fn queue(&self) -> crate::backend::queue::Queue {
+        std::any::type_name::<Args>().into()
+    }
+
+    fn poll_ready(
+        &mut self,
+        _: &mut Context<'_>,
+        _: &WorkerContext,
+    ) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
     fn middleware(&self) -> Self::Layer {
         Identity::new()
     }
 
-    fn poll(self, _worker: &WorkerContext) -> Self::Stream {
-        (self.receiver.boxed().map(|r| Ok(Some(r))).boxed()) as _
-    }
-}
-
-impl<Args: Clone + Send + 'static, Conn: Default + 'static> BackendExt
-    for MemoryStorage<Args, Conn>
-{
-    type Codec = IdentityCodec;
-    type Compact = Args;
-    type CompactStream = TaskStream<Task<Args, Self::Connection, RandomId>, Self::Error>;
-
-    fn get_queue(&self) -> crate::backend::queue::Queue {
-        std::any::type_name::<Args>().into()
+    fn poll_next(
+        &mut self,
+        cx: &mut Context<'_>,
+        _: &WorkerContext,
+    ) -> Poll<Option<Result<Task<Self::Compact, Self::Connection, Self::Id>, Self::Error>>> {
+        self.receiver.poll_next_unpin(cx).map(|item| item.map(Ok))
     }
 
-    fn poll_compact(self, _worker: &WorkerContext) -> Self::CompactStream {
-        (self.receiver.map(|task| Ok(Some(task))).boxed()) as _
+    fn poll_close(
+        &mut self,
+        cx: &mut Context<'_>,
+        _: &WorkerContext,
+    ) -> Poll<Result<(), Self::Error>> {
+        self.sender.poll_close_unpin(cx)
     }
 }

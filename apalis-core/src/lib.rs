@@ -80,7 +80,7 @@
 //! - `Layer` - Specifies the middleware layer stack for the backend
 //! - `Codec` - Determines serialization format for task data persistence
 //! - `Beat` - Heartbeat stream for worker liveness checks
-//! - `IdType` - Type used for unique task identifiers
+//! - `Id` - Type used for unique task identifiers
 //! - `Conn` -   Context associated with tasks
 //! - `Error` - Error type for backend operations
 //!
@@ -169,13 +169,13 @@
 //! # use apalis_core::monitor::Monitor;
 //! # use apalis_core::worker::builder::WorkerBuilder;
 //! # use apalis_core::task::Task;
-//! # use apalis_core::backend::{TaskSink, dequeue};
+//! # use apalis_core::backend::{TaskSink, dequeue::VecDequeBackend};
 //! # use tower::service_fn;
 //! # use std::time::Duration;
 //! # use apalis_core::worker::context::WorkerContext;
 //! #[tokio::main]
 //! async fn main() {
-//!     let mut storage = dequeue::backend::<u32>(Duration::from_secs(1));
+//!     let mut storage = VecDequeBackend::new();
 //!     storage.push(1u32).await.unwrap();
 //!
 //!     let monitor = Monitor::new()
@@ -185,7 +185,7 @@
 //!                 .backend(storage.clone())
 //!                 .build(|req: u32, ctx: WorkerContext| async move {
 //!                     println!("Processing task: {:?}", req);
-//! #                    ctx.stop().unwrap();
+//! #                   ctx.stop().unwrap();
 //!                     Ok::<_, std::io::Error>(req)
 //!                 })
 //!         });
@@ -228,9 +228,9 @@
 //!     inner: S,
 //! }
 //!
-//! impl<S, Req, Res, Err, IdType> Service<Task<Req, (), IdType>> for LoggingService<S>
+//! impl<S, Req, Res, Err, Id> Service<Task<Req, (), Id>> for LoggingService<S>
 //! where
-//!     S: Service<Task<Req, (), IdType>, Response = Res, Error = Err>,
+//!     S: Service<Task<Req, (), Id>, Response = Res, Error = Err>,
 //!     Req: std::fmt::Debug,
 //! {
 //!     type Response = Res;
@@ -241,7 +241,7 @@
 //!         self.inner.poll_ready(cx)
 //!     }
 //!
-//!     fn call(&mut self, req: Task<Req, (), IdType>) -> Self::Future {
+//!     fn call(&mut self, req: Task<Req, (), Id>) -> Self::Future {
 //!         println!("Processing task: {:?}", req.args);
 //!         self.inner.call(req)
 //!     }

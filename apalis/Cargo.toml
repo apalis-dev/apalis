@@ -72,7 +72,7 @@ optional = true
 
 [dependencies]
 tower = { version = "0.5.2", features = ["util"], default-features = false }
-sentry-core = { version = "0.48.0", optional = true, default-features = false }
+sentry-core = { version = "0.48.4", optional = true, default-features = false }
 metrics = { version = "0.24.5", optional = true, default-features = false }
 metrics-exporter-prometheus = { version = "0.18.1", optional = true, default-features = false }
 opentelemetry = { version = "0.32.0", optional = true, default-features = false, features = ["metrics"] }
@@ -82,8 +82,8 @@ thiserror = "2.0.0"
 
 pin-project = "1"
 # Needed only for sentry reporting
-uuid = { version = "1.8", optional = true }
-ulid = { version = "1", optional = true }
+uuid = { version = "1.23.5", optional = true }
+ulid = { version = "2.0.1", optional = true }
 
 [dependencies.tracing]
 default-features = false

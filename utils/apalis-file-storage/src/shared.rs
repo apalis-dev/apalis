@@ -147,7 +147,7 @@ impl SharedJsonStore {
                         .unwrap();
 
                     let res = task
-                        .try_map(|s| {
+                        .try_map_args(|s| {
                             serde_json::to_value(s).map_err(|e| MemoryStorageError::Other(e.into()))
                         })
                         .map(|t| t.build());

@@ -12,10 +12,10 @@ use apalis_core::{error::BoxDynError, task::Task};
 use crate::sequential::router::{GoTo, StepResult};
 
 type BoxedService<Input, Output> = tower::util::BoxCloneSyncService<Input, Output, BoxDynError>;
-type SteppedService<Compact, Conn, IdType> =
-    BoxedService<Task<Compact, Conn, IdType>, GoTo<StepResult<Compact, IdType>>>;
+type SteppedService<Compact, Conn, Id> =
+    BoxedService<Task<Compact, Conn, Id>, GoTo<StepResult<Compact, Id>>>;
 
-type DagService<Compact, Conn, IdType> = BoxedService<Task<Compact, Conn, IdType>, Compact>;
+type DagService<Compact, Conn, Id> = BoxedService<Task<Compact, Conn, Id>, Compact>;
 
 /// combinator for chaining multiple workflows.
 pub mod composite;

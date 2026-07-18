@@ -1,7 +1,7 @@
 use std::{fmt::Display, str::FromStr};
 
 use apalis_core::{
-    backend::{BackendExt, TaskSinkError, codec::Codec},
+    backend::{Backend, TaskSinkError, codec::Codec},
     error::BoxDynError,
     task::{Task, builder::TaskBuilder, task_id::TaskId},
 };
@@ -15,7 +15,7 @@ use crate::{
 };
 
 /// Extension trait for pushing tasks into a workflow
-pub trait WorkflowSink<Args>: BackendExt + Sized
+pub trait WorkflowSink<Args>: Backend + Sized
 where
     Self::Codec: Codec<Args, Compact = Self::Compact>,
 {
@@ -61,21 +61,23 @@ where
 
 impl<S: Send, Args: Send, Compact, Err> WorkflowSink<Args> for S
 where
-    S: Sink<Task<Compact, S::Connection, S::IdType>, Error = Err>
-        + BackendExt<Error = Err, Compact = Compact>
+    S: Sink<Task<Compact, S::Connection, S::Id>, Error = Err>
+        + Backend<Error = Err, Compact = Compact>
         + Unpin,
-    S::IdType: GenerateId + Send + Sync + FromStr + Display,
+    S::Id: GenerateId + Send + Sync + FromStr + Display,
     S::Codec: Codec<Args, Compact = Compact>,
     S::Connection: Send + Sync,
     Err: std::error::Error + Send + Sync + 'static,
     <S::Codec as Codec<Args>>::Error: Into<BoxDynError> + Send + Sync + 'static,
     Compact: Send + 'static,
-    <S::IdType as FromStr>::Err: std::error::Error + Send + Sync + 'static,
+    <S::Id as FromStr>::Err: std::error::Error + Send + Sync + 'static,
 {
     async fn push_start(&mut self, args: Args) -> Result<(), TaskSinkError<Self::Error>> {
         use futures::SinkExt;
-        let task_id = TaskId::new(S::IdType::generate());
-        let compact = S::Codec::encode(&args).map_err(|e| TaskSinkError::CodecError(e.into()))?;
+        let codec = self.codec();
+        let task_id = TaskId::new(S::Id::generate());
+        let compact =
+            S::Codec::encode(codec, &args).map_err(|e| TaskSinkError::CodecError(e.into()))?;
         let task = TaskBuilder::new(compact).task_id(task_id.clone()).build();
         self.send(task)
             .await
@@ -88,9 +90,9 @@ where
         Args::Error: std::error::Error + Send + Sync + 'static,
     {
         use futures::SinkExt;
-        let task_id = TaskId::new(S::IdType::generate());
-
-        let compact = Args::encode(args).map_err(|e| TaskSinkError::CodecError(e.into()))?;
+        let task_id = TaskId::new(S::Id::generate());
+        let codec = self.codec();
+        let compact = Args::encode(args, codec).map_err(|e| TaskSinkError::CodecError(e.into()))?;
         let task = TaskBuilder::new(compact).task_id(task_id.clone()).build();
         self.send(task)
             .await
@@ -103,8 +105,10 @@ where
         index: usize,
     ) -> Result<(), TaskSinkError<Self::Error>> {
         use futures::SinkExt;
-        let task_id = TaskId::new(S::IdType::generate());
-        let compact = S::Codec::encode(&step).map_err(|e| TaskSinkError::CodecError(e.into()))?;
+        let task_id = TaskId::new(S::Id::generate());
+        let codec = self.codec();
+        let compact =
+            S::Codec::encode(codec, &step).map_err(|e| TaskSinkError::CodecError(e.into()))?;
         let task = TaskBuilder::new(compact)
             .metadata(&WorkflowContext { step_index: index })
             .task_id(task_id.clone())
@@ -120,8 +124,10 @@ where
         index: NodeIndex,
     ) -> Result<(), TaskSinkError<Self::Error>> {
         use futures::SinkExt;
-        let task_id = TaskId::new(S::IdType::generate());
-        let compact = S::Codec::encode(&node).map_err(|e| TaskSinkError::CodecError(e.into()))?;
+        let task_id = TaskId::new(S::Id::generate());
+        let codec = self.codec();
+        let compact =
+            S::Codec::encode(codec, &node).map_err(|e| TaskSinkError::CodecError(e.into()))?;
         let task = TaskBuilder::new(compact)
             .metadata(&DagFlowContext {
                 current_node: index,

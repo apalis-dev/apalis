@@ -6,7 +6,7 @@ use std::{
 };
 
 use apalis_core::{
-    backend::{BackendExt, codec::Codec},
+    backend::{Backend, codec::Codec},
     error::BoxDynError,
     task::Task,
     task_fn::{TaskFn, task_fn},
@@ -51,16 +51,16 @@ pub use service::RootDagService;
 #[derive(Debug)]
 pub struct DagFlow<B>
 where
-    B: BackendExt,
+    B: Backend,
 {
     name: String,
-    graph: Mutex<DiGraph<DagService<B::Compact, B::Connection, B::IdType>, ()>>,
+    graph: Mutex<DiGraph<DagService<B::Compact, B::Connection, B::Id>, ()>>,
     node_mapping: Mutex<HashMap<String, NodeIndex>>,
 }
 
 impl<B> fmt::Display for DagFlow<B>
 where
-    B: BackendExt,
+    B: Backend,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "DAG name: {}", self.name)?;
@@ -71,7 +71,7 @@ where
 
 impl<B> DagFlow<B>
 where
-    B: BackendExt,
+    B: Backend,
 {
     /// Create a new DAG workflow builder
     #[must_use]
@@ -91,10 +91,12 @@ where
         service: S,
     ) -> NodeBuilder<'_, Input, S::Response, B>
     where
-        S: Service<Task<Input, B::Connection, B::IdType>> + Send + 'static + Sync + Clone,
+        S: Service<Task<Input, B::Connection, B::Id>> + Send + 'static + Sync + Clone,
         S::Future: Send + 'static,
         B::Codec: Codec<Input, Compact = B::Compact, Error = CodecError>
             + Codec<S::Response, Compact = B::Compact, Error = CodecError>
+            + Send
+            + Clone
             + 'static,
         CodecError: Into<BoxDynError> + Send + 'static,
         S::Error: Into<BoxDynError>,
@@ -125,16 +127,16 @@ where
     ) -> NodeBuilder<'_, Input, O, B>
     where
         TaskFn<F, Input, B::Connection, FnArgs>:
-            Service<Task<Input, B::Connection, B::IdType>, Response = O, Error = Err> + Clone,
+            Service<Task<Input, B::Connection, B::Id>, Response = O, Error = Err> + Clone,
         F: Send + 'static + Sync,
         Input: Send + 'static + Sync,
         FnArgs: Send + 'static + Sync,
         B::Connection: Send + Sync + 'static,
         <TaskFn<F, Input, B::Connection, FnArgs> as Service<
-            Task<Input, B::Connection, B::IdType>,
+            Task<Input, B::Connection, B::Id>,
         >>::Future: Send + 'static,
         B::Codec: Codec<Input, Compact = B::Compact, Error = CodecError> + 'static,
-        B::Codec: Codec<O, Compact = B::Compact, Error = CodecError> + 'static,
+        B::Codec: Codec<O, Compact = B::Compact, Error = CodecError> + Send + Clone + 'static,
         CodecError: Into<BoxDynError> + Send + 'static,
         Err: Into<BoxDynError>,
         B: Send + Sync + 'static,
@@ -150,17 +152,17 @@ where
     ) -> NodeBuilder<'_, Input, O, B>
     where
         TaskFn<F, Input, B::Connection, FnArgs>:
-            Service<Task<Input, B::Connection, B::IdType>, Response = O, Error = Err> + Clone,
+            Service<Task<Input, B::Connection, B::Id>, Response = O, Error = Err> + Clone,
         F: Send + 'static + Sync,
         Input: Send + 'static + Sync,
         FnArgs: Send + 'static + Sync,
         <TaskFn<F, Input, B::Connection, FnArgs> as Service<
-            Task<Input, B::Connection, B::IdType>,
+            Task<Input, B::Connection, B::Id>,
         >>::Future: Send + 'static,
         O: Into<NodeIndex>,
         B::Connection: Send + Sync + 'static,
         B::Codec: Codec<Input, Compact = B::Compact, Error = CodecError> + 'static,
-        B::Codec: Codec<O, Compact = B::Compact, Error = CodecError> + 'static,
+        B::Codec: Codec<O, Compact = B::Compact, Error = CodecError> + Send + Clone + 'static,
         CodecError: Into<BoxDynError> + Send + 'static,
         Err: Into<BoxDynError>,
         B: Send + Sync + 'static,
@@ -209,7 +211,7 @@ where
     }
 
     /// Build the DAG executor
-    pub(crate) fn build(self) -> Result<DagExecutor<B>, DagFlowError> {
+    pub(crate) fn build(self, backend: B) -> Result<DagExecutor<B>, DagFlowError> {
         // Validate DAG (check for cycles)
         let sorted = toposort(
             &*self.graph.lock().expect("Failed to lock graph mutex"),
@@ -239,6 +241,7 @@ where
                 .expect("Failed to unlock node_mapping mutex"),
             topological_order: sorted,
             not_ready: VecDeque::new(),
+            backend,
         })
     }
 }
@@ -246,7 +249,7 @@ where
 /// Builder for a node in the DAG
 pub struct NodeBuilder<'a, Input, Output, B>
 where
-    B: BackendExt,
+    B: Backend,
 {
     pub(crate) id: NodeIndex,
     pub(crate) dag: &'a DagFlow<B>,
@@ -255,7 +258,7 @@ where
 
 impl<'a, Input, Output, B> std::fmt::Debug for NodeBuilder<'a, Input, Output, B>
 where
-    B: BackendExt,
+    B: Backend,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NodeBuilder")
@@ -266,7 +269,7 @@ where
 
 impl<'a, Input, Output, B> Clone for NodeBuilder<'a, Input, Output, B>
 where
-    B: BackendExt,
+    B: Backend,
 {
     fn clone(&self) -> Self {
         Self {
@@ -279,7 +282,7 @@ where
 
 impl<Input, Output, B> NodeBuilder<'_, Input, Output, B>
 where
-    B: BackendExt,
+    B: Backend,
 {
     /// Specify dependencies for this node
     #[allow(clippy::needless_pass_by_value)]
@@ -335,7 +338,7 @@ impl DepsCheck<()> for () {
 
 impl<'a, Input, Output, B> DepsCheck<Output> for &NodeBuilder<'a, Input, Output, B>
 where
-    B: BackendExt,
+    B: Backend,
 {
     fn to_node_indices(&self) -> Vec<NodeIndex> {
         vec![self.id]
@@ -356,7 +359,7 @@ impl<Input, Output> DepsCheck<Output> for (&NodeHandle<Input, Output>,) {
 
 impl<'a, Input, Output, B> DepsCheck<Output> for (&NodeBuilder<'a, Input, Output, B>,)
 where
-    B: BackendExt,
+    B: Backend,
 {
     fn to_node_indices(&self) -> Vec<NodeIndex> {
         vec![self.0.id]
@@ -375,7 +378,7 @@ macro_rules! impl_deps_check {
     ($( $len:literal => ( $( $in:ident $out:ident $idx:tt ),+ ) ),+ $(,)?) => {
         $(
             impl<'a, $( $in, )+ $( $out, )+ B> DepsCheck<( $( $out, )+ )>
-                for ( $( &NodeBuilder<'a, $in, $out, B>, )+ ) where B: BackendExt
+                for ( $( &NodeBuilder<'a, $in, $out, B>, )+ ) where B: Backend
             {
                 fn to_node_indices(&self) -> Vec<NodeIndex> {
                     vec![ $( self.$idx.id ),+ ]

@@ -1,5 +1,5 @@
 use apalis_core::{
-    backend::{BackendExt, TaskSinkError, codec::Codec},
+    backend::{Backend, TaskSinkError, codec::Codec},
     error::BoxDynError,
     task::{Task, builder::TaskBuilder, metadata::Metadata, task_id::TaskId},
 };
@@ -23,20 +23,20 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct WorkflowService<B, Input>
 where
-    B: BackendExt,
+    B: Backend,
 {
-    services: HashMap<usize, SteppedService<B::Compact, B::Connection, B::IdType>>,
+    services: HashMap<usize, SteppedService<B::Compact, B::Connection, B::Id>>,
     not_ready: VecDeque<usize>,
     backend: B,
     _marker: PhantomData<Input>,
 }
 impl<B, Input> WorkflowService<B, Input>
 where
-    B: BackendExt,
+    B: Backend,
 {
     /// Creates a new `WorkflowService` with the given services and backend.
     pub fn new(
-        services: HashMap<usize, SteppedService<B::Compact, B::Connection, B::IdType>>,
+        services: HashMap<usize, SteppedService<B::Compact, B::Connection, B::Id>>,
         backend: B,
     ) -> Self {
         Self {
@@ -48,18 +48,17 @@ where
     }
 }
 
-impl<B, Err, Input> Service<Task<B::Compact, B::Connection, B::IdType>>
-    for WorkflowService<B, Input>
+impl<B, Err, Input> Service<Task<B::Compact, B::Connection, B::Id>> for WorkflowService<B, Input>
 where
     B::Compact: Send + 'static,
     B: Sync,
     B::Connection: Send,
     Err: std::error::Error + Send + Sync + 'static,
-    B::IdType: GenerateId + Send + 'static,
-    B: Sink<Task<B::Compact, B::Connection, B::IdType>, Error = Err> + Unpin,
-    B: Clone + Send + Sync + 'static + BackendExt<Error = Err>,
+    B::Id: GenerateId + Send + 'static,
+    B: Sink<Task<B::Compact, B::Connection, B::Id>, Error = Err> + Unpin,
+    B: Clone + Send + Sync + 'static + Backend<Error = Err>,
 {
-    type Response = GoTo<StepResult<B::Compact, B::IdType>>;
+    type Response = GoTo<StepResult<B::Compact, B::Id>>;
     type Error = BoxDynError;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
@@ -85,7 +84,7 @@ where
         }
     }
 
-    fn call(&mut self, req: Task<B::Compact, B::Connection, B::IdType>) -> Self::Future {
+    fn call(&mut self, req: Task<B::Compact, B::Connection, B::Id>) -> Self::Future {
         assert!(
             self.not_ready.is_empty(),
             "Workflow must wait for all services to be ready. Did you forget to call poll_ready()?"
@@ -113,24 +112,25 @@ where
 pub async fn handle_step_result<N, Compact, B, Err>(
     ctx: &mut StepContext<B>,
     result: GoTo<N>,
-) -> Result<GoTo<StepResult<B::Compact, B::IdType>>, TaskSinkError<Err>>
+) -> Result<GoTo<StepResult<B::Compact, B::Id>>, TaskSinkError<Err>>
 where
-    B: Sink<Task<Compact, B::Connection, B::IdType>, Error = Err>
-        + BackendExt<Error = Err, Compact = Compact>
+    B: Sink<Task<Compact, B::Connection, B::Id>, Error = Err>
+        + Backend<Error = Err, Compact = Compact>
         + Send
         + Unpin,
-    B::Codec: Codec<N, Compact = Compact>,
+    B::Codec: Codec<N, Compact = Compact> + Clone,
     <B::Codec as Codec<N>>::Error: Into<BoxDynError>,
     Compact: 'static,
     N: 'static,
-    B::IdType: GenerateId + Send + 'static,
+    B::Id: GenerateId + Send + 'static,
 {
+    let codec = ctx.backend.codec().clone();
     match result {
         GoTo::Next(next) if ctx.has_next => {
-            let task_id = B::IdType::generate();
+            let task_id = B::Id::generate();
             let task_id = TaskId::new(task_id);
             let task = TaskBuilder::new(
-                B::Codec::encode(&next).map_err(|e| TaskSinkError::CodecError(e.into()))?,
+                B::Codec::encode(&codec, &next).map_err(|e| TaskSinkError::CodecError(e.into()))?,
             )
             .task_id(task_id.clone())
             .metadata(&WorkflowContext {
@@ -139,15 +139,16 @@ where
             .build();
             ctx.backend.send(task).await?;
             Ok(GoTo::Next(StepResult {
-                result: B::Codec::encode(&next).map_err(|e| TaskSinkError::CodecError(e.into()))?,
+                result: B::Codec::encode(&codec, &next)
+                    .map_err(|e| TaskSinkError::CodecError(e.into()))?,
                 next_task_id: Some(task_id),
             }))
         }
         GoTo::DelayFor(delay, next) if ctx.has_next => {
-            let task_id = B::IdType::generate();
+            let task_id = B::Id::generate();
             let task_id = TaskId::new(task_id);
             let task = TaskBuilder::new(
-                B::Codec::encode(&next).map_err(|e| TaskSinkError::CodecError(e.into()))?,
+                B::Codec::encode(&codec, &next).map_err(|e| TaskSinkError::CodecError(e.into()))?,
             )
             .run_after(delay)
             .task_id(task_id.clone())
@@ -159,7 +160,7 @@ where
             Ok(GoTo::DelayFor(
                 delay,
                 StepResult {
-                    result: B::Codec::encode(&next)
+                    result: B::Codec::encode(&codec, &next)
                         .map_err(|e| TaskSinkError::CodecError(e.into()))?,
                     next_task_id: Some(task_id),
                 },
@@ -168,7 +169,8 @@ where
         #[allow(clippy::match_same_arms)]
         GoTo::Done => Ok(GoTo::Done),
         GoTo::Break(res) => Ok(GoTo::Break(StepResult {
-            result: B::Codec::encode(&res).map_err(|e| TaskSinkError::CodecError(e.into()))?,
+            result: B::Codec::encode(&codec, &res)
+                .map_err(|e| TaskSinkError::CodecError(e.into()))?,
             next_task_id: None,
         })),
         _ => Ok(GoTo::Done),

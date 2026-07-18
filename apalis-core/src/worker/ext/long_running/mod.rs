@@ -216,11 +216,9 @@ impl<Res: Send + 'static> RunnerContext<Res> {
     }
 }
 
-impl<Args: Sync, Conn: Send + Sync, IdType: Sync + Send> FromRequest<Task<Args, Conn, IdType>>
-    for Runner
-{
+impl<Args: Sync, Conn: Send + Sync, Id: Sync + Send> FromRequest<Task<Args, Conn, Id>> for Runner {
     type Error = MissingDataError;
-    async fn from_request(task: &Task<Args, Conn, IdType>) -> Result<Self, Self::Error> {
+    async fn from_request(task: &Task<Args, Conn, Id>) -> Result<Self, Self::Error> {
         let runner: &Self = task.ctx.data.get_checked()?;
         Ok(runner.clone())
     }
@@ -261,9 +259,9 @@ pub struct LongRunningService<S> {
     config: LongRunningConfig,
 }
 
-impl<S, Args, Conn, IdType> Service<Task<Args, Conn, IdType>> for LongRunningService<S>
+impl<S, Args, Conn, Id> Service<Task<Args, Conn, Id>> for LongRunningService<S>
 where
-    S: Service<Task<Args, Conn, IdType>>,
+    S: Service<Task<Args, Conn, Id>>,
     S::Future: Send + 'static,
     S::Response: Send,
     S::Error: Send,
@@ -279,7 +277,7 @@ where
         self.service.poll_ready(cx)
     }
 
-    fn call(&mut self, mut task: Task<Args, Conn, IdType>) -> Self::Future {
+    fn call(&mut self, mut task: Task<Args, Conn, Id>) -> Self::Future {
         let tracker = TaskTracker::new();
         let worker: WorkerContext = task
             .ctx

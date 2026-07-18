@@ -60,7 +60,7 @@ It defines task polling mechanisms, streaming interfaces, and middleware integra
 - `Layer` - Specifies the middleware layer stack for the backend
 - `Codec` - Determines serialization format for task data persistence
 - `Beat` - Heartbeat stream for worker liveness checks
-- `IdType` - Type used for unique task identifiers
+- `Id` - Type used for unique task identifiers
 - `Conn` -   Context associated with tasks
 - `Error` - Error type for backend operations
 
@@ -194,9 +194,9 @@ pub struct LoggingService<S> {
     inner: S,
 }
 
-impl<S, Req, Res, Err, IdType> Service<Task<Req, (), IdType>> for LoggingService<S>
+impl<S, Req, Res, Err, Id> Service<Task<Req, (), Id>> for LoggingService<S>
 where
-    S: Service<Task<Req, (), IdType>, Response = Res, Error = Err>,
+    S: Service<Task<Req, (), Id>, Response = Res, Error = Err>,
     Req: std::fmt::Debug,
 {
     type Response = Res;
@@ -207,7 +207,7 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, req: Task<Req, (), IdType>) -> Self::Future {
+    fn call(&mut self, req: Task<Req, (), Id>) -> Self::Future {
         println!("Processing task: {:?}", req.args);
         self.inner.call(req)
     }

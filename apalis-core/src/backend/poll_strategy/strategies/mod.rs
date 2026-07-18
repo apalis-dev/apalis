@@ -1,9 +1,6 @@
-use std::pin::Pin;
+use std::task::{Context, Poll};
 
-use futures_core::Stream;
-use futures_util::StreamExt;
-
-use crate::backend::poll_strategy::{PollContext, PollStrategy};
+use crate::backend::poll_strategy::{PollSnapshot, PollStrategy};
 
 mod stream;
 pub use stream::*;
@@ -42,12 +39,7 @@ impl<S> PollStrategy for WrapperStrategy<S>
 where
     S: PollStrategy + Send + 'static,
 {
-    type Stream = Pin<Box<dyn Stream<Item = ()> + Send>>;
-
-    fn poll_strategy(self: Box<Self>, ctx: &PollContext) -> Self::Stream {
-        Box::new(self.strategy)
-            .poll_strategy(ctx)
-            .map(|_| ())
-            .boxed()
+    fn poll_gate(&mut self, cx: &mut Context<'_>, worker: &PollSnapshot) -> Poll<()> {
+        self.strategy.poll_gate(cx, worker)
     }
 }

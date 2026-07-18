@@ -15,7 +15,7 @@
 //! The [`Task`] struct is generic over:
 //! - `Args`: The type of arguments or payload for the task.
 //! - `Conn`: Backend-specific marker for a task.
-//! - `IdType`: The type used for uniquely identifying the task (defaults to [`RandomId`]).
+//! - `Id`: The type used for uniquely identifying the task (defaults to [`RandomId`]).
 //!
 //! ## [`ExecutionContext`]
 //!
@@ -139,7 +139,11 @@
 //! [`IntoResponse`]: crate::task_fn::into_response::IntoResponse
 //! [`FromRequest`]: crate::task_fn::from_request::FromRequest
 
-use std::{fmt::Debug, marker::PhantomData, sync::Arc};
+use std::{
+    fmt::{Debug, Display},
+    marker::PhantomData,
+    sync::Arc,
+};
 
 use crate::{
     backend::queue::Queue,
@@ -167,18 +171,18 @@ pub mod task_id;
 /// Represents a task which will be executed
 /// Should be considered a single unit of work
 #[derive(Debug, Clone, Default)]
-pub struct Task<Args, Connection, IdType> {
+pub struct Task<Args, Connection, Id> {
     /// The argument task part
     pub args: Args,
     /// ExecutionContext of the task eg id, attempts and context
-    pub ctx: Arc<ExecutionContext<Connection, IdType>>,
+    pub ctx: Arc<ExecutionContext<Connection, Id>>,
 }
 
 /// Execution context of a `Task`
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct ExecutionContext<Connection, IdType> {
+pub struct ExecutionContext<Connection, Id> {
     /// The task's id if allocated
-    pub task_id: Option<TaskId<IdType>>,
+    pub task_id: Option<TaskId<Id>>,
 
     /// The tasks's extensions
     #[cfg_attr(feature = "serde", serde(skip))]
@@ -222,10 +226,10 @@ pub struct ExecutionContext<Connection, IdType> {
     pub runs: Vec<Run>,
 
     /// A marker to indicate the type of connection used by the backend.
-    pub connection: PhantomData<Connection>,
+    pub connection: PhantomData<fn() -> Connection>,
 }
 
-impl<Conn, IdType> Default for ExecutionContext<Conn, IdType> {
+impl<Conn, Id> Default for ExecutionContext<Conn, Id> {
     fn default() -> Self {
         Self {
             task_id: None,
@@ -247,7 +251,7 @@ impl<Conn, IdType> Default for ExecutionContext<Conn, IdType> {
     }
 }
 
-impl<Conn: Debug, IdType: Debug> Debug for ExecutionContext<Conn, IdType> {
+impl<Conn: Debug, Id: Debug> Debug for ExecutionContext<Conn, Id> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ExecutionContext")
             .field("task_id", &self.task_id)
@@ -269,7 +273,7 @@ impl<Conn: Debug, IdType: Debug> Debug for ExecutionContext<Conn, IdType> {
     }
 }
 
-impl<Conn, IdType: Clone> Clone for ExecutionContext<Conn, IdType> {
+impl<Conn, Id: Clone> Clone for ExecutionContext<Conn, Id> {
     fn clone(&self) -> Self {
         Self {
             task_id: self.task_id.clone(),
@@ -291,23 +295,95 @@ impl<Conn, IdType: Clone> Clone for ExecutionContext<Conn, IdType> {
     }
 }
 
-impl<Args, Conn, IdType> Task<Args, Conn, IdType> {
+impl<Args, Conn, Id> Task<Args, Conn, Id> {
     /// Take the task into its parts
-    pub fn take(self) -> (Args, Arc<ExecutionContext<Conn, IdType>>) {
+    #[must_use]
+    pub fn take(self) -> (Args, Arc<ExecutionContext<Conn, Id>>) {
         (self.args, self.ctx)
     }
 
     /// Extract a value of type `T` from the task's context
     ///
     /// Uses [FromRequest] trait to extract the value.
+    #[must_use = "An extracted value should be used or handled to avoid unused value warnings."]
     pub async fn extract<T: FromRequest<Self>>(&self) -> Result<T, T::Error> {
         T::from_request(self).await
     }
 
-    /// Converts the task into a [`TaskBuilder`]
-    pub fn into_builder(self) -> TaskBuilder<Args, Conn, IdType>
+    /// Maps the `args` field using the provided function, consuming the task.
+    pub fn map_args<F, NewArgs>(self, f: F) -> Task<NewArgs, Conn, Id>
     where
-        IdType: Clone,
+        F: FnOnce(Args) -> NewArgs,
+    {
+        Task {
+            args: f(self.args),
+            ctx: self.ctx,
+        }
+    }
+
+    /// Maps the `args` field using the provided function, consuming the task.
+    #[must_use = "A mapped task should be used or handled to avoid unused value warnings."]
+    pub fn try_map_args<F, NewArgs, Err>(self, f: F) -> Result<Task<NewArgs, Conn, Id>, Err>
+    where
+        F: FnOnce(Args) -> Result<NewArgs, Err>,
+    {
+        Ok(Task {
+            args: f(self.args)?,
+            ctx: self.ctx,
+        })
+    }
+
+    /// Maps the `execution_context` using the provided function, consuming the task
+    #[must_use]
+    pub fn map_context<F>(self, f: F) -> Self
+    where
+        F: FnOnce(Arc<ExecutionContext<Conn, Id>>) -> Arc<ExecutionContext<Conn, Id>>,
+    {
+        Self {
+            args: self.args,
+            ctx: f(self.ctx),
+        }
+    }
+
+    /// Modifies the relevant backend types, consuming the task
+    #[must_use]
+    pub fn map_backend<NewConn, NewId>(self) -> Task<Args, NewConn, NewId>
+    where
+        Id: Clone,
+        Id: Display,
+    {
+        let mut ctx = Arc::unwrap_or_clone(self.ctx);
+        let _ = ctx.metadata.insert(
+            "apalis_core.transform.old_id",
+            ctx.task_id.map(|id| id.to_string()).unwrap_or_default(),
+        );
+        Task {
+            args: self.args,
+            ctx: Arc::new(ExecutionContext {
+                task_id: None,
+                data: ctx.data,
+                attempt: ctx.attempt,
+                status: ctx.status,
+                run_at: ctx.run_at,
+                done_at: ctx.done_at,
+                lock_at: ctx.lock_at,
+                lock_by: ctx.lock_by,
+                idempotency_key: ctx.idempotency_key,
+                metadata: ctx.metadata,
+                max_attempts: ctx.max_attempts,
+                priority: ctx.priority,
+                queue: ctx.queue,
+                runs: ctx.runs,
+                connection: Default::default(),
+            }),
+        }
+    }
+
+    /// Converts the task into a [`TaskBuilder`]
+    #[must_use = "Converting a task into a builder allows for further modifications before rebuilding the task."]
+    pub fn into_builder(self) -> TaskBuilder<Args, Conn, Id>
+    where
+        Id: Clone,
     {
         TaskBuilder {
             args: self.args,

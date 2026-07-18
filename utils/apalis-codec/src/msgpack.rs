@@ -19,11 +19,11 @@ pub enum MsgPackCodecError {
 impl<T: Serialize + for<'de> Deserialize<'de>> Codec<T> for MsgPackCodec {
     type Compact = Vec<u8>;
     type Error = MsgPackCodecError;
-    fn encode(input: &T) -> Result<Vec<u8>, Self::Error> {
+    fn encode(&self, input: &T) -> Result<Vec<u8>, Self::Error> {
         Ok(rmp_serde::to_vec(input)?)
     }
 
-    fn decode(compact: &Vec<u8>) -> Result<T, Self::Error> {
+    fn decode(&self, compact: &Vec<u8>) -> Result<T, Self::Error> {
         Ok(rmp_serde::from_slice(compact)?)
     }
 }
@@ -45,10 +45,10 @@ mod tests {
         };
 
         // Encode the original struct
-        let encoded = MsgPackCodec::encode(&original).expect("Encoding failed");
+        let encoded = MsgPackCodec.encode(&original).expect("Encoding failed");
 
         // Decode back to struct
-        let decoded: TestStruct = MsgPackCodec::decode(&encoded).expect("Decoding failed");
+        let decoded: TestStruct = MsgPackCodec.decode(&encoded).expect("Decoding failed");
 
         // Assert that the original and decoded structs are equal
         assert_eq!(original, decoded);

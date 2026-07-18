@@ -60,14 +60,15 @@ pub struct DeferredError {
 }
 
 /// Possible errors that can occur when running a worker.
+#[non_exhaustive]
 #[derive(Error, Debug)]
 pub enum WorkerError {
-    /// An error occurred while consuming the task stream.
-    #[error("Failed to consume task stream: {0}")]
-    StreamError(BoxDynError),
-    /// An error occurred in the worker's heartbeat.
-    #[error("Heartbeat error: {0}")]
-    HeartbeatError(BoxDynError),
+    /// An error occurred while polling for new tasks.
+    #[error("Failed to poll for new tasks: {0}")]
+    PollError(BoxDynError),
+    /// An error occurred while driving the backend.
+    #[error("The backend is cannot handle new polls: {0}")]
+    PollReadyError(BoxDynError),
     /// An error occurred while trying to change the state of the worker.
     #[error("Failed to handle the new state: {0}")]
     StateError(#[from] WorkerStateError),
@@ -80,6 +81,10 @@ pub enum WorkerError {
     /// An error occurred while handling io
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
+
+    /// Error originating from the decoding of the task
+    #[error("Task decoding error: {0}")]
+    CodecError(BoxDynError),
 }
 
 /// Errors related to worker state transitions

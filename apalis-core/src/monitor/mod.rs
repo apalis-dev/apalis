@@ -146,7 +146,7 @@ use tower_layer::Layer;
 use tower_service::Service;
 
 use crate::{
-    backend::Backend,
+    backend::{Backend, codec::Codec},
     error::{BoxDynError, WorkerError},
     monitor::shutdown::Shutdown,
     task::Task,
@@ -286,23 +286,23 @@ impl Monitor {
         worker: Worker<Args, B::Connection, B, S, M>,
     ) -> BoxFuture<'static, Result<(), WorkerError>>
     where
-        S: Service<Task<Args, B::Connection, B::IdType>> + Send + 'static,
+        S: Service<Task<Args, B::Connection, B::Id>> + Send + 'static,
         S::Future: Send,
         S::Error: Send + Sync + 'static + Into<BoxDynError>,
-        B: Backend<Args = Args> + Send + 'static,
+        B: Backend<Args = Args> + Send + Unpin + 'static,
         B::Error: Into<BoxDynError> + Send + 'static,
         B::Layer: Layer<ReadinessService<TrackerService<S>>> + 'static,
         M: Layer<<<B as Backend>::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service> + 'static,
         <M as Layer<
             <<B as Backend>::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service,
-        >>::Service: Service<Task<Args, B::Connection, B::IdType>> + Send + 'static,
-            <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::IdType>>>::Future: Send,
-        <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::IdType>>>::Error: Into<BoxDynError> + Send + Sync + 'static,
-        B::Stream: Unpin + Send + 'static,
-        B::Beat: Unpin + Send,
+        >>::Service: Service<Task<Args, B::Connection, B::Id>> + Send + 'static,
+            <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::Id>>>::Future: Send,
+        <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::Id>>>::Error: Into<BoxDynError> + Send + Sync + 'static,
         Args: Send + 'static,
         B::Connection: Send + Sync + 'static,
-        B::IdType: Sync + Send + 'static,
+        B::Id: Sync + Send + 'static,
+        <B::Codec as Codec<B::Args>>::Error: Into<BoxDynError>,
+
     {
         let mut stream = worker.stream_with_ctx(&mut ctx);
         async move {
@@ -342,24 +342,24 @@ impl Monitor {
         factory: impl Fn(usize) -> Worker<Args, B::Connection, B, S, M> + 'static + Send + Sync,
     ) -> Self
     where
-        S: Service<Task<Args, B::Connection, B::IdType>> + Send + 'static,
+        S: Service<Task<Args, B::Connection, B::Id>> + Send + 'static,
         S::Future: Send,
         S::Error: Send + Sync + 'static + Into<BoxDynError>,
-        B: Backend<Args = Args> + Send + 'static,
+        B: Backend<Args = Args> + Send + Unpin + 'static,
         B::Error: Into<BoxDynError> + Send + 'static,
-        B::Stream: Unpin + Send + 'static,
-        B::Beat: Unpin + Send,
         Args: Send + 'static,
         B::Connection: Send + Sync + 'static,
         B::Layer: Layer<ReadinessService<TrackerService<S>>> + 'static,
         M: Layer<<<B as Backend>::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service> + 'static,
         <M as Layer<
             <<B as Backend>::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service,
-        >>::Service: Service<Task<Args, B::Connection, B::IdType>> + Send + 'static,
-            <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::IdType>>>::Future: Send,
-        <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::IdType>>>::Error:
+        >>::Service: Service<Task<Args, B::Connection, B::Id>> + Send + 'static,
+            <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::Id>>>::Future: Send,
+        <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::Id>>>::Error:
             Into<BoxDynError> + Send + Sync + 'static,
-        B::IdType: Send + Sync + 'static,
+        B::Id: Send + Sync + 'static,
+        <B::Codec as Codec<B::Args>>::Error: Into<BoxDynError>,
+
     {
         let shutdown = Some(self.shutdown.clone());
         let handler = self.event_handler.clone();
@@ -586,7 +586,7 @@ impl std::fmt::Display for ExitError {
 mod tests {
     use super::*;
     use crate::{
-        backend::{TaskSink, dequeue::backend},
+        backend::{TaskSink, dequeue::VecDequeBackend},
         task::task_id::TaskId,
         worker::context::WorkerContext,
     };
@@ -600,7 +600,7 @@ mod tests {
 
     #[tokio::test]
     async fn basic_with_workers() {
-        let mut backend = backend(Duration::from_millis(100));
+        let mut backend = VecDequeBackend::new();
 
         for i in 0..10 {
             backend.push(i).await.unwrap();
@@ -625,7 +625,7 @@ mod tests {
     }
     #[tokio::test]
     async fn test_monitor_run() {
-        let mut backend = backend(Duration::from_millis(100));
+        let mut backend = VecDequeBackend::new();
 
         for i in 0..10 {
             backend.push(i).await.unwrap();
@@ -671,9 +671,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_monitor_register_multiple() {
-        let mut int_backend = backend(Duration::from_millis(500));
+        let mut int_backend = VecDequeBackend::new();
 
-        let mut str_backend = backend(Duration::from_millis(500));
+        let mut str_backend = VecDequeBackend::new();
 
         for i in 0..10 {
             int_backend.push(i).await.unwrap();

@@ -1,10 +1,9 @@
-use futures_core::Stream;
-use futures_util::StreamExt;
-use std::{pin::Pin, sync::Arc};
-
-use crate::backend::poll_strategy::{
-    BoxedPollStrategy, PollContext, PollStrategy, RaceNext, WrapperStrategy,
+use std::{
+    sync::Arc,
+    task::{Context, Poll},
 };
+
+use crate::backend::poll_strategy::{BoxedPollStrategy, PollSnapshot, PollStrategy};
 
 /// Builder for composing multiple polling strategies
 pub struct StrategyBuilder {
@@ -38,19 +37,16 @@ impl StrategyBuilder {
     /// Strategies are executed in the order they are added, with the first strategy having the highest priority
     /// In case of multiple strategies being ready at the same time, the first one added will be chosen
     #[must_use]
-    pub fn apply<S, Stm>(mut self, strategy: S) -> Self
+    pub fn apply<S>(mut self, strategy: S) -> Self
     where
-        S: PollStrategy<Stream = Stm> + 'static + Sync + Send,
-        Stm: Stream<Item = ()> + Send + 'static,
+        S: PollStrategy + Send + Sync + 'static,
     {
-        self.strategies
-            .push(Box::new(WrapperStrategy::new(strategy)));
+        self.strategies.push(Box::new(strategy));
         self
     }
 
     /// Build the MultiStrategy from the builder
     /// Consumes the builder and returns a MultiStrategy
-    /// The MultiStrategy will contain all the strategies added to the builder
     #[must_use]
     pub fn build(self) -> MultiStrategy {
         MultiStrategy {
@@ -60,7 +56,7 @@ impl StrategyBuilder {
 }
 
 /// A polling strategy that combines multiple strategies
-/// The strategies are executed in the order they were added to the builder
+/// The strategies are polled in the order they were added to the builder
 /// In case of multiple strategies being ready at the same time, the first one added will be chosen
 #[derive(Clone)]
 pub struct MultiStrategy {
@@ -76,22 +72,14 @@ impl std::fmt::Debug for MultiStrategy {
 }
 
 impl PollStrategy for MultiStrategy {
-    type Stream = Pin<Box<dyn Stream<Item = ()> + Send>>;
-
-    fn poll_strategy(self: Box<Self>, ctx: &PollContext) -> Self::Stream {
-        let ctx = ctx.clone();
-        let mut streams = self
-            .strategies
-            .lock()
-            .unwrap()
-            .drain(..)
-            .map(move |s| {
-                let ctx = ctx.clone();
-                s.poll_strategy(&ctx)
-            })
-            .collect::<Vec<_>>();
-        // Reverse to give priority to strategies in the order they were added
-        streams.reverse();
-        RaceNext::new(streams).map(|(_idx, _)| ()).boxed()
+    fn poll_gate(&mut self, cx: &mut Context<'_>, worker: &PollSnapshot) -> Poll<()> {
+        // Priority order: first-added strategy wins if multiple are ready.
+        for strategy in &mut self.strategies.lock().unwrap().iter_mut() {
+            if strategy.poll_gate(cx, worker).is_ready() {
+                return Poll::Ready(());
+            }
+        }
+        cx.waker().wake_by_ref();
+        Poll::Pending
     }
 }

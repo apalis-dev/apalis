@@ -1,5 +1,5 @@
 use crate::{
-    backend::{Backend, BackendExt, codec::Codec},
+    backend::{Backend, codec::Codec},
     error::BoxDynError,
     task::{Task, builder::TaskBuilder},
 };
@@ -43,33 +43,36 @@ pub trait TaskSink<Args>: Backend {
     /// Allows pushing a fully constructed task into the backend
     fn push_task(
         &mut self,
-        task: Task<Args, Self::Connection, Self::IdType>,
+        task: Task<Args, Self::Connection, Self::Id>,
     ) -> impl Future<Output = Result<(), TaskSinkError<Self::Error>>> + Send;
 
     /// Allows pushing a fully constructed task into the backend
     fn push_all(
         &mut self,
-        tasks: impl Stream<Item = Task<Args, Self::Connection, Self::IdType>> + Unpin + Send,
+        tasks: impl Stream<Item = Task<Args, Self::Connection, Self::Id>> + Unpin + Send,
     ) -> impl Future<Output = Result<(), TaskSinkError<Self::Error>>> + Send;
 }
 
 impl<Args, S, E, C> TaskSink<Args> for S
 where
-    S: Sink<Task<C::Compact, Self::Connection, Self::IdType>, Error = E>
+    S: Sink<Task<C::Compact, Self::Connection, Self::Id>, Error = E>
         + Unpin
-        + BackendExt<Args = Args, Error = E, Codec = C>
+        + Backend<Args = Args, Error = E, Codec = C>
         + Send,
     Args: Send,
     C::Compact: Send,
     S::Connection: Send + Sync,
-    S::IdType: Send + Sync + 'static,
-    C: Codec<Args>,
+    S::Id: Send + Sync + 'static,
+    C: Codec<Args> + Clone + Send + Sync,
     E: Send,
     C::Error: std::error::Error + Send + Sync + 'static,
 {
     async fn push(&mut self, task: Args) -> Result<(), TaskSinkError<Self::Error>> {
         use futures_util::SinkExt;
-        let encoded = C::encode(&task).map_err(|e| TaskSinkError::CodecError(e.into()))?;
+        let encoded = self
+            .codec()
+            .encode(&task)
+            .map_err(|e| TaskSinkError::CodecError(e.into()))?;
         self.send(TaskBuilder::new(encoded).build()).await?;
         Ok(())
     }
@@ -80,8 +83,12 @@ where
             .into_iter()
             .map(TaskBuilder::new)
             .map(|task| {
-                task.try_map(|t| C::encode(&t).map_err(|e| TaskSinkError::CodecError(e.into())))
-                    .map(|t| t.build())
+                task.try_map_args(|t| {
+                    self.codec()
+                        .encode(&t)
+                        .map_err(|e| TaskSinkError::CodecError(e.into()))
+                })
+                .map(|t| t.build())
             })
             .collect::<Result<Vec<_>, _>>()?;
         self.send_all(&mut stream::iter(tasks.into_iter().map(Ok)))
@@ -93,38 +100,48 @@ where
         &mut self,
         tasks: impl Stream<Item = Args> + Unpin + Send,
     ) -> Result<(), TaskSinkError<Self::Error>> {
+        let codec = self.codec().clone();
         self.sink_map_err(|e| TaskSinkError::PushError(e))
             .send_all(&mut tasks.map(TaskBuilder::new).map(|task| {
-                task.try_map(|t| C::encode(&t).map_err(|e| TaskSinkError::CodecError(e.into())))
-                    .map(|t| t.build())
+                task.try_map_args(|t| {
+                    codec
+                        .encode(&t)
+                        .map_err(|e| TaskSinkError::CodecError(e.into()))
+                })
+                .map(|t| t.build())
             }))
             .await
     }
 
     async fn push_task(
         &mut self,
-        task: Task<Args, Self::Connection, Self::IdType>,
+        task: Task<Args, Self::Connection, Self::Id>,
     ) -> Result<(), TaskSinkError<Self::Error>> {
         use futures_util::SinkExt;
+        let codec = self.codec().clone();
+
         self.sink_map_err(|e| TaskSinkError::PushError(e))
-            .send(
-                task.into_builder()
-                    .try_map(|t| C::encode(&t).map_err(|e| TaskSinkError::CodecError(e.into())))
-                    .map(|t| t.build())?,
-            )
+            .send(task.try_map_args(|t| {
+                codec
+                    .encode(&t)
+                    .map_err(|e| TaskSinkError::CodecError(e.into()))
+            })?)
             .await
     }
 
     async fn push_all(
         &mut self,
-        tasks: impl Stream<Item = Task<Args, Self::Connection, Self::IdType>> + Unpin + Send,
+        tasks: impl Stream<Item = Task<Args, Self::Connection, Self::Id>> + Unpin + Send,
     ) -> Result<(), TaskSinkError<Self::Error>> {
         use futures_util::SinkExt;
+        let codec = self.codec().clone();
         self.sink_map_err(|e| TaskSinkError::PushError(e))
             .send_all(&mut tasks.map(|task| {
-                task.into_builder()
-                    .try_map(|t| C::encode(&t).map_err(|e| TaskSinkError::CodecError(e.into())))
-                    .map(|t| t.build())
+                task.try_map_args(|t| {
+                    codec
+                        .encode(&t)
+                        .map_err(|e| TaskSinkError::CodecError(e.into()))
+                })
             }))
             .await
     }

@@ -1,4 +1,4 @@
-use apalis_core::{backend::BackendExt, error::BoxDynError};
+use apalis_core::{backend::Backend, error::BoxDynError};
 
 use crate::sequential::router::WorkflowRouter;
 
@@ -15,7 +15,7 @@ pub trait Layer<S> {
 /// A single unit of work in a sequential workflow pipeline.
 pub trait Step<Input, B>
 where
-    B: BackendExt,
+    B: Backend,
 {
     /// The response type produced by the step.
     type Response;

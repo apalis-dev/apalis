@@ -1,7 +1,8 @@
 use crate::Adapter;
+use std::fmt;
 
 /// Error type for [`FileStorage`].
-#[derive(Debug, thiserror::Error)]
+#[derive(thiserror::Error)]
 pub enum FileStorageError<A: Adapter> {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
@@ -20,4 +21,24 @@ pub enum FileStorageError<A: Adapter> {
 
     #[error("Lock would block")]
     WouldBlockLock,
+}
+
+impl<A> fmt::Debug for FileStorageError<A>
+where
+    A: Adapter,
+    A::Error: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Io(err) => f.debug_tuple("Io").field(err).finish(),
+            Self::Json(err) => f.debug_tuple("Json").field(err).finish(),
+            Self::JobNotFound { line_id } => f
+                .debug_struct("JobNotFound")
+                .field("line_id", line_id)
+                .finish(),
+            Self::Parse(msg) => f.debug_tuple("Parse").field(msg).finish(),
+            Self::AdapterError(err) => f.debug_tuple("AdapterError").field(err).finish(),
+            Self::WouldBlockLock => f.write_str("WouldBlockLock"),
+        }
+    }
 }

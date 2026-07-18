@@ -1,7 +1,10 @@
 use std::marker::PhantomData;
 
 use apalis_core::{
-    backend::{Backend, BackendExt, codec::RawDataBackend},
+    backend::{
+        Backend,
+        ext::{BackendExt, raw::RawDataBackend},
+    },
     error::BoxDynError,
     task::Task,
     worker::builder::{IntoWorkerService, WorkerService},
@@ -55,7 +58,7 @@ impl<Start, Cur, B, L> Workflow<Start, Cur, B, L> {
     where
         S: Step<Cur, B>,
         L: Layer<S>,
-        B: BackendExt,
+        B: Backend,
     {
         Workflow {
             inner: self.inner.layer(root),
@@ -67,7 +70,7 @@ impl<Start, Cur, B, L> Workflow<Start, Cur, B, L> {
 
 impl<Start, Cur, B, L> Workflow<Start, Cur, B, L>
 where
-    B: BackendExt,
+    B: Backend,
 {
     /// Builds the workflow by layering the root step.
     pub fn build<N>(self) -> L::Step
@@ -89,7 +92,7 @@ impl<Res> Default for RootStep<Res> {
     }
 }
 
-impl<Input, Current, B: BackendExt> Step<Input, B> for RootStep<Current> {
+impl<Input, Current, B: Backend> Step<Input, B> for RootStep<Current> {
     type Response = Current;
     type Error = BoxDynError;
     fn register(&mut self, _ctx: &mut WorkflowRouter<B>) -> Result<(), BoxDynError> {
@@ -102,16 +105,16 @@ impl<Input, Output, Current, B, Compact, Err, L>
     IntoWorkerService<B, WorkflowService<B, Output>, Compact, B::Connection>
     for Workflow<Input, Current, B, L>
 where
-    B: BackendExt<Compact = Compact>
+    B: Backend<Compact = Compact>
         + Send
         + Sync
         + 'static
-        + Sink<Task<Compact, B::Connection, B::IdType>, Error = Err>
+        + Sink<Task<Compact, B::Connection, B::Id>, Error = Err>
         + Unpin
         + Clone,
     Err: std::error::Error + Send + Sync + 'static,
     B::Connection: Send + Sync + 'static,
-    B::IdType: Send + 'static + Default + GenerateId,
+    B::Id: Send + 'static + Default + GenerateId,
     B: Sync + Backend<Args = Compact, Error = Err>,
     B::Compact: Send + Sync + 'static,
     L: Layer<RootStep<Current>>,
@@ -127,8 +130,8 @@ where
             .register(&mut ctx)
             .expect("Failed to register workflow steps");
         WorkerService {
-            backend: RawDataBackend::new(b.clone()),
-            service: WorkflowService::new(ctx.steps, b),
+            service: WorkflowService::new(ctx.steps, b.clone()),
+            backend: b.raw(),
         }
     }
 }

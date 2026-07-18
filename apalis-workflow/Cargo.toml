@@ -31,8 +31,8 @@ futures = "0.3.30"
 thiserror = "2.0.0"
 # TODO: move to workspace dependencies
 tracing = { version = "0.1.41", default-features = false, optional = true }
-ulid = { version = "1", optional = true }
-uuid = { version = "1", features = ["v4"], optional = true }
+ulid = { version = "2.0.1", optional = true }
+uuid = { version = "1.23.5", features = ["v4"], optional = true }
 rand = { version = "0.9", features = ["std"], optional = true }
 
 [dev-dependencies]

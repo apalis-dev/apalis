@@ -100,4 +100,8 @@ pub enum DagServiceError {
     /// Dependency task failed
     #[error("Dependency task failed: {0:?}")]
     DependencyTaskFailed(#[source] BoxDynError),
+
+    /// An error related to codec operations.
+    #[error("Codec error: {0}")]
+    Codec(#[source] BoxDynError),
 }
