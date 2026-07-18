@@ -16,7 +16,7 @@ jobs:
   cargo-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v4
         with:
@@ -49,5 +49,5 @@ jobs:
   cargo-deny:
     runs-on: ubuntu-22.04
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - uses: EmbarkStudios/cargo-deny-action@v2
