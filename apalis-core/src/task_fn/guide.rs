@@ -105,9 +105,9 @@
 //! #    // other fields...
 //! # }
 //!
-//! impl<Conn: Send + Sync, Id: Send + Sync> FromRequest<Task<Email, Conn, Id>> for User {
+//! impl<Id: Send + Sync> FromRequest<Task<Email, Id>> for User {
 //!     type Error = BoxDynError;
-//!     async fn from_request(req: &Task<Email, Conn, Id>) -> Result<Self, Self::Error> {
+//!     async fn from_request(req: &Task<Email, Id>) -> Result<Self, Self::Error> {
 //!         let user_id = req.args.user_id.clone();
 //!         // Simulate fetching user from DB
 //!         Ok(User { id: user_id })

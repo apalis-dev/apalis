@@ -14,7 +14,6 @@
 //!
 //! The [`Task`] struct is generic over:
 //! - `Args`: The type of arguments or payload for the task.
-//! - `Conn`: Backend-specific marker for a task.
 //! - `Id`: The type used for uniquely identifying the task (defaults to [`RandomId`]).
 //!
 //! ## [`ExecutionContext`]
@@ -57,7 +56,7 @@
 //! # use apalis_core::task::{Task, ExecutionContext};
 //! # use apalis_core::task::builder::TaskBuilder;
 //! # use apalis_core::task::task_id::RandomId;
-//! let task: Task<String, (), RandomId> = TaskBuilder::new("my work".to_string()).build();
+//! let task: Task<String, RandomId> = TaskBuilder::new("my work".to_string()).build();
 //! ```
 //!
 //! ## Creating a task with custom metadata
@@ -68,7 +67,6 @@
 //! # use apalis_core::task::task_id::RandomId;
 //! # use apalis_core::task::metadata::Metadata;
 //! # use apalis_core::task::metadata::MetadataStore;
-//! # use apalis_core::backend::memory::MemoryContext;
 //! #
 //! #[derive(Debug, PartialEq)]
 //! struct RequestId(String);
@@ -91,7 +89,7 @@
 //!     }
 //! }
 //!
-//! let task: Task<String, MemoryContext, RandomId> = TaskBuilder::new("important work".to_string())
+//! let task: Task<String, RandomId> = TaskBuilder::new("important work".to_string())
 //!     .metadata(&RequestId("user_id".to_string()))
 //!     .build();
 //! ```
@@ -101,9 +99,8 @@
 //! ```rust
 //! # use apalis_core::task::builder::TaskBuilder;
 //! # use apalis_core::task::task_id::RandomId;
-//! # use apalis_core::backend::memory::MemoryContext;
 //! use apalis_core::task::{Task, ExecutionContext, status::Status};
-//! let mut task: TaskBuilder<_, MemoryContext, RandomId> = TaskBuilder::new("work".to_string());
+//! let mut task: TaskBuilder<_, RandomId> = TaskBuilder::new("work".to_string());
 //! task.ctx.status = Status::Running.into();
 //! task.ctx.attempt.increment();
 //! ```
@@ -118,7 +115,7 @@
 //! pub struct TracingId(String);
 //! let mut extensions = Extensions::default();
 //! extensions.insert(TracingId("abc123".to_owned()));
-//! let task: Task<String, (), RandomId> = TaskBuilder::new("work".to_string()).with_data(extensions).build();
+//! let task: Task<String, RandomId> = TaskBuilder::new("work".to_string()).with_data(extensions).build();
 //! assert_eq!(task.ctx.data.get::<TracingId>(), Some(&TracingId("abc123".to_owned())));
 //! ```
 //!
@@ -141,7 +138,6 @@
 
 use std::{
     fmt::{Debug, Display},
-    marker::PhantomData,
     sync::Arc,
 };
 
@@ -171,16 +167,16 @@ pub mod task_id;
 /// Represents a task which will be executed
 /// Should be considered a single unit of work
 #[derive(Debug, Clone, Default)]
-pub struct Task<Args, Connection, Id> {
+pub struct Task<Args, Id> {
     /// The argument task part
     pub args: Args,
     /// ExecutionContext of the task eg id, attempts and context
-    pub ctx: Arc<ExecutionContext<Connection, Id>>,
+    pub ctx: Arc<ExecutionContext<Id>>,
 }
 
 /// Execution context of a `Task`
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct ExecutionContext<Connection, Id> {
+pub struct ExecutionContext<Id> {
     /// The task's id if allocated
     pub task_id: Option<TaskId<Id>>,
 
@@ -224,12 +220,9 @@ pub struct ExecutionContext<Connection, Id> {
 
     /// A list of all runs for this task
     pub runs: Vec<Run>,
-
-    /// A marker to indicate the type of connection used by the backend.
-    pub connection: PhantomData<fn() -> Connection>,
 }
 
-impl<Conn, Id> Default for ExecutionContext<Conn, Id> {
+impl<Id> Default for ExecutionContext<Id> {
     fn default() -> Self {
         Self {
             task_id: None,
@@ -246,18 +239,16 @@ impl<Conn, Id> Default for ExecutionContext<Conn, Id> {
             priority: None,
             queue: None,
             runs: Vec::new(),
-            connection: PhantomData,
         }
     }
 }
 
-impl<Conn: Debug, Id: Debug> Debug for ExecutionContext<Conn, Id> {
+impl<Id: Debug> Debug for ExecutionContext<Id> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ExecutionContext")
             .field("task_id", &self.task_id)
             .field("data", &"<Extensions>")
             .field("attempt", &self.attempt)
-            .field("connection", &self.connection)
             .field("status", &self.status.load())
             .field("run_at", &self.run_at)
             .field("done_at", &self.done_at)
@@ -273,13 +264,12 @@ impl<Conn: Debug, Id: Debug> Debug for ExecutionContext<Conn, Id> {
     }
 }
 
-impl<Conn, Id: Clone> Clone for ExecutionContext<Conn, Id> {
+impl<Id: Clone> Clone for ExecutionContext<Id> {
     fn clone(&self) -> Self {
         Self {
             task_id: self.task_id.clone(),
             data: self.data.clone(),
             attempt: self.attempt.clone(),
-            connection: self.connection,
             status: self.status.clone(),
             run_at: self.run_at,
             done_at: self.done_at,
@@ -295,10 +285,10 @@ impl<Conn, Id: Clone> Clone for ExecutionContext<Conn, Id> {
     }
 }
 
-impl<Args, Conn, Id> Task<Args, Conn, Id> {
+impl<Args, Id> Task<Args, Id> {
     /// Take the task into its parts
     #[must_use]
-    pub fn take(self) -> (Args, Arc<ExecutionContext<Conn, Id>>) {
+    pub fn take(self) -> (Args, Arc<ExecutionContext<Id>>) {
         (self.args, self.ctx)
     }
 
@@ -311,7 +301,7 @@ impl<Args, Conn, Id> Task<Args, Conn, Id> {
     }
 
     /// Maps the `args` field using the provided function, consuming the task.
-    pub fn map_args<F, NewArgs>(self, f: F) -> Task<NewArgs, Conn, Id>
+    pub fn map_args<F, NewArgs>(self, f: F) -> Task<NewArgs, Id>
     where
         F: FnOnce(Args) -> NewArgs,
     {
@@ -323,7 +313,7 @@ impl<Args, Conn, Id> Task<Args, Conn, Id> {
 
     /// Maps the `args` field using the provided function, consuming the task.
     #[must_use = "A mapped task should be used or handled to avoid unused value warnings."]
-    pub fn try_map_args<F, NewArgs, Err>(self, f: F) -> Result<Task<NewArgs, Conn, Id>, Err>
+    pub fn try_map_args<F, NewArgs, Err>(self, f: F) -> Result<Task<NewArgs, Id>, Err>
     where
         F: FnOnce(Args) -> Result<NewArgs, Err>,
     {
@@ -337,7 +327,7 @@ impl<Args, Conn, Id> Task<Args, Conn, Id> {
     #[must_use]
     pub fn map_context<F>(self, f: F) -> Self
     where
-        F: FnOnce(Arc<ExecutionContext<Conn, Id>>) -> Arc<ExecutionContext<Conn, Id>>,
+        F: FnOnce(Arc<ExecutionContext<Id>>) -> Arc<ExecutionContext<Id>>,
     {
         Self {
             args: self.args,
@@ -345,9 +335,12 @@ impl<Args, Conn, Id> Task<Args, Conn, Id> {
         }
     }
 
-    /// Modifies the relevant backend types, consuming the task
+    /// Modifies the id type of the task, consuming the task
+    ///
+    /// See [`crate::backend::ext::pipe`]
     #[must_use]
-    pub fn map_backend<NewConn, NewId>(self) -> Task<Args, NewConn, NewId>
+    #[doc(hidden)]
+    pub fn map_id_type<NewId>(self) -> Task<Args, NewId>
     where
         Id: Clone,
         Id: Display,
@@ -374,14 +367,13 @@ impl<Args, Conn, Id> Task<Args, Conn, Id> {
                 priority: ctx.priority,
                 queue: ctx.queue,
                 runs: ctx.runs,
-                connection: Default::default(),
             }),
         }
     }
 
     /// Converts the task into a [`TaskBuilder`]
     #[must_use = "Converting a task into a builder allows for further modifications before rebuilding the task."]
-    pub fn into_builder(self) -> TaskBuilder<Args, Conn, Id>
+    pub fn into_builder(self) -> TaskBuilder<Args, Id>
     where
         Id: Clone,
     {

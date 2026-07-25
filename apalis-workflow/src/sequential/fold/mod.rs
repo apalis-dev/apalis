@@ -51,10 +51,9 @@ impl<Start, C, L, I: IntoIterator<Item = C>, B: Backend> Workflow<Start, I, B, L
     pub fn fold<F, Output, FnArgs, Init>(
         self,
         fold: F,
-    ) -> Workflow<Start, Output, B, Stack<Fold<TaskFn<F, (Init, C), B::Connection, FnArgs>, Init>, L>>
+    ) -> Workflow<Start, Output, B, Stack<Fold<TaskFn<F, (Init, C), FnArgs>, Init>, L>>
     where
-        TaskFn<F, (Init, C), B::Connection, FnArgs>:
-            Service<Task<(Init, C), B::Connection, B::Id>, Response = Output>,
+        TaskFn<F, (Init, C), FnArgs>: Service<Task<(Init, C), B::Id>, Response = Output>,
     {
         self.add_step(Fold {
             fold: task_fn(fold),
@@ -74,21 +73,16 @@ pub struct FoldStep<S, F, Init> {
 impl<S, F, Input, I: IntoIterator<Item = Input>, Init, B, Err, CodecError> Step<I, B>
     for FoldStep<S, F, Init>
 where
-    F: Service<Task<(Init, Input), B::Connection, B::Id>, Response = Init>
-        + Send
-        + Sync
-        + 'static
-        + Clone,
+    F: Service<Task<(Init, Input), B::Id>, Response = Init> + Send + Sync + 'static + Clone,
     S: Step<Init, B>,
     B: Backend<Error = Err>
         + Send
         + Sync
         + Clone
-        + Sink<Task<B::Compact, B::Connection, B::Id>, Error = Err>
+        + Sink<Task<B::Compact, B::Id>, Error = Err>
         + Unpin
         + 'static,
     I: IntoIterator<Item = Input> + Send + Sync + 'static,
-    B::Connection: Send + Sync + 'static,
     B::Codec: Codec<(Init, Vec<Input>), Error = CodecError, Compact = B::Compact>
         + Codec<Init, Error = CodecError, Compact = B::Compact>
         + Codec<I, Error = CodecError, Compact = B::Compact>
@@ -144,19 +138,18 @@ impl<F, Init, I, B> FoldService<F, Init, I, B> {
     }
 }
 
-impl<F, Init, I, B, Input, CodecError, Err> Service<Task<B::Compact, B::Connection, B::Id>>
+impl<F, Init, I, B, Input, CodecError, Err> Service<Task<B::Compact, B::Id>>
     for FoldService<F, Init, I, B>
 where
-    F: Service<Task<(Init, Input), B::Connection, B::Id>, Response = Init> + Send + 'static + Clone,
+    F: Service<Task<(Init, Input), B::Id>, Response = Init> + Send + 'static + Clone,
     B: Backend<Error = Err>
         + Send
         + Sync
         + Clone
-        + Sink<Task<B::Compact, B::Connection, B::Id>, Error = Err>
+        + Sink<Task<B::Compact, B::Id>, Error = Err>
         + Unpin
         + 'static,
     I: IntoIterator<Item = Input> + Send + 'static,
-    B::Connection: Send + Sync + 'static,
     B::Codec: Codec<(Init, Vec<Input>), Error = CodecError, Compact = B::Compact>
         + Codec<Init, Error = CodecError, Compact = B::Compact>
         + Codec<I, Error = CodecError, Compact = B::Compact>
@@ -181,7 +174,7 @@ where
         self.fold.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, task: Task<B::Compact, B::Connection, B::Id>) -> Self::Future {
+    fn call(&mut self, task: Task<B::Compact, B::Id>) -> Self::Future {
         let state = FoldState::extract(&task.ctx.metadata).unwrap_or(FoldState::Init);
         let mut ctx = task.ctx.data.get::<StepContext<B>>().cloned().unwrap();
         let codec = ctx.backend.codec().clone();
@@ -190,8 +183,7 @@ where
         match state {
             FoldState::Init => async move {
                 let task_id = TaskId::new(B::Id::generate());
-                let steps: Task<I, _, _> =
-                    task.try_map_args(|arg| B::Codec::decode(&codec, &arg))?;
+                let steps: Task<I, _> = task.try_map_args(|arg| B::Codec::decode(&codec, &arg))?;
                 let steps = steps.args.into_iter().collect::<Vec<_>>();
                 let task = TaskBuilder::new(B::Codec::encode(&codec, &(Init::default(), steps))?)
                     .metadata(&WorkflowContext {

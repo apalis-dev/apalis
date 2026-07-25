@@ -9,7 +9,7 @@ use apalis_core::task::{
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawTask {
-    pub(super) task_id: Option<TaskId<RandomId>>,
+    pub(super) task_id: TaskId<RandomId>,
     pub(super) args: serde_json::Value,
     pub(super) ctx: MetadataStore,
     pub(super) result: Option<serde_json::Value>,

@@ -76,12 +76,10 @@
 //! <details>
 //! <summary>Associated Types:</summary>
 //!
-//! - `Stream` - Defines the task stream type for polling operations
 //! - `Layer` - Specifies the middleware layer stack for the backend
 //! - `Codec` - Determines serialization format for task data persistence
-//! - `Beat` - Heartbeat stream for worker liveness checks
 //! - `Id` - Type used for unique task identifiers
-//! - `Conn` -   Context associated with tasks
+//! - `Config` -   Config for the backend
 //! - `Error` - Error type for backend operations
 //!
 //! </details>
@@ -228,10 +226,10 @@
 //!     inner: S,
 //! }
 //!
-//! impl<S, Req, Res, Err, Id> Service<Task<Req, (), Id>> for LoggingService<S>
+//! impl<S, Args, Res, Err, Id> Service<Task<Args, Id>> for LoggingService<S>
 //! where
-//!     S: Service<Task<Req, (), Id>, Response = Res, Error = Err>,
-//!     Req: std::fmt::Debug,
+//!     S: Service<Task<Args, Id>, Response = Res, Error = Err>,
+//!     Args: std::fmt::Debug,
 //! {
 //!     type Response = Res;
 //!     type Error = Err;
@@ -241,7 +239,7 @@
 //!         self.inner.poll_ready(cx)
 //!     }
 //!
-//!     fn call(&mut self, req: Task<Req, (), Id>) -> Self::Future {
+//!     fn call(&mut self, req: Task<Args, Id>) -> Self::Future {
 //!         println!("Processing task: {:?}", req.args);
 //!         self.inner.call(req)
 //!     }
@@ -324,7 +322,7 @@
 //! [`Status`]: crate::task::status::Status
 //! [`TaskId`]: crate::task::task_id::TaskId
 //! [`Attempt`]: crate::task::attempt::Attempt
-//! [`FromRequest`]: crate::task_fn::FromRequest
+//! [`FromArgsuest`]: crate::task_fn::FromArgsuest
 //! [`TestWorker`]: crate::worker::test_worker::TestWorker
 //! [`Shutdown`]: crate::monitor::shutdown::Shutdown
 

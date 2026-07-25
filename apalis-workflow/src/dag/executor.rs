@@ -32,7 +32,7 @@ pub struct DagExecutor<B>
 where
     B: Backend,
 {
-    pub(super) graph: DiGraph<DagService<B::Compact, B::Connection, B::Id>, ()>,
+    pub(super) graph: DiGraph<DagService<B::Compact, B::Id>, ()>,
     pub(super) node_mapping: HashMap<String, NodeIndex>,
     pub(super) topological_order: Vec<NodeIndex>,
     pub(super) start_nodes: Vec<NodeIndex>,
@@ -66,17 +66,16 @@ where
     pub fn get_node_by_name_mut(
         &mut self,
         name: &str,
-    ) -> Option<&mut DagService<B::Compact, B::Connection, B::Id>> {
+    ) -> Option<&mut DagService<B::Compact, B::Id>> {
         self.node_mapping
             .get(name)
             .and_then(|&idx| self.graph.node_weight_mut(idx))
     }
 }
 
-impl<B> Service<Task<B::Compact, B::Connection, B::Id>> for DagExecutor<B>
+impl<B> Service<Task<B::Compact, B::Id>> for DagExecutor<B>
 where
     B: Backend,
-    B::Connection: Send + Sync + 'static,
     B::Id: Clone + Send + Sync + 'static + GenerateId + Debug + FromStr + Display,
     B::Compact: Send + Sync + 'static,
     <B::Id as FromStr>::Err: std::error::Error + Send + Sync + 'static,
@@ -109,7 +108,7 @@ where
         }
     }
 
-    fn call(&mut self, req: Task<B::Compact, B::Connection, B::Id>) -> Self::Future {
+    fn call(&mut self, req: Task<B::Compact, B::Id>) -> Self::Future {
         let mut graph = self.graph.clone();
 
         Box::pin(async move {
@@ -133,15 +132,13 @@ where
     }
 }
 
-impl<B, Compact, Err> IntoWorkerService<B, RootDagService<B>, B::Compact, B::Connection>
-    for DagFlow<B>
+impl<B, Compact, Err> IntoWorkerService<B, RootDagService<B>, B::Compact> for DagFlow<B>
 where
     B: Backend<Compact = Compact, Args = Compact, Error = Err> + Clone,
     Err: std::error::Error + Send + Sync + 'static,
-    B::Connection: Send + Sync + 'static,
     B::Id: Send + Sync + 'static + Default + GenerateId + PartialEq + Debug,
     B::Compact: Send + Sync + 'static + Clone,
-    RootDagService<B>: Service<Task<Compact, B::Connection, B::Id>>,
+    RootDagService<B>: Service<Task<Compact, B::Id>>,
 {
     type Backend = RawDataBackend<B>;
     fn into_service(self, b: B) -> WorkerService<RawDataBackend<B>, RootDagService<B>> {

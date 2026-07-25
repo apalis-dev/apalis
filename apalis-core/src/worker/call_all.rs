@@ -25,7 +25,7 @@ use crate::{
 #[pin_project::pin_project]
 pub(super) struct CallAllUnordered<Svc, B>
 where
-    Svc: Service<Task<<B as Backend>::Args, <B as Backend>::Connection, <B as Backend>::Id>>,
+    Svc: Service<Task<B::Args, B::Id>>,
     B: Backend,
 {
     #[pin]
@@ -34,7 +34,7 @@ where
 
 impl<Svc, B> CallAllUnordered<Svc, B>
 where
-    Svc: Service<Task<B::Args, B::Connection, B::Id>>,
+    Svc: Service<Task<B::Args, B::Id>>,
     B: Backend + Unpin,
 {
     /// Create new [`CallAllUnordered`] combinator.
@@ -47,7 +47,7 @@ where
 
 impl<Svc, B> Stream for CallAllUnordered<Svc, B>
 where
-    Svc: Service<Task<B::Args, B::Connection, B::Id>>,
+    Svc: Service<Task<B::Args, B::Id>>,
     B: Backend + Unpin,
     B::Error: Into<BoxDynError>,
     <B::Codec as Codec<B::Args>>::Error: Into<BoxDynError>,
@@ -101,7 +101,7 @@ where
     worker: WorkerContext,
     queue: Q,
     eof: bool,
-    curr_req: Option<Task<B::Args, B::Connection, B::Id>>,
+    curr_req: Option<Task<B::Args, B::Id>>,
 }
 
 impl<Svc, B, Q> fmt::Debug for CallAll<Svc, B, Q>
@@ -128,7 +128,7 @@ pub(crate) trait Drive<F: Future> {
 
 impl<Svc, B, Q> CallAll<Svc, B, Q>
 where
-    Svc: Service<Task<B::Args, B::Connection, B::Id>>,
+    Svc: Service<Task<B::Args, B::Id>>,
     B: Backend + Unpin,
     Q: Drive<Svc::Future>,
 {
@@ -146,7 +146,7 @@ where
 
 impl<Svc, B, Q> Stream for CallAll<Svc, B, Q>
 where
-    Svc: Service<Task<B::Args, B::Connection, B::Id>>,
+    Svc: Service<Task<B::Args, B::Id>>,
     B: Backend + Unpin,
     Q: Drive<Svc::Future>,
     B::Error: Into<BoxDynError>,

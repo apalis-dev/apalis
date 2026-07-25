@@ -34,7 +34,7 @@
 //! #[tokio::main]
 //! async fn main() {
 //!     // Create a memory-backed VecDeque
-//!     let memory = Arc::new(Mutex::new(VecDeque::<Task<u32, (), RandomId>>::new()));
+//!     let memory = Arc::new(Mutex::new(VecDeque::<Task<u32, RandomId>>::new()));
 //!
 //!     // Build the custom backend
 //!     let mut backend = BackendBuilder::new()
@@ -100,7 +100,6 @@ use thiserror::Error;
 use tower_layer::Identity;
 
 use crate::backend::codec::IdentityCodec;
-use crate::backend::queue::Queue;
 use crate::error::BoxDynError;
 use crate::features_table;
 use crate::{backend::Backend, task::Task, worker::context::WorkerContext};
@@ -131,7 +130,7 @@ type Sinker<DB, Config, Sink> = Arc<Box<dyn Fn(&mut DB, &Config) -> Sink + Send 
     FetchById => not_supported("Allow fetching a task by its ID"),
     RegisterWorker => not_implemented("Allow registering a worker with the backend"),
     PipeExt => limited("Allow other backends to pipe to this backend", false), // Would require Clone,
-    MakeShared => not_implemented("Share the same [`CustomBackend`] across multiple workers", false),
+    BackendFactory => not_implemented("Share the same [`CustomBackend`] across multiple workers", false),
     Workflow => not_implemented("Flexible enough to support workflows"),
     WaitForCompletion => not_implemented("Wait for tasks to complete without blocking"), // Would require Clone
     ResumeById => not_supported("Resume a task by its ID"),
@@ -347,19 +346,20 @@ pub enum CustomBackendError {
     Inner(#[from] BoxDynError),
 }
 
-impl<Args: 'static, DB, Fetch, S, Id, E, Conn: 'static, Config> Backend
+impl<Args: 'static, DB, Fetch, S, Id, E, Config> Backend
     for CustomBackend<Args, DB, Fetch, S, Id, Config>
 where
-    Fetch: Stream<Item = Result<Option<Task<Args, Conn, Id>>, E>> + Unpin + Send + 'static,
-    S: Sink<Task<Args, Conn, Id>, Error = E> + Unpin + Send + 'static,
+    Fetch: Stream<Item = Result<Option<Task<Args, Id>>, E>> + Unpin + Send + 'static,
+    S: Sink<Task<Args, Id>, Error = E> + Unpin + Send + 'static,
     E: Into<BoxDynError>,
     Id: Clone + Send + Sync + 'static,
     Args: Clone,
+    Config: Default,
 {
     type Args = Args;
     type Id = Id;
 
-    type Connection = Conn;
+    type Config = Config;
 
     type Error = CustomBackendError;
 
@@ -373,8 +373,8 @@ where
         &IdentityCodec
     }
 
-    fn queue(&self) -> Queue {
-        Queue::from(std::any::type_name::<Args>())
+    fn config(&self) -> &Self::Config {
+        &self.config
     }
 
     fn middleware(&self) -> Self::Layer {
@@ -393,7 +393,7 @@ where
         &mut self,
         cx: &mut Context<'_>,
         worker: &WorkerContext,
-    ) -> Poll<Option<Result<Task<Self::Compact, Self::Connection, Self::Id>, Self::Error>>> {
+    ) -> Poll<Option<Result<Task<Self::Compact, Self::Id>, Self::Error>>> {
         if self.stream.is_none() {
             self.stream = Some((self.fetcher)(&mut self.db, &self.config, worker));
         }
@@ -417,10 +417,10 @@ where
     }
 }
 
-impl<Args, Conn, Id, DB, Fetch, S, Config> Sink<Task<Args, Conn, Id>>
+impl<Args, Id, DB, Fetch, S, Config> Sink<Task<Args, Id>>
     for CustomBackend<Args, DB, Fetch, S, Id, Config>
 where
-    S: Sink<Task<Args, Conn, Id>>,
+    S: Sink<Task<Args, Id>>,
     S::Error: Into<BoxDynError>,
 {
     type Error = CustomBackendError;
@@ -432,7 +432,7 @@ where
             .map_err(|e| CustomBackendError::Inner(e.into()))
     }
 
-    fn start_send(self: Pin<&mut Self>, item: Task<Args, Conn, Id>) -> Result<(), Self::Error> {
+    fn start_send(self: Pin<&mut Self>, item: Task<Args, Id>) -> Result<(), Self::Error> {
         self.project()
             .current_sink
             .start_send_unpin(item)
@@ -472,7 +472,7 @@ mod tests {
 
     #[tokio::test]
     async fn basic_custom_backend() {
-        let memory: Arc<Mutex<VecDeque<Task<u32, (), RandomId>>>> =
+        let memory: Arc<Mutex<VecDeque<Task<u32, RandomId>>>> =
             Arc::new(Mutex::new(VecDeque::new()));
 
         let mut backend = BackendBuilder::new()

@@ -145,17 +145,17 @@ pub mod test_worker;
 /// ```
 /// See [module level documentation](self) for more details.
 #[must_use = "Workers must be run or streamed to execute tasks"]
-pub struct Worker<Args, Conn, Backend, Svc, Middleware> {
+pub struct Worker<Args, Backend, Svc, Middleware> {
     pub(crate) name: String,
     pub(crate) backend: Backend,
     pub(crate) service: Svc,
     pub(crate) middleware: Middleware,
-    pub(crate) task_marker: PhantomData<(Args, Conn)>,
+    pub(crate) task_marker: PhantomData<Args>,
     pub(crate) shutdown: Option<Shutdown>,
     pub(crate) event_handler: RawEventListener,
 }
 
-impl<Args, Conn, B, Svc, Middleware> fmt::Debug for Worker<Args, Conn, B, Svc, Middleware>
+impl<Args, B, Svc, Middleware> fmt::Debug for Worker<Args, B, Svc, Middleware>
 where
     Svc: fmt::Debug,
     B: fmt::Debug,
@@ -168,7 +168,7 @@ where
     }
 }
 
-impl<Args, Conn, B, Svc, M> Worker<Args, Conn, B, Svc, M> {
+impl<Args, B, Svc, M> Worker<Args, B, Svc, M> {
     /// Build a worker that is ready for execution
     pub fn new(name: String, backend: B, service: Svc, layers: M) -> Self {
         Self {
@@ -183,19 +183,18 @@ impl<Args, Conn, B, Svc, M> Worker<Args, Conn, B, Svc, M> {
     }
 }
 
-impl<Args, S, B, M> Worker<Args, B::Connection, B, S, M>
+impl<Args, S, B, M> Worker<Args,  B, S, M>
 where
     B: Backend<Args = Args> + Send + Unpin + 'static,
-    S: Service<Task<Args, B::Connection, B::Id>> + Send + 'static,
+    S: Service<Task<Args,  B::Id>> + Send + 'static,
     Args: Send + 'static,
-    B::Connection: Send + Sync + 'static,
     B::Error: Into<BoxDynError> + Send + 'static,
     B::Layer: Layer<ReadinessService<TrackerService<S>>>,
     M: Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>,
     <M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service:
-        Service<Task<Args, B::Connection, B::Id>> + Send + 'static,
-    <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::Id>>>::Future: Send,
-        <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::Id>>>::Error: Into<BoxDynError> + Send + Sync + 'static,
+        Service<Task<Args,  B::Id>> + Send + 'static,
+    <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args,  B::Id>>>::Future: Send,
+        <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args,  B::Id>>>::Error: Into<BoxDynError> + Send + Sync + 'static,
     B::Id: Send + Sync + 'static,
     <B::Codec as Codec<B::Args>>::Error: Into<BoxDynError>,
 
@@ -452,10 +451,9 @@ where
         worker: WorkerContext,
     ) -> BoxStream<'static, Result<Event, WorkerError>>
     where
-        Svc: Service<Task<Args, B::Connection, B::Id>> + Send + 'static,
+        Svc: Service<Task<Args,  B::Id>> + Send + 'static,
         Args: Send + 'static,
         Svc::Future: Send,
-        B::Connection: Send + Sync + 'static,
         Svc::Error: Into<BoxDynError> + Sync + Send,
         <B::Codec as Codec<B::Args>>::Error: Into<BoxDynError>,
 
@@ -499,9 +497,9 @@ pub struct TrackerService<S> {
     service: S,
 }
 
-impl<S, Args, Conn, Id> Service<Task<Args, Conn, Id>> for TrackerService<S>
+impl<S, Args, Id> Service<Task<Args, Id>> for TrackerService<S>
 where
-    S: Service<Task<Args, Conn, Id>>,
+    S: Service<Task<Args, Id>>,
 {
     type Response = S::Response;
     type Error = S::Error;
@@ -511,7 +509,7 @@ where
         self.service.poll_ready(cx)
     }
 
-    fn call(&mut self, task: Task<Args, Conn, Id>) -> Self::Future {
+    fn call(&mut self, task: Task<Args, Id>) -> Self::Future {
         let attempt = task.ctx.attempt.clone();
         self.ctx.track(AttemptOnPollFuture {
             attempt,
@@ -679,13 +677,13 @@ mod tests {
         #[derive(Debug, Clone)]
         struct MyAcknowledger;
 
-        impl<Conn: Debug, Id: Debug> Acknowledge<(), Conn, Id> for MyAcknowledger {
+        impl<Id: Debug> Acknowledge<(), Id> for MyAcknowledger {
             type Error = SendError;
             type Future = BoxFuture<'static, Result<(), SendError>>;
             fn ack(
                 &mut self,
                 res: &Result<(), BoxDynError>,
-                ctx: &ExecutionContext<Conn, Id>,
+                ctx: &ExecutionContext<Id>,
             ) -> Self::Future {
                 println!("{res:?}, {ctx:?}");
                 // Call webhook with the result and ctx?

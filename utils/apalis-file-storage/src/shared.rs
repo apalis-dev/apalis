@@ -13,7 +13,7 @@ use serde_json::Value;
 /// # Example
 ///
 /// ```rust,no_run
-/// # use apalis_core::backend::shared::MakeShared;
+/// # use apalis_core::backend::factory::BackendFactory;
 /// # use apalis_core::task::Task;
 /// # use apalis_core::worker::context::WorkerContext;
 /// # use apalis_core::worker::builder::WorkerBuilder;
@@ -25,7 +25,7 @@ use serde_json::Value;
 /// #[tokio::main]
 /// async fn main() {
 ///     let mut store = SharedJsonStore::new();
-///     let mut int_store = store.make_shared().unwrap();
+///     let mut int_store = store.create().unwrap();
 ///     int_store.push(42).await.unwrap();
 ///
 ///     async fn task(
@@ -51,10 +51,10 @@ use std::{fmt::Debug, sync::Arc};
 
 use apalis_core::{
     backend::{
+        factory::BackendFactory,
         memory::{MemorySink, MemoryStorage, MemoryStorageError},
-        shared::MakeShared,
     },
-    task::{Task, builder::TaskBuilder, metadata::MetadataStore, task_id::RandomId},
+    task::{Task, builder::TaskBuilder, task_id::RandomId},
 };
 
 use crate::JsonStorage;
@@ -86,52 +86,35 @@ impl SharedJsonStore {
     }
 }
 
-impl<Args: Send + Serialize + for<'de> Deserialize<'de> + Unpin + 'static> MakeShared<Args>
-    for SharedJsonStore
+impl<Args: Send + Serialize + for<'de> Deserialize<'de> + Unpin + 'static + Clone>
+    BackendFactory<Args> for SharedJsonStore
 {
-    type Backend = MemoryStorage<Args, MetadataStore>;
+    type Backend = MemoryStorage<Args>;
 
-    type Config = String;
+    type Error = MemoryStorageError;
 
-    type MakeError = MemoryStorageError;
-
-    fn make_shared(&mut self) -> Result<Self::Backend, Self::MakeError>
-    where
-        Self::Config: Default,
-    {
-        self.make_shared_with_config(std::any::type_name::<Args>().to_owned())
+    fn create(&mut self) -> Result<Self::Backend, Self::Error> {
+        self.create_with_config(())
     }
 
-    fn make_shared_with_config(
-        &mut self,
-        queue: Self::Config,
-    ) -> Result<Self::Backend, Self::MakeError> {
-        let (sender, receiver) = self.create_channel::<Args>(&queue);
+    fn create_with_config(&mut self, _: ()) -> Result<Self::Backend, Self::Error> {
+        let (sender, receiver) = self.create_channel::<Args>();
         let sender = MemorySink::new(Arc::new(futures_util::lock::Mutex::new(sender)));
         Ok(MemoryStorage::new_with(sender, receiver))
     }
 }
 
-type BoxSink<Args> = Box<
-    dyn Sink<Task<Args, MetadataStore, RandomId>, Error = MemoryStorageError>
-        + Send
-        + Sync
-        + Unpin
-        + 'static,
->;
+type BoxSink<Args> =
+    Box<dyn Sink<Task<Args, RandomId>, Error = MemoryStorageError> + Send + Sync + Unpin + 'static>;
 
 impl SharedJsonStore {
     fn create_channel<Args: 'static + for<'de> Deserialize<'de> + Serialize + Send + Unpin>(
         &self,
-        queue: &str,
-    ) -> (
-        BoxSink<Args>,
-        BoxStream<'static, Task<Args, MetadataStore, RandomId>>,
-    ) {
+    ) -> (BoxSink<Args>, BoxStream<'static, Task<Args, RandomId>>) {
         // Create a channel for communication
         let sender = self.inner.clone();
 
-        let queue_config = queue.to_owned();
+        let queue_config = std::any::type_name::<Args>();
 
         // Create a wrapped sender that will insert into the in-memory store
         let wrapped_sender = {
@@ -139,12 +122,9 @@ impl SharedJsonStore {
 
             sender
                 .sink_map_err(|e| MemoryStorageError::Other(e.into()))
-                .with_flat_map(move |task: Task<Args, MetadataStore, RandomId>| {
+                .with_flat_map(move |task: Task<Args, RandomId>| {
                     let mut task = task.into_builder();
-                    task.ctx
-                        .metadata
-                        .insert("queue", queue_config.clone())
-                        .unwrap();
+                    task.ctx.metadata.insert("queue", queue_config).unwrap();
 
                     let res = task
                         .try_map_args(|s| {
@@ -158,7 +138,7 @@ impl SharedJsonStore {
 
         // Create a stream that filters by type T
         let filtered_stream = {
-            let queue_config = queue.to_owned();
+            let queue_config = std::any::type_name::<Args>().to_owned();
             sender.map(|s| s.unwrap()).filter_map(move |(_, job)| {
                 let queue_config = queue_config.clone();
                 async move {
@@ -167,7 +147,7 @@ impl SharedJsonStore {
                         let args = Args::deserialize(&job.args).ok()?;
                         let task = TaskBuilder::new(args)
                             .with_metadata(job.ctx)
-                            .task_id(job.task_id.unwrap())
+                            .task_id(job.task_id)
                             .build();
                         Some(task)
                     } else {
@@ -180,10 +160,7 @@ impl SharedJsonStore {
         // Combine the sender and receiver
         let sender = Box::new(wrapped_sender)
             as Box<
-                dyn Sink<Task<Args, MetadataStore, RandomId>, Error = MemoryStorageError>
-                    + Send
-                    + Sync
-                    + Unpin,
+                dyn Sink<Task<Args, RandomId>, Error = MemoryStorageError> + Send + Sync + Unpin,
             >;
         let receiver = filtered_stream.boxed();
 
@@ -198,7 +175,7 @@ mod tests {
 
     use apalis_core::worker::context::WorkerContext;
     use apalis_core::{
-        backend::{TaskSink, shared::MakeShared},
+        backend::{TaskSink, factory::BackendFactory},
         worker::{builder::WorkerBuilder, ext::event_listener::EventListenerExt},
     };
 
@@ -209,8 +186,8 @@ mod tests {
     #[tokio::test]
     async fn basic_shared() {
         let mut store = SharedJsonStore::new();
-        let mut string_store = store.make_shared().unwrap();
-        let mut int_store = store.make_shared_with_config("int".into()).unwrap();
+        let mut string_store = store.create().unwrap();
+        let mut int_store = store.create_with_config(()).unwrap();
         for i in 0..ITEMS {
             string_store.push(format!("ITEM: {i}")).await.unwrap();
             int_store.push(i).await.unwrap();

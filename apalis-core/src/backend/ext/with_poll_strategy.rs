@@ -12,7 +12,6 @@ use futures_util::SinkExt;
 use crate::{
     backend::{
         poll_strategy::{PollMetrics, PollStrategy},
-        queue::Queue,
         *,
     },
     task::Task,
@@ -46,7 +45,7 @@ where
 {
     type Args = B::Args;
     type Id = B::Id;
-    type Connection = B::Connection;
+    type Config = B::Config;
     type Error = B::Error;
     type Codec = B::Codec;
     type Compact = B::Compact;
@@ -56,8 +55,8 @@ where
         self.backend.codec()
     }
 
-    fn queue(&self) -> Queue {
-        self.backend.queue()
+    fn config(&self) -> &Self::Config {
+        self.backend.config()
     }
 
     fn middleware(&self) -> Self::Layer {
@@ -81,7 +80,7 @@ where
         &mut self,
         cx: &mut Context<'_>,
         worker: &WorkerContext,
-    ) -> Poll<Option<Result<Task<Self::Compact, Self::Connection, Self::Id>, Self::Error>>> {
+    ) -> Poll<Option<Result<Task<Self::Compact, Self::Id>, Self::Error>>> {
         match self.backend.poll_next(cx, worker) {
             Poll::Ready(task) => {
                 self.poll_metrics.on_ready();

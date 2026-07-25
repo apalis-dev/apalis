@@ -49,7 +49,8 @@ All notable changes to this project are documented in this file.
 
 ### Breaking Changes
 
-- **api**: `Parts<Ctx, Id>` becomes  to `ExecutionContext<Connection, Id>` and merges Ctx into the task ([#751](https://github.com/apalis-dev/apalis/pull/751))
+- **api**: standardize `Config` by adding `Backend::Config` and drops `Backend::Connection` ([#772](https://github.com/apalis-dev/apalis/pull/772))
+- **api**: `Parts<Ctx, Id>` becomes `ExecutionContext<Connection, Id>` and merges Ctx into the task ([#751](https://github.com/apalis-dev/apalis/pull/751))
 - **api**: Changed `Task<Args, Ctx, Idtype>` to `Task<Args, Connection, Id>` ([#751](https://github.com/apalis-dev/apalis/pull/751))
 - **crates**: Moved backend crates to respective repos ([#586](https://github.com/apalis-dev/apalis/pull/586))
 - **api**: `Backend` must be the second input in `WorkerBuilder` ([#586](https://github.com/apalis-dev/apalis/pull/586))

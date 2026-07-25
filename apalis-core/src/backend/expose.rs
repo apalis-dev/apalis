@@ -43,7 +43,7 @@ pub trait ListTasks<Args>: Backend {
     fn list_tasks(
         &self,
         filter: &Filter,
-    ) -> impl Future<Output = Result<Vec<Task<Args, Self::Connection, Self::Id>>, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<Vec<Task<Args, Self::Id>>, Self::Error>> + Send;
 }
 
 /// Allows listing tasks across all queues with optional filtering
@@ -53,9 +53,7 @@ pub trait ListAllTasks: Backend {
     fn list_all_tasks(
         &self,
         filter: &Filter,
-    ) -> impl Future<
-        Output = Result<Vec<Task<Self::Compact, Self::Connection, Self::Id>>, Self::Error>,
-    > + Send;
+    ) -> impl Future<Output = Result<Vec<Task<Self::Compact, Self::Id>>, Self::Error>> + Send;
 }
 
 /// Allows collecting metrics from the backend

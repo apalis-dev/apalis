@@ -54,7 +54,7 @@ where
 {
     type Args = B::Compact;
     type Id = B::Id;
-    type Connection = B::Connection;
+    type Config = B::Config;
     type Error = B::Error;
     type Layer = B::Layer;
     type Codec = IdentityCodec;
@@ -63,8 +63,8 @@ where
         &IdentityCodec
     }
 
-    fn queue(&self) -> Queue {
-        self.inner.queue()
+    fn config(&self) -> &Self::Config {
+        self.inner.config()
     }
 
     fn middleware(&self) -> Self::Layer {
@@ -83,7 +83,7 @@ where
         &mut self,
         cx: &mut Context<'_>,
         worker: &WorkerContext,
-    ) -> Poll<Option<Result<Task<Self::Compact, Self::Connection, Self::Id>, Self::Error>>> {
+    ) -> Poll<Option<Result<Task<Self::Compact, Self::Id>, Self::Error>>> {
         self.inner.poll_next(cx, worker)
     }
     fn poll_close(

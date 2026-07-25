@@ -25,7 +25,7 @@ pub struct WorkflowService<B, Input>
 where
     B: Backend,
 {
-    services: HashMap<usize, SteppedService<B::Compact, B::Connection, B::Id>>,
+    services: HashMap<usize, SteppedService<B::Compact, B::Id>>,
     not_ready: VecDeque<usize>,
     backend: B,
     _marker: PhantomData<Input>,
@@ -35,10 +35,7 @@ where
     B: Backend,
 {
     /// Creates a new `WorkflowService` with the given services and backend.
-    pub fn new(
-        services: HashMap<usize, SteppedService<B::Compact, B::Connection, B::Id>>,
-        backend: B,
-    ) -> Self {
+    pub fn new(services: HashMap<usize, SteppedService<B::Compact, B::Id>>, backend: B) -> Self {
         Self {
             services,
             not_ready: VecDeque::new(),
@@ -48,14 +45,13 @@ where
     }
 }
 
-impl<B, Err, Input> Service<Task<B::Compact, B::Connection, B::Id>> for WorkflowService<B, Input>
+impl<B, Err, Input> Service<Task<B::Compact, B::Id>> for WorkflowService<B, Input>
 where
     B::Compact: Send + 'static,
     B: Sync,
-    B::Connection: Send,
     Err: std::error::Error + Send + Sync + 'static,
     B::Id: GenerateId + Send + 'static,
-    B: Sink<Task<B::Compact, B::Connection, B::Id>, Error = Err> + Unpin,
+    B: Sink<Task<B::Compact, B::Id>, Error = Err> + Unpin,
     B: Clone + Send + Sync + 'static + Backend<Error = Err>,
 {
     type Response = GoTo<StepResult<B::Compact, B::Id>>;
@@ -84,7 +80,7 @@ where
         }
     }
 
-    fn call(&mut self, req: Task<B::Compact, B::Connection, B::Id>) -> Self::Future {
+    fn call(&mut self, req: Task<B::Compact, B::Id>) -> Self::Future {
         assert!(
             self.not_ready.is_empty(),
             "Workflow must wait for all services to be ready. Did you forget to call poll_ready()?"
@@ -114,7 +110,7 @@ pub async fn handle_step_result<N, Compact, B, Err>(
     result: GoTo<N>,
 ) -> Result<GoTo<StepResult<B::Compact, B::Id>>, TaskSinkError<Err>>
 where
-    B: Sink<Task<Compact, B::Connection, B::Id>, Error = Err>
+    B: Sink<Task<Compact, B::Id>, Error = Err>
         + Backend<Error = Err, Compact = Compact>
         + Send
         + Unpin,

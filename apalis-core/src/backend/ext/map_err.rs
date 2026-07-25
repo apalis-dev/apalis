@@ -7,11 +7,7 @@ use futures_sink::Sink;
 use futures_util::SinkExt;
 use futures_util::TryStreamExt;
 
-use crate::{
-    backend::{queue::Queue, *},
-    task::Task,
-    worker::context::WorkerContext,
-};
+use crate::{backend::*, task::Task, worker::context::WorkerContext};
 
 /// A `Backend` wrapper that maps the backend's error type `Self::Error` into `E2`.
 #[derive(Debug, Clone)]
@@ -28,7 +24,7 @@ where
 {
     type Args = B::Args;
     type Id = B::Id;
-    type Connection = B::Connection;
+    type Config = B::Config;
     type Error = E2;
     type Codec = B::Codec;
     type Compact = B::Compact;
@@ -38,8 +34,8 @@ where
         self.backend.codec()
     }
 
-    fn queue(&self) -> Queue {
-        self.backend.queue()
+    fn config(&self) -> &Self::Config {
+        self.backend.config()
     }
 
     fn middleware(&self) -> Self::Layer {
@@ -60,7 +56,7 @@ where
         &mut self,
         cx: &mut Context<'_>,
         worker: &WorkerContext,
-    ) -> Poll<Option<Result<Task<Self::Compact, Self::Connection, Self::Id>, Self::Error>>> {
+    ) -> Poll<Option<Result<Task<Self::Compact, Self::Id>, Self::Error>>> {
         self.backend
             .poll_next(cx, worker)
             .map(|opt| opt.map(|res| res.map_err(|err| (self.f)(err))))

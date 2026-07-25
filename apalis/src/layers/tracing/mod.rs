@@ -293,13 +293,13 @@ impl<S, MakeSpan, OnRequest, OnResponse, OnFailure>
     }
 }
 
-impl<Args, S, OnRequestT, OnResponseT, OnFailureT, MakeSpanT, F, Res, Conn, Id>
-    Service<Task<Args, Conn, Id>> for Trace<S, MakeSpanT, OnRequestT, OnResponseT, OnFailureT>
+impl<Args, S, OnRequestT, OnResponseT, OnFailureT, MakeSpanT, F, Res, Id> Service<Task<Args, Id>>
+    for Trace<S, MakeSpanT, OnRequestT, OnResponseT, OnFailureT>
 where
-    S: Service<Task<Args, Conn, Id>, Response = Res, Future = F> + Unpin + Send + 'static,
+    S: Service<Task<Args, Id>, Response = Res, Future = F> + Unpin + Send + 'static,
     S::Error: fmt::Display + 'static,
-    MakeSpanT: MakeSpan<Args, Conn, Id>,
-    OnRequestT: OnRequest<Args, Conn, Id>,
+    MakeSpanT: MakeSpan<Args, Id>,
+    OnRequestT: OnRequest<Args, Id>,
     OnResponseT: OnResponse<Res> + Clone + 'static,
     F: Future<Output = Result<Res, S::Error>> + 'static,
     OnFailureT: OnFailure<S::Error> + Clone + 'static,
@@ -312,7 +312,7 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, req: Task<Args, Conn, Id>) -> Self::Future {
+    fn call(&mut self, req: Task<Args, Id>) -> Self::Future {
         let span = self.make_span.make_span(&req);
         let start = Instant::now();
         let job = {
@@ -382,10 +382,7 @@ mod tests {
     use super::*;
 
     use apalis_core::{
-        backend::{
-            TaskSink,
-            memory::{MemoryContext, MemoryStorage},
-        },
+        backend::{TaskSink, memory::MemoryStorage},
         error::BoxDynError,
         task::task_id::RandomId,
         worker::{
@@ -433,14 +430,14 @@ mod tests {
             .backend(in_memory)
             .layer(
                 TraceLayer::new()
-                    .make_span_with(|req: &Task<u32, MemoryContext, RandomId>| {
+                    .make_span_with(|req: &Task<u32, RandomId>| {
                         tracing::span!(
                             tracing::Level::INFO,
                             "custom_span",
                             task_id = req.ctx.task_id.as_ref().unwrap().to_string()
                         )
                     })
-                    .on_request(|task: &Task<u32, MemoryContext, RandomId>, span: &tracing::Span| {
+                    .on_request(|task: &Task<u32, RandomId>, span: &tracing::Span| {
                         tracing::info!(parent: span, "Custom OnRequest: Received task: {:?}", task);
                     })
                     .on_response(|_: &() , duration: Duration, span: &tracing::Span| {

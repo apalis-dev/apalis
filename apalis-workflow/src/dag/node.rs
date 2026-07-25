@@ -14,7 +14,7 @@ use crate::dag::decode::DagCodec;
 /// of task inputs and outputs using the backend's codec.
 pub struct NodeService<S, B, Input>
 where
-    S: Service<Task<Input, B::Connection, B::Id>>,
+    S: Service<Task<Input, B::Id>>,
     B: Backend,
 {
     inner: S,
@@ -23,7 +23,7 @@ where
 
 impl<S, B, Input> std::fmt::Debug for NodeService<S, B, Input>
 where
-    S: Service<Task<Input, B::Connection, B::Id>>,
+    S: Service<Task<Input, B::Id>>,
     B: Backend,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -36,7 +36,7 @@ where
 
 impl<S, B, Input> Clone for NodeService<S, B, Input>
 where
-    S: Service<Task<Input, B::Connection, B::Id>> + Clone,
+    S: Service<Task<Input, B::Id>> + Clone,
     B: Backend,
 {
     fn clone(&self) -> Self {
@@ -49,7 +49,7 @@ where
 
 impl<S, B, Input> NodeService<S, B, Input>
 where
-    S: Service<Task<Input, B::Connection, B::Id>>,
+    S: Service<Task<Input, B::Id>>,
     B: Backend,
 {
     /// Creates a new `NodeService` wrapping the provided service.
@@ -61,10 +61,9 @@ where
     }
 }
 
-impl<S, B, Input, CdcErr> Service<Task<B::Compact, B::Connection, B::Id>>
-    for NodeService<S, B, Input>
+impl<S, B, Input, CdcErr> Service<Task<B::Compact, B::Id>> for NodeService<S, B, Input>
 where
-    S: Service<Task<Input, B::Connection, B::Id>>,
+    S: Service<Task<Input, B::Id>>,
     S::Error: Into<BoxDynError>,
     B: Backend + Send + Sync + 'static,
     B::Codec: Codec<Input, Compact = B::Compact, Error = CdcErr>
@@ -83,7 +82,7 @@ where
         self.inner.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, req: Task<B::Compact, B::Connection, B::Id>) -> Self::Future {
+    fn call(&mut self, req: Task<B::Compact, B::Id>) -> Self::Future {
         let executor = req
             .ctx
             .data

@@ -99,7 +99,7 @@ macro_rules! delegate_expose {
             async fn fetch_by_id(
                 &mut self,
                 task_id: &$crate::task::task_id::TaskId<Self::Id>,
-            ) -> Result<Option<Task<B::Compact, Self::Connection, Self::Id>>, Self::Error> {
+            ) -> Result<Option<Task<B::Compact, Self::Id>>, Self::Error> {
                 let $result = self.$field.fetch_by_id(task_id).await;
                 #[allow(unused_variables)]
                 let $this = &*self;
@@ -115,7 +115,7 @@ macro_rules! delegate_expose {
         {
             async fn update(
                 &mut self,
-                task: Task<Self::Compact, Self::Connection, Self::Id>,
+                task: Task<Self::Compact, Self::Id>,
             ) -> Result<(), Self::Error> {
                 let $result = self.$field.update(task).await;
                 #[allow(unused_variables)]
@@ -132,7 +132,7 @@ macro_rules! delegate_expose {
         {
             async fn reschedule(
                 &mut self,
-                task: Task<Self::Compact, Self::Connection, Self::Id>,
+                task: Task<Self::Compact, Self::Id>,
                 wait: std::time::Duration,
             ) -> Result<(), Self::Error> {
                 let $result = self.$field.reschedule(task, wait).await;

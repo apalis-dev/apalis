@@ -153,9 +153,9 @@ where
     }
 }
 
-impl<Svc, Args, Conn, Fut, Res, Id, Err> Service<Task<Args, Conn, Id>> for SentryTaskService<Svc>
+impl<Svc, Args, Fut, Res, Id, Err> Service<Task<Args, Id>> for SentryTaskService<Svc>
 where
-    Svc: Service<Task<Args, Conn, Id>, Response = Res, Error = Err, Future = Fut>,
+    Svc: Service<Task<Args, Id>, Response = Res, Error = Err, Future = Fut>,
     Fut: Future<Output = Result<Res, BoxDynError>> + 'static,
     Id: ToUuid,
     Err: Into<BoxDynError> + 'static,
@@ -168,7 +168,7 @@ where
         self.service.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, task: Task<Args, Conn, Id>) -> Self::Future {
+    fn call(&mut self, task: Task<Args, Id>) -> Self::Future {
         let task_type = std::any::type_name::<Args>().to_string();
         let attempt = &task.ctx.attempt;
         let task_id = task

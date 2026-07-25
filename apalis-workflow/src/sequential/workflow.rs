@@ -102,18 +102,16 @@ impl<Input, Current, B: Backend> Step<Input, B> for RootStep<Current> {
 }
 
 impl<Input, Output, Current, B, Compact, Err, L>
-    IntoWorkerService<B, WorkflowService<B, Output>, Compact, B::Connection>
-    for Workflow<Input, Current, B, L>
+    IntoWorkerService<B, WorkflowService<B, Output>, Compact> for Workflow<Input, Current, B, L>
 where
     B: Backend<Compact = Compact>
         + Send
         + Sync
         + 'static
-        + Sink<Task<Compact, B::Connection, B::Id>, Error = Err>
+        + Sink<Task<Compact, B::Id>, Error = Err>
         + Unpin
         + Clone,
     Err: std::error::Error + Send + Sync + 'static,
-    B::Connection: Send + Sync + 'static,
     B::Id: Send + 'static + Default + GenerateId,
     B: Sync + Backend<Args = Compact, Error = Err>,
     B::Compact: Send + Sync + 'static,

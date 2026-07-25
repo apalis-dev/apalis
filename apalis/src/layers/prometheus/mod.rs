@@ -27,9 +27,9 @@ pub struct PrometheusService<S> {
     service: S,
 }
 
-impl<Svc, Fut, Args, Conn, Res, Err, Id> Service<Task<Args, Conn, Id>> for PrometheusService<Svc>
+impl<Svc, Fut, Args, Res, Err, Id> Service<Task<Args, Id>> for PrometheusService<Svc>
 where
-    Svc: Service<Task<Args, Conn, Id>, Response = Res, Error = Err, Future = Fut>,
+    Svc: Service<Task<Args, Id>, Response = Res, Error = Err, Future = Fut>,
     Fut: Future<Output = Result<Res, Err>> + 'static,
 {
     type Response = Svc::Response;
@@ -40,7 +40,7 @@ where
         self.service.poll_ready(cx)
     }
 
-    fn call(&mut self, request: Task<Args, Conn, Id>) -> Self::Future {
+    fn call(&mut self, request: Task<Args, Id>) -> Self::Future {
         let start = Instant::now();
         let worker = request
             .ctx

@@ -143,9 +143,9 @@ pub struct CatchPanicService<S, F> {
     on_panic: F,
 }
 
-impl<S, Req, Res, Conn, F, PanicErr, Id> Service<Task<Req, Conn, Id>> for CatchPanicService<S, F>
+impl<S, Req, Res, F, PanicErr, Id> Service<Task<Req, Id>> for CatchPanicService<S, F>
 where
-    S: Service<Task<Req, Conn, Id>, Response = Res>,
+    S: Service<Task<Req, Id>, Response = Res>,
     F: FnMut(Box<dyn Any + Send>) -> PanicErr + Clone,
     S::Error: Into<BoxDynError>,
     PanicErr: Into<BoxDynError>,
@@ -158,7 +158,7 @@ where
         self.service.poll_ready(cx).map_err(Into::into)
     }
 
-    fn call(&mut self, task: Task<Req, Conn, Id>) -> Self::Future {
+    fn call(&mut self, task: Task<Req, Id>) -> Self::Future {
         match std::panic::catch_unwind(AssertUnwindSafe(|| self.service.call(task))) {
             Ok(future) => CatchPanicFuture {
                 kind: Kind::Future {
@@ -293,7 +293,7 @@ mod tests {
     #[derive(Clone)]
     struct TestService;
 
-    impl Service<Task<TestJob, (), RandomId>> for TestService {
+    impl Service<Task<TestJob, RandomId>> for TestService {
         type Response = usize;
         type Error = AbortError;
         type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
@@ -302,7 +302,7 @@ mod tests {
             Poll::Ready(Ok(()))
         }
 
-        fn call(&mut self, _req: Task<TestJob, (), RandomId>) -> Self::Future {
+        fn call(&mut self, _req: Task<TestJob, RandomId>) -> Self::Future {
             Box::pin(async { Ok(42) })
         }
     }
@@ -322,7 +322,7 @@ mod tests {
     async fn test_catch_panic_layer_panics() {
         struct PanicService;
 
-        impl Service<Task<TestJob, (), RandomId>> for PanicService {
+        impl Service<Task<TestJob, RandomId>> for PanicService {
             type Response = usize;
             type Error = AbortError;
             type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
@@ -331,7 +331,7 @@ mod tests {
                 Poll::Ready(Ok(()))
             }
 
-            fn call(&mut self, _req: Task<TestJob, (), RandomId>) -> Self::Future {
+            fn call(&mut self, _req: Task<TestJob, RandomId>) -> Self::Future {
                 Box::pin(async {
                     None::<()>.unwrap();
                     todo!()

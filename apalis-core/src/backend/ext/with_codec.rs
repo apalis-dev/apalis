@@ -9,12 +9,7 @@ use std::{
 use futures_sink::Sink;
 use futures_util::SinkExt;
 
-use crate::{
-    backend::{queue::Queue, *},
-    features_table,
-    task::Task,
-    worker::context::WorkerContext,
-};
+use crate::{backend::*, features_table, task::Task, worker::context::WorkerContext};
 
 /// A `Backend` wrapper that swaps out the serialization codec entirely (JSON,
 /// MessagePack, Protobuf, ...) without touching storage logic.
@@ -52,7 +47,7 @@ where
 {
     type Args = B::Args;
     type Id = B::Id;
-    type Connection = B::Connection;
+    type Config = B::Config;
     type Error = B::Error;
     type Codec = NewCodec;
     type Compact = B::Compact;
@@ -62,8 +57,8 @@ where
         &self.codec
     }
 
-    fn queue(&self) -> Queue {
-        self.backend.queue()
+    fn config(&self) -> &Self::Config {
+        self.backend.config()
     }
 
     fn middleware(&self) -> Self::Layer {
@@ -82,7 +77,7 @@ where
         &mut self,
         cx: &mut Context<'_>,
         worker: &WorkerContext,
-    ) -> Poll<Option<Result<Task<Self::Compact, Self::Connection, Self::Id>, Self::Error>>> {
+    ) -> Poll<Option<Result<Task<Self::Compact, Self::Id>, Self::Error>>> {
         self.backend.poll_next(cx, worker)
     }
     fn poll_close(

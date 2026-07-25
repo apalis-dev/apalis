@@ -37,12 +37,12 @@ use tower_service::Service;
 use crate::{backend::Backend, error::BoxDynError, task::Task, worker::builder::WorkerBuilder};
 
 /// Worker extension for parallel execution
-pub trait ParallelizeExt<Args, Conn, Source, Middleware, Executor>: Sized {
+pub trait ParallelizeExt<Args, Source, Middleware, Executor>: Sized {
     /// Register the executor for parallel task execution.
     fn parallelize(
         self,
         f: Executor,
-    ) -> WorkerBuilder<Args, Conn, Source, Stack<ParallelizeLayer<Executor>, Middleware>>;
+    ) -> WorkerBuilder<Args, Source, Stack<ParallelizeLayer<Executor>, Middleware>>;
 }
 
 /// Middleware for emitting events
@@ -76,10 +76,10 @@ pub struct ParallelizeService<S, Executor> {
     executor: Executor,
 }
 
-impl<S, Args, Conn, Id, Fut, T, Executor, ExecErr> Service<Task<Args, Conn, Id>>
+impl<S, Args, Id, Fut, T, Executor, ExecErr> Service<Task<Args, Id>>
     for ParallelizeService<S, Executor>
 where
-    S: Service<Task<Args, Conn, Id>, Future = Fut>,
+    S: Service<Task<Args, Id>, Future = Fut>,
     Executor: Fn(Fut) -> T + Send + 'static,
     Fut: Future<Output = Result<S::Response, S::Error>> + Send + 'static,
     T: Future<Output = Result<Result<S::Response, S::Error>, ExecErr>> + Send + 'static,
@@ -98,7 +98,7 @@ where
         self.service.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, request: Task<Args, Conn, Id>) -> Self::Future {
+    fn call(&mut self, request: Task<Args, Id>) -> Self::Future {
         (self.executor)(self.service.call(request))
             .map_err(|e| e.into())
             .and_then(|s| ready(s.map_err(|e| e.into())))
@@ -106,16 +106,15 @@ where
     }
 }
 
-impl<Args, P, M, Conn, Executor> ParallelizeExt<Args, Conn, P, M, Executor>
-    for WorkerBuilder<Args, Conn, P, M>
+impl<Args, P, M, Executor> ParallelizeExt<Args, P, M, Executor> for WorkerBuilder<Args, P, M>
 where
-    P: Backend<Args = Args, Connection = Conn>,
+    P: Backend<Args = Args>,
     M: Layer<ParallelizeLayer<Executor>>,
 {
     fn parallelize(
         self,
         f: Executor,
-    ) -> WorkerBuilder<Args, Conn, P, Stack<ParallelizeLayer<Executor>, M>> {
+    ) -> WorkerBuilder<Args, P, Stack<ParallelizeLayer<Executor>, M>> {
         self.layer(ParallelizeLayer::new(f))
     }
 }

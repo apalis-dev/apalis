@@ -63,13 +63,9 @@ where
         + Sync
         + 'static
         + Clone
-        + Sink<Task<B::Compact, B::Connection, B::Id>, Error = SinkError>
+        + Sink<Task<B::Compact, B::Id>, Error = SinkError>
         + Unpin,
-    F: Service<Task<Input, B::Connection, B::Id>, Error = BoxDynError>
-        + Send
-        + Sync
-        + 'static
-        + Clone,
+    F: Service<Task<Input, B::Id>, Error = BoxDynError> + Send + Sync + 'static + Clone,
     S: Step<F::Response, B>,
     Input: Send + Sync + 'static,
     F::Future: Send + 'static,
@@ -84,7 +80,6 @@ where
     B::Id: GenerateId + Send + Sync + 'static,
     S::Response: Send + 'static,
     B::Compact: Send + 'static,
-    B::Connection: Send + Sync + 'static,
     SinkError: std::error::Error + Send + Sync + 'static,
     F::Response: Send + 'static,
 {
@@ -98,7 +93,7 @@ where
             }))
             .map_response(|res: F::Response| GoTo::Next(res))
             .service(self.then_fn.clone());
-        let svc = SteppedService::<B::Compact, B::Connection, B::Id>::new(svc);
+        let svc = SteppedService::<B::Compact, B::Id>::new(svc);
         let count = ctx.steps.len();
         ctx.steps.insert(count, svc);
         self.step.register(ctx)
@@ -131,17 +126,17 @@ impl<Svc, Backend, Cur> AndThenService<Svc, Backend, Cur> {
     }
 }
 
-impl<S, B, Cur, Res, CodecErr, SinkError> Service<Task<B::Compact, B::Connection, B::Id>>
+impl<S, B, Cur, Res, CodecErr, SinkError> Service<Task<B::Compact, B::Id>>
     for AndThenService<S, B, Cur>
 where
-    S: Service<Task<Cur, B::Connection, B::Id>, Response = GoTo<Res>>,
+    S: Service<Task<Cur, B::Id>, Response = GoTo<Res>>,
     S::Future: Send + 'static,
     B: Backend<Error = SinkError>
         + Sync
         + Send
         + 'static
         + Clone
-        + Sink<Task<B::Compact, B::Connection, B::Id>, Error = SinkError>
+        + Sink<Task<B::Compact, B::Id>, Error = SinkError>
         + Unpin,
     B::Codec: Codec<Cur, Compact = B::Compact, Error = CodecErr>
         + Codec<Res, Compact = B::Compact, Error = CodecErr>
@@ -154,7 +149,6 @@ where
     SinkError: std::error::Error + Send + Sync + 'static,
     Res: Send + 'static,
     B::Compact: Send + 'static,
-    B::Connection: Send + Sync + 'static,
 {
     type Response = GoTo<StepResult<B::Compact, B::Id>>;
     type Error = BoxDynError;
@@ -167,7 +161,7 @@ where
         self.service.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, request: Task<B::Compact, B::Connection, B::Id>) -> Self::Future {
+    fn call(&mut self, request: Task<B::Compact, B::Id>) -> Self::Future {
         let mut ctx = request.ctx.data.get::<StepContext<B>>().cloned().unwrap();
         let codec = ctx.backend.codec().clone();
         let compacted = request.try_map_args(|t| B::Codec::decode(&codec, &t));
@@ -205,10 +199,9 @@ where
     pub fn and_then<F, O, FnArgs>(
         self,
         and_then: F,
-    ) -> Workflow<Start, O, B, Stack<AndThen<TaskFn<F, Cur, B::Connection, FnArgs>>, L>>
+    ) -> Workflow<Start, O, B, Stack<AndThen<TaskFn<F, Cur, FnArgs>>, L>>
     where
-        TaskFn<F, Cur, B::Connection, FnArgs>:
-            Service<Task<Cur, B::Connection, B::Id>, Response = O>,
+        TaskFn<F, Cur, FnArgs>: Service<Task<Cur, B::Id>, Response = O>,
     {
         self.add_step(AndThen {
             then_fn: task_fn(and_then),

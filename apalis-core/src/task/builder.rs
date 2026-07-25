@@ -45,14 +45,14 @@ use std::{
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[must_use = "TaskBuilder is used to construct a Task. Ensure to call `.build()` to create the Task instance."]
-pub struct TaskBuilder<Args, Conn, Id> {
+pub struct TaskBuilder<Args, Id> {
     /// The arguments for the task
     pub args: Args,
     /// Execution context for the task, including metadata and extensions
-    pub ctx: ExecutionContext<Conn, Id>,
+    pub ctx: ExecutionContext<Id>,
 }
 
-impl<Args, Conn, Id> TaskBuilder<Args, Conn, Id> {
+impl<Args, Id> TaskBuilder<Args, Id> {
     /// Create a new TaskBuilder with the required args
     pub fn new(args: Args) -> Self {
         Self {
@@ -195,7 +195,7 @@ impl<Args, Conn, Id> TaskBuilder<Args, Conn, Id> {
     }
 
     /// Build the Task with default context
-    pub fn build(self) -> Task<Args, Conn, Id> {
+    pub fn build(self) -> Task<Args, Id> {
         Task {
             args: self.args,
             ctx: Arc::new(self.ctx),
@@ -203,9 +203,9 @@ impl<Args, Conn, Id> TaskBuilder<Args, Conn, Id> {
     }
 }
 
-impl<Args, Conn, Id> TaskBuilder<Args, Conn, Id> {
+impl<Args, Id> TaskBuilder<Args, Id> {
     /// Maps the `args` field using the provided function, consuming the task.
-    pub fn try_map_args<F, NewArgs, Err>(self, f: F) -> Result<TaskBuilder<NewArgs, Conn, Id>, Err>
+    pub fn try_map_args<F, NewArgs, Err>(self, f: F) -> Result<TaskBuilder<NewArgs, Id>, Err>
     where
         F: FnOnce(Args) -> Result<NewArgs, Err>,
     {
@@ -215,7 +215,7 @@ impl<Args, Conn, Id> TaskBuilder<Args, Conn, Id> {
         })
     }
     /// Maps the `args` field using the provided function, consuming the task.
-    pub fn map_args<F, NewArgs>(self, f: F) -> TaskBuilder<NewArgs, Conn, Id>
+    pub fn map_args<F, NewArgs>(self, f: F) -> TaskBuilder<NewArgs, Id>
     where
         F: FnOnce(Args) -> NewArgs,
     {
@@ -228,7 +228,7 @@ impl<Args, Conn, Id> TaskBuilder<Args, Conn, Id> {
     /// Maps only the `execution_context` field.
     pub fn map_context<F>(self, f: F) -> Self
     where
-        F: FnOnce(ExecutionContext<Conn, Id>) -> ExecutionContext<Conn, Id>,
+        F: FnOnce(ExecutionContext<Id>) -> ExecutionContext<Id>,
     {
         Self {
             args: self.args,

@@ -61,12 +61,9 @@ where
 
 impl<S: Send, Args: Send, Compact, Err> WorkflowSink<Args> for S
 where
-    S: Sink<Task<Compact, S::Connection, S::Id>, Error = Err>
-        + Backend<Error = Err, Compact = Compact>
-        + Unpin,
+    S: Sink<Task<Compact, S::Id>, Error = Err> + Backend<Error = Err, Compact = Compact> + Unpin,
     S::Id: GenerateId + Send + Sync + FromStr + Display,
     S::Codec: Codec<Args, Compact = Compact>,
-    S::Connection: Send + Sync,
     Err: std::error::Error + Send + Sync + 'static,
     <S::Codec as Codec<Args>>::Error: Into<BoxDynError> + Send + Sync + 'static,
     Compact: Send + 'static,

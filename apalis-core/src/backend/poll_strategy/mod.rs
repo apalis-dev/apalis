@@ -337,7 +337,7 @@ mod tests {
                         Some((Ok::<_, BoxDynError>(Some(item)), (p, ctx)))
                     } else {
                         Some((
-                            Ok::<Option<Task<u32, (), RandomId>>, BoxDynError>(None),
+                            Ok::<Option<Task<u32, RandomId>>, BoxDynError>(None),
                             (p, ctx),
                         ))
                     }
