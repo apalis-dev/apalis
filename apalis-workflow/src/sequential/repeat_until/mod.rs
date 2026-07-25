@@ -48,15 +48,9 @@ impl<Start, L, Input, B: Backend> Workflow<Start, Input, B, L> {
     pub fn repeat_until<F, Output, FnArgs>(
         self,
         repeater: F,
-    ) -> Workflow<
-        Start,
-        Output,
-        B,
-        Stack<RepeatUntil<TaskFn<F, Input, B::Connection, FnArgs>, Input, Output>, L>,
-    >
+    ) -> Workflow<Start, Output, B, Stack<RepeatUntil<TaskFn<F, Input, FnArgs>, Input, Output>, L>>
     where
-        TaskFn<F, Input, B::Connection, FnArgs>:
-            Service<Task<Input, B::Connection, B::Id>, Response = Option<Output>>,
+        TaskFn<F, Input, FnArgs>: Service<Task<Input, B::Id>, Response = Option<Output>>,
     {
         self.add_step(RepeatUntil {
             repeater: task_fn(repeater),
@@ -92,18 +86,17 @@ where
     }
 }
 
-impl<F, Res, B, Input, CodecError, Err> Service<Task<B::Compact, B::Connection, B::Id>>
+impl<F, Res, B, Input, CodecError, Err> Service<Task<B::Compact, B::Id>>
     for RepeatUntilService<F, B, Input, Res>
 where
-    F: Service<Task<Input, B::Connection, B::Id>, Response = Option<Res>> + Send + 'static + Clone,
+    F: Service<Task<Input, B::Id>, Response = Option<Res>> + Send + 'static + Clone,
     B: Backend<Error = Err>
         + Send
         + Sync
         + Clone
-        + Sink<Task<B::Compact, B::Connection, B::Id>, Error = Err>
+        + Sink<Task<B::Compact, B::Id>, Error = Err>
         + Unpin
         + 'static,
-    B::Connection: Send + Sync + 'static,
     B::Codec: Codec<Input, Error = CodecError, Compact = B::Compact>
         + Codec<Res, Error = CodecError, Compact = B::Compact>
         + Codec<Option<Res>, Error = CodecError, Compact = B::Compact>
@@ -127,7 +120,7 @@ where
         self.repeater.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, task: Task<B::Compact, B::Connection, B::Id>) -> Self::Future {
+    fn call(&mut self, task: Task<B::Compact, B::Id>) -> Self::Future {
         let state: RepeaterState<B::Id> = Metadata::extract(&task.ctx.metadata).unwrap_or_default();
         let mut ctx =
             task.ctx.data.get::<StepContext<B>>().cloned().expect(
@@ -286,19 +279,14 @@ where
 
 impl<B, F, Input, Res, S, Err, CodecError> Step<Input, B> for RepeatUntilStep<S, F, Input, Res>
 where
-    F: Service<Task<Input, B::Connection, B::Id>, Response = Option<Res>>
-        + Send
-        + Sync
-        + 'static
-        + Clone,
+    F: Service<Task<Input, B::Id>, Response = Option<Res>> + Send + Sync + 'static + Clone,
     B: Backend<Error = Err>
         + Send
         + Sync
         + Clone
-        + Sink<Task<B::Compact, B::Connection, B::Id>, Error = Err>
+        + Sink<Task<B::Compact, B::Id>, Error = Err>
         + Unpin
         + 'static,
-    B::Connection: Send + Sync + 'static,
     B::Codec: Codec<Input, Error = CodecError, Compact = B::Compact>
         + Codec<Res, Error = CodecError, Compact = B::Compact>
         + Codec<Option<Res>, Error = CodecError, Compact = B::Compact>

@@ -188,7 +188,7 @@ macro_rules! features_table {
         "    worker.run().await.unwrap();\n",
         "}\n"
     ) };
-    (@assert_function MakeShared) => { "fn assert_make_shared<T: Clone + Send + 'static>(t: T); assert_make_shared(backend);" };
+    (@assert_function BackendFactory) => { "fn assert_make_shared<T: Clone + Send + 'static>(t: T); assert_make_shared(backend);" };
     // Standardized assert function mapping for identifiers
     (@assert_function Workflow) => { concat!(
         "    # use apalis_workflow::*;\n",

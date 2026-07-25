@@ -73,7 +73,7 @@ fn find_designated_fan_in_handler(
     designated_handler.ok_or(DagFlowError::Service(DagServiceError::MissingFaninHandler))
 }
 
-impl<B, Err, CdcErr, Id, Compact> Service<Task<Compact, B::Connection, B::Id>> for RootDagService<B>
+impl<B, Err, CdcErr, Id, Compact> Service<Task<Compact, B::Id>> for RootDagService<B>
 where
     B: Backend<Error = Err, Id = Id, Compact = Compact>
         + Send
@@ -83,9 +83,8 @@ where
         + WaitForCompletion,
     Id: GenerateId + Send + Sync + 'static + PartialEq + Debug + Clone + FromStr + Display,
     Compact: Send + Sync + 'static + Clone,
-    B::Connection: Send + Sync + Default + 'static,
     Err: std::error::Error + Send + Sync + 'static,
-    B: Sink<Task<B::Compact, B::Connection, B::Id>, Error = Err> + Unpin,
+    B: Sink<Task<B::Compact, B::Id>, Error = Err> + Unpin,
     B::Codec: Codec<Vec<Compact>, Compact = Compact, Error = CdcErr>
         + Send
         + Clone
@@ -105,7 +104,7 @@ where
         self.executor.poll_ready(cx)
     }
 
-    fn call(&mut self, req: Task<B::Compact, B::Connection, B::Id>) -> Self::Future {
+    fn call(&mut self, req: Task<B::Compact, B::Id>) -> Self::Future {
         let mut executor = self.executor.clone();
         let codec = executor.backend.codec().clone();
         let start_nodes = executor.start_nodes.clone();
@@ -344,8 +343,7 @@ async fn fan_out_next_nodes<B, Err, CdcErr>(
 where
     B::Id: GenerateId + Send + Sync + 'static + PartialEq,
     B::Compact: Send + Sync + 'static + Clone,
-    B::Connection: Send + Sync + Default + 'static,
-    B: Sink<Task<B::Compact, B::Connection, B::Id>, Error = Err> + Unpin,
+    B: Sink<Task<B::Compact, B::Id>, Error = Err> + Unpin,
     Err: std::error::Error + Send + Sync + 'static,
     B: Backend<Error = Err> + Send + Sync + 'static + Clone,
     B::Codec: Codec<Vec<B::Compact>, Compact = B::Compact, Error = CdcErr>,
@@ -400,8 +398,7 @@ async fn fan_out_entry_nodes<B, Err, CdcErr>(
 where
     B::Id: GenerateId + Send + Sync + 'static + PartialEq + Debug,
     B::Compact: Send + Sync + 'static + Clone,
-    B::Connection: Send + Sync + Default + 'static,
-    B: Sink<Task<B::Compact, B::Connection, B::Id>, Error = Err> + Unpin,
+    B: Sink<Task<B::Compact, B::Id>, Error = Err> + Unpin,
     Err: std::error::Error + Send + Sync + 'static,
     B: Backend<Error = Err> + Send + Sync + 'static + Clone,
     B::Codec: Codec<Vec<B::Compact>, Compact = B::Compact, Error = CdcErr> + Clone,

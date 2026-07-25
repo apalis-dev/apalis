@@ -28,7 +28,7 @@ use crate::error::FileStorageError;
 
 use self::util::RawTask;
 use apalis_core::{
-    backend::{Backend, TaskResult, WaitForCompletion, queue::Queue},
+    backend::{Backend, TaskResult, WaitForCompletion},
     error::BoxDynError,
     features_table,
     task::{
@@ -108,7 +108,7 @@ enum PendingChange {
     FetchById => not_implemented("Allow fetching a task by its ID"),
     RegisterWorker => not_supported("Allow registering a worker with the backend"),
     "[`PipeExt`]" => supported("Allow other backends to pipe to this backend", false),
-    MakeShared => supported("Share the same storage across multiple workers via [`SharedJsonStore`]", false),
+    BackendFactory => supported("Share the same storage across multiple workers via [`SharedJsonStore`]", false),
     Workflow => supported("Flexible enough to support workflows", true),
     WaitForCompletion => supported("Wait for tasks to complete without blocking", true),
     ResumeById => not_implemented("Resume a task by its ID"),
@@ -455,7 +455,7 @@ impl<A: Adapter + Unpin, Args: Unpin> Stream for FileStorage<Args, A> {
             this.read_cursor += 1;
             Poll::Ready(Some(Ok((line_id, job))))
         } else {
-            Poll::Ready(None)
+            Poll::Pending
         }
     }
 }
@@ -469,7 +469,7 @@ where
     type Args = Args;
     type Id = RandomId;
     type Error = FileStorageError<A>;
-    type Connection = MetadataStore;
+    type Config = PathBuf;
     type Layer = AcknowledgeLayer<Self>;
     type Codec = JsonCodec<Value>;
     type Compact = Value;
@@ -479,8 +479,8 @@ where
     fn codec(&self) -> &Self::Codec {
         &self.codec
     }
-    fn queue(&self) -> Queue {
-        std::any::type_name::<Args>().into()
+    fn config(&self) -> &Self::Config {
+        &self.path
     }
     fn poll_ready(
         &mut self,
@@ -499,14 +499,12 @@ where
         &mut self,
         cx: &mut Context<'_>,
         _: &WorkerContext,
-    ) -> Poll<Option<Result<Task<Self::Compact, Self::Connection, Self::Id>, Self::Error>>> {
+    ) -> Poll<Option<Result<Task<Self::Compact, Self::Id>, Self::Error>>> {
         self.poll_next_unpin(cx).map_ok(|(line_id, mut job)| {
             job.ctx.insert("line_id", line_id.to_string()).unwrap();
-            let mut task = TaskBuilder::new(job.args).with_metadata(job.ctx);
-
-            if let Some(task_id) = job.task_id {
-                task = task.task_id(task_id);
-            }
+            let task = TaskBuilder::new(job.args)
+                .with_metadata(job.ctx)
+                .task_id(job.task_id);
             task.build()
         })
     }
@@ -599,7 +597,10 @@ impl Adapter for CsvAdapter {
 
         let idempotency_key = line.get("idempotency_key").cloned();
 
-        let task_id = line.get("task_id").and_then(|s| FromStr::from_str(s).ok());
+        let task_id = line
+            .get("task_id")
+            .and_then(|s| FromStr::from_str(s).ok())
+            .unwrap_or_default();
 
         let ctx = line
             .iter()
@@ -621,14 +622,7 @@ impl Adapter for CsvAdapter {
     fn from_entry(entry: &RawTask) -> Result<Self::Line, Self::Error> {
         let mut line = BTreeMap::new();
 
-        line.insert(
-            "task_id".to_owned(),
-            entry
-                .task_id
-                .as_ref()
-                .map(|t| t.to_string())
-                .unwrap_or_default(),
-        );
+        line.insert("task_id".to_owned(), entry.task_id.to_string());
 
         let args = util::from_value(Some("args"), &entry.args);
 
@@ -685,7 +679,7 @@ impl Adapter for CsvAdapter {
     }
 }
 
-impl<Args, Res, A> Acknowledge<Res, MetadataStore, RandomId> for FileStorage<Args, A>
+impl<Args, Res, A> Acknowledge<Res, RandomId> for FileStorage<Args, A>
 where
     Args: Send + 'static + Debug,
     Res: Serialize,
@@ -698,7 +692,7 @@ where
     fn ack(
         &mut self,
         res: &Result<Res, BoxDynError>,
-        ctx: &ExecutionContext<MetadataStore, RandomId>,
+        ctx: &ExecutionContext<RandomId>,
     ) -> Self::Future {
         let res = |this: &mut Self| {
             let val = serde_json::to_value(res.as_ref().map_err(|e| e.to_string()))?;
@@ -754,7 +748,7 @@ where
                     let completed_task = {
                         let vault = vault.entries.try_read().ok()?;
                         vault.iter().find_map(|value| {
-                            let task_id = value.task_id.clone()?;
+                            let task_id = value.task_id.clone();
                             if state.pending_tasks.contains(&task_id) {
                                 Some((task_id, value.result.clone()?))
                             } else {
@@ -798,7 +792,7 @@ where
                 .try_read()
                 .unwrap()
                 .iter()
-                .find(|s| s.task_id.as_ref().unwrap() == &task_id)
+                .find(|s| s.task_id == task_id)
             {
                 if value.result.is_none() {
                     results.push(TaskResult {

@@ -7,14 +7,14 @@ publish = false
 
 [dependencies]
 anyhow = "1"
-axum = "0.8.8"
-tokio = { version = "1.0", features = ["full"] }
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+axum = "0.8.9"
+tokio = { version = "1.53", features = ["full"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 serde = { version = "1.0", features = ["derive"] }
 apalis = { path = "../../apalis", features = ["prometheus"] }
 apalis-core = { path = "../../apalis-core", features = ["serde"] }
 futures = "0.3"
-metrics-exporter-prometheus = "0.18.1"
+metrics-exporter-prometheus = "0.18.3"
 email-service = { path = "../email-service" }
 apalis-file-storage = { path = "../../utils/apalis-file-storage" }

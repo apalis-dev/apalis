@@ -20,23 +20,23 @@ uuid = ["dep:uuid"]
 rand = ["dep:rand"]
 
 [dependencies]
-petgraph = { version = "0.8.2", features = ["serde-1"] }
+petgraph = { version = "0.8.3", features = ["serde-1"] }
 serde = { version = "1.0", features = ["derive"] }
 tower = { version = "0.5", features = ["util"], default-features = false }
 apalis-core = { path = "../apalis-core", version = "1.0.0-rc.9", default-features = false, features = [
     "sleep",
     "serde",
 ] }
-futures = "0.3.30"
-thiserror = "2.0.0"
+futures = "0.3.33"
+thiserror = "2.0.19"
 # TODO: move to workspace dependencies
-tracing = { version = "0.1.41", default-features = false, optional = true }
-ulid = { version = "2.0.1", optional = true }
-uuid = { version = "1.23.5", features = ["v4"], optional = true }
-rand = { version = "0.9", features = ["std"], optional = true }
+tracing = { version = "0.1.44", default-features = false, optional = true }
+ulid = { version = "3", optional = true }
+uuid = { version = "1.24.0", features = ["v4"], optional = true }
+rand = { version = "0.10", features = ["std"], optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.37.0", features = ["macros", "rt-multi-thread", "sync"] }
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "sync"] }
 apalis-file-storage = { path = "../utils/apalis-file-storage" }
 serde_json = "1"
 

@@ -26,7 +26,7 @@ use std::{
 };
 
 use crate::{
-    backend::{codec::Codec, queue::Queue},
+    backend::codec::Codec,
     task::{Task, status::Status, task_id::TaskId},
     worker::context::WorkerContext,
 };
@@ -34,9 +34,9 @@ use crate::{
 pub mod codec;
 pub mod custom;
 pub mod ext;
+pub mod factory;
 pub mod poll_strategy;
 pub mod queue;
-pub mod shared;
 
 mod expose;
 mod impls;
@@ -65,8 +65,9 @@ pub trait Backend: Sized {
     type Args;
     /// The type used to uniquely identify tasks.
     type Id: Clone + Send + Sync + 'static;
-    /// The type of connection used by the backend.
-    type Connection;
+
+    /// The config for the backend
+    type Config;
     /// The error type returned by backend operations
     type Error: std::error::Error + Send + Sync + 'static;
 
@@ -80,8 +81,8 @@ pub trait Backend: Sized {
     /// The encoding and decoding mechanism
     fn codec(&self) -> &Self::Codec;
 
-    /// Returns the queue associated with the backend.
-    fn queue(&self) -> Queue;
+    /// Returns the config associated with the backend.
+    fn config(&self) -> &Self::Config;
 
     /// Returns the backend's middleware layer.
     fn middleware(&self) -> Self::Layer;
@@ -100,7 +101,7 @@ pub trait Backend: Sized {
         &mut self,
         cx: &mut Context<'_>,
         worker: &WorkerContext,
-    ) -> Poll<Option<Result<Task<Self::Compact, Self::Connection, Self::Id>, Self::Error>>>;
+    ) -> Poll<Option<Result<Task<Self::Compact, Self::Id>, Self::Error>>>;
 
     /// Flushes/releases any resources the backend holds (pending acks,
     /// open subscriptions, connections) before the worker fully shuts down.
@@ -118,9 +119,7 @@ pub trait FetchById: Backend {
     fn fetch_by_id(
         &mut self,
         task_id: &TaskId<Self::Id>,
-    ) -> impl Future<
-        Output = Result<Option<Task<Self::Compact, Self::Connection, Self::Id>>, Self::Error>,
-    > + Send;
+    ) -> impl Future<Output = Result<Option<Task<Self::Compact, Self::Id>>, Self::Error>> + Send;
 }
 
 /// Allows updating an existing task
@@ -128,7 +127,7 @@ pub trait Update: Backend {
     /// Update the given task
     fn update(
         &mut self,
-        task: Task<Self::Compact, Self::Connection, Self::Id>,
+        task: Task<Self::Compact, Self::Id>,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
@@ -137,7 +136,7 @@ pub trait Reschedule: Backend {
     /// Reschedule the task after a specified duration
     fn reschedule(
         &mut self,
-        task: Task<Self::Compact, Self::Connection, Self::Id>,
+        task: Task<Self::Compact, Self::Id>,
         wait: Duration,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }

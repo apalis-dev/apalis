@@ -224,16 +224,16 @@ where
     }
 }
 
-impl<F, B, Input, CodecError, Err, Output, Id, Iter, Compact>
-    Service<Task<Compact, B::Connection, Id>> for FilterService<F, B, Input, Iter>
+impl<F, B, Input, CodecError, Err, Output, Id, Iter, Compact> Service<Task<Compact, Id>>
+    for FilterService<F, B, Input, Iter>
 where
-    F: Service<Task<Input, B::Connection, Id>, Response = Option<Output>>,
+    F: Service<Task<Input, Id>, Response = Option<Output>>,
     B: Backend<Error = Err, Id = Id, Compact = Compact>
         + Send
         + Sync
         + 'static
         + Clone
-        + Sink<Task<B::Compact, B::Connection, Id>, Error = Err>
+        + Sink<Task<B::Compact, Id>, Error = Err>
         + WaitForCompletion
         + Unpin,
     B::Codec: Codec<Vec<Input>, Error = CodecError, Compact = B::Compact>
@@ -246,7 +246,6 @@ where
         + Clone
         + 'static,
     Id: GenerateId + FromStr + Display + Send + 'static + Clone + Sync,
-    B::Connection: Send + Sync + 'static,
     Err: std::error::Error + Send + Sync + 'static,
     CodecError: std::error::Error + Send + Sync + 'static,
     F::Error: Into<BoxDynError> + Send + 'static,
@@ -267,7 +266,7 @@ where
         self.service.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, request: Task<B::Compact, B::Connection, B::Id>) -> Self::Future {
+    fn call(&mut self, request: Task<B::Compact, B::Id>) -> Self::Future {
         let filter_state: FilterState =
             Metadata::extract(&request.ctx.metadata).unwrap_or(FilterState::Init);
         let mut ctx = request.ctx.data.get::<StepContext<B>>().cloned().unwrap();
@@ -278,7 +277,7 @@ where
                 // Handle unknown state
                 async move {
                     let main_args: Vec<Input> = vec![];
-                    let steps: Task<Iter, _, _> =
+                    let steps: Task<Iter, _> =
                         request.try_map_args(|arg| B::Codec::decode(&codec, &arg))?;
                     let steps = steps.args.into_iter().collect::<Vec<_>>();
                     #[cfg(feature = "tracing")]
@@ -321,7 +320,7 @@ where
                 .boxed()
             }
             FilterState::SingleStep => {
-                let step: Task<Input, _, _> = request
+                let step: Task<Input, _> = request
                     .try_map_args(|arg| B::Codec::decode(&codec, &arg))
                     .unwrap();
                 let fut = self.service.call(step);
@@ -362,6 +361,7 @@ where
                                         _ => None,
                                     }
                                 }
+
                                 _ => None,
                             }
                         })
@@ -392,10 +392,10 @@ where
         + Sync
         + 'static
         + Clone
-        + Sink<Task<Compact, B::Connection, Id>, Error = SinkError>
+        + Sink<Task<Compact, Id>, Error = SinkError>
         + WaitForCompletion
         + Unpin,
-    F: Service<Task<Input, B::Connection, Id>, Error = BoxDynError, Response = Option<Output>>
+    F: Service<Task<Input, Id>, Error = BoxDynError, Response = Option<Output>>
         + Send
         + Sync
         + 'static
@@ -423,7 +423,6 @@ where
         + Codec<GoTo<StepResult<Compact, Id>>, Error = CodecError, Compact = B::Compact>
         + 'static,
     B::Id: GenerateId + Send + Sync + 'static,
-    B::Connection: Send + Sync + 'static,
     CodecError: std::error::Error + Send + Sync + 'static,
     F::Future: Send + 'static,
     B::Compact: Send + 'static,
@@ -449,10 +448,9 @@ impl<Start, C, L, I: IntoIterator<Item = C>, B: Backend> Workflow<Start, I, B, L
     pub fn filter_map<F, Output, FnArgs>(
         self,
         filter_map: F,
-    ) -> Workflow<Start, Vec<Output>, B, Stack<FilterMap<TaskFn<F, C, B::Connection, FnArgs>, I>, L>>
+    ) -> Workflow<Start, Vec<Output>, B, Stack<FilterMap<TaskFn<F, C, FnArgs>, I>, L>>
     where
-        TaskFn<F, C, B::Connection, FnArgs>:
-            Service<Task<C, B::Connection, B::Id>, Response = Option<Output>>,
+        TaskFn<F, C, FnArgs>: Service<Task<C, B::Id>, Response = Option<Output>>,
     {
         self.add_step(FilterMap {
             filter_map: task_fn(filter_map),

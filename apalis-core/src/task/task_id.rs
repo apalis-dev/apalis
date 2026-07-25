@@ -17,7 +17,7 @@ pub use random_id::RandomId;
 
 /// A wrapper type that defines a task id.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq, PartialOrd, Ord, Default)]
 pub struct TaskId<Id>(Id);
 
 impl<Id> TaskId<Id> {
@@ -60,11 +60,9 @@ impl<Id: Display> Display for TaskId<Id> {
     }
 }
 
-impl<Args: Sync, Conn: Send + Sync, Id: Sync + Send + Clone> FromRequest<Task<Args, Conn, Id>>
-    for TaskId<Id>
-{
+impl<Args: Sync, Id: Sync + Send + Clone> FromRequest<Task<Args, Id>> for TaskId<Id> {
     type Error = MissingDataError;
-    async fn from_request(task: &Task<Args, Conn, Id>) -> Result<Self, Self::Error> {
+    async fn from_request(task: &Task<Args, Id>) -> Result<Self, Self::Error> {
         task.ctx.task_id.clone().ok_or(MissingDataError::NotFound(
             std::any::type_name::<Self>().to_owned(),
         ))

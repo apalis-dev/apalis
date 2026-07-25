@@ -35,13 +35,13 @@
 //!     #[derive(Debug, Clone)]
 //!     struct MyAcknowledger;
 //!
-//!     impl<Conn: Debug, Id: Debug> Acknowledge<(), Conn, Id> for MyAcknowledger {
+//!     impl<Id: Debug> Acknowledge<(),  Id> for MyAcknowledger {
 //!         type Error = SendError<()>;
 //!         type Future = BoxFuture<'static, Result<(), Self::Error>>;
 //!         fn ack(
 //!             &mut self,
 //!             res: &Result<(), BoxDynError>,
-//!             ctx: &ExecutionContext<Conn, Id>,
+//!             ctx: &ExecutionContext< Id>,
 //!         ) -> Self::Future {
 //!             println!("{res:?}, {ctx:?}");
 //!             ready(Ok(())).boxed()
@@ -74,47 +74,39 @@ use crate::{
 /// Extension trait for adding acknowledgment handling to workers
 ///
 /// See [module level documentation](self) for more details.
-pub trait AcknowledgementExt<Args, Conn, Source, Middleware, Ack, Res>: Sized
+pub trait AcknowledgementExt<Args, Source, Middleware, Ack, Res>: Sized
 where
-    Source: Backend<Args = Args, Connection = Conn>,
-    Ack: Acknowledge<Res, Conn, Source::Id>,
+    Source: Backend<Args = Args>,
+    Ack: Acknowledge<Res, Source::Id>,
 {
     /// Add an acknowledgment handler to the worker
     fn ack_with(
         self,
         ack: Ack,
-    ) -> WorkerBuilder<Args, Conn, Source, Stack<AcknowledgeLayer<Ack>, Middleware>>;
+    ) -> WorkerBuilder<Args, Source, Stack<AcknowledgeLayer<Ack>, Middleware>>;
 }
 
 /// Acknowledge the result of a task processing
 ///
 /// See [module level documentation](self) for more details.
-pub trait Acknowledge<Res, Conn, Id> {
+pub trait Acknowledge<Res, Id> {
     /// The error type returned by the acknowledgment process
     type Error;
     /// The future returned by the `ack` method
     type Future: Future<Output = Result<(), Self::Error>>;
     /// Acknowledge the result of a task processing
-    fn ack(
-        &mut self,
-        res: &Result<Res, BoxDynError>,
-        ctx: &ExecutionContext<Conn, Id>,
-    ) -> Self::Future;
+    fn ack(&mut self, res: &Result<Res, BoxDynError>, ctx: &ExecutionContext<Id>) -> Self::Future;
 }
 
-impl<Res, Conn, F, Fut, Id, E> Acknowledge<Res, Conn, Id> for F
+impl<Res, F, Fut, Id, E> Acknowledge<Res, Id> for F
 where
-    F: FnMut(&Result<Res, BoxDynError>, &ExecutionContext<Conn, Id>) -> Fut,
+    F: FnMut(&Result<Res, BoxDynError>, &ExecutionContext<Id>) -> Fut,
     Fut: Future<Output = Result<(), E>>,
 {
     type Error = E;
     type Future = Fut;
 
-    fn ack(
-        &mut self,
-        res: &Result<Res, BoxDynError>,
-        ctx: &ExecutionContext<Conn, Id>,
-    ) -> Self::Future {
+    fn ack(&mut self, res: &Result<Res, BoxDynError>, ctx: &ExecutionContext<Id>) -> Self::Future {
         (self)(res, ctx)
     }
 }
@@ -158,15 +150,14 @@ pub struct AcknowledgeService<S, A> {
     acknowledger: A,
 }
 
-impl<S, A, Args, Conn, Res, Id> Service<Task<Args, Conn, Id>> for AcknowledgeService<S, A>
+impl<S, A, Args, Res, Id> Service<Task<Args, Id>> for AcknowledgeService<S, A>
 where
-    S: Service<Task<Args, Conn, Id>, Response = Res>,
-    A: Acknowledge<Res, Conn, Id> + Clone + Send + 'static,
+    S: Service<Task<Args, Id>, Response = Res>,
+    A: Acknowledge<Res, Id> + Clone + Send + 'static,
     S::Error: Into<BoxDynError>,
     A::Error: std::error::Error + Send + Sync + 'static,
     S::Future: Send + 'static,
     A::Future: Send + 'static,
-    Conn: Clone + Send + Sync + 'static + Send,
     Res: Send,
     Id: Send + Sync + 'static,
 {
@@ -178,7 +169,7 @@ where
         self.inner.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, task: Task<Args, Conn, Id>) -> Self::Future {
+    fn call(&mut self, task: Task<Args, Id>) -> Self::Future {
         let ctx = task.ctx.clone();
         let worker: WorkerContext = ctx.data.get().cloned().unwrap();
         let future = self.inner.call(task);
@@ -191,14 +182,13 @@ where
     }
 }
 
-impl<Args, B, M, Conn, Ack, Res> AcknowledgementExt<Args, Conn, B, M, Ack, Res>
-    for WorkerBuilder<Args, Conn, B, M>
+impl<Args, B, M, Ack, Res> AcknowledgementExt<Args, B, M, Ack, Res> for WorkerBuilder<Args, B, M>
 where
     M: Layer<AcknowledgeLayer<Ack>>,
-    Ack: Acknowledge<Res, Conn, B::Id>,
-    B: Backend<Args = Args, Connection = Conn>,
+    Ack: Acknowledge<Res, B::Id>,
+    B: Backend<Args = Args>,
 {
-    fn ack_with(self, ack: Ack) -> WorkerBuilder<Args, Conn, B, Stack<AcknowledgeLayer<Ack>, M>> {
+    fn ack_with(self, ack: Ack) -> WorkerBuilder<Args, B, Stack<AcknowledgeLayer<Ack>, M>> {
         let this = self.layer(AcknowledgeLayer::new(ack));
         WorkerBuilder {
             name: this.name,

@@ -54,7 +54,6 @@ use std::{
 };
 
 use crate::backend::ext::{BackendExt, PollNextArgsError};
-use crate::backend::queue::Queue;
 use crate::backend::*;
 use crate::error::BoxDynError;
 use crate::features_table;
@@ -72,10 +71,10 @@ use futures_util::TryStreamExt;
     TaskSink => supported("Ability to push new tasks", false),
     InheritsFeatures => limited("Inherits features from the underlying backend", false),
 }]
-pub struct Pipe<Dst, S, Args, Conn> {
+pub struct Pipe<Dst, S, Args> {
     pub(crate) from: S,
     pub(crate) into: Dst,
-    pub(crate) _req: PhantomData<(Args, Conn)>,
+    pub(crate) _req: PhantomData<Args>,
 }
 
 /// Adapts a [`Backend`] into an [`IntoArgsStream`] source, so it can be
@@ -114,7 +113,7 @@ impl<B: fmt::Debug> fmt::Debug for FromBackend<B> {
 ///
 /// [`Pipe`] is generic over this trait rather than over `Stream` directly,
 /// which is what lets one `Pipe` type serve both streams and backends.
-pub trait PipeNextStream<Args, Conn, Id> {
+pub trait PipeNextStream<Args, Id> {
     /// The error type yielded alongside `Args` on failure.
     type Error;
 
@@ -125,16 +124,15 @@ pub trait PipeNextStream<Args, Conn, Id> {
         &mut self,
         cx: &mut Context<'_>,
         worker: &WorkerContext,
-    ) -> Poll<Option<Result<Task<Args, Conn, Id>, Self::Error>>>;
+    ) -> Poll<Option<Result<Task<Args, Id>, Self::Error>>>;
 }
 
 // Plain-stream case: any stream of `Result<Args, Err>` is already exactly
 // what we need, so this is just a passthrough.
-impl<S, Args, Conn, Id, Err> PipeNextStream<Args, Conn, Id> for S
+impl<S, Args, Id, Err> PipeNextStream<Args, Id> for S
 where
     S: Stream<Item = Result<Args, Err>> + Send + Unpin + 'static,
     Args: 'static,
-    Conn: 'static,
     Id: 'static,
     Err: 'static,
 {
@@ -144,7 +142,7 @@ where
         &mut self,
         cx: &mut Context<'_>,
         _: &WorkerContext,
-    ) -> Poll<Option<Result<Task<Args, Conn, Id>, Self::Error>>> {
+    ) -> Poll<Option<Result<Task<Args, Id>, Self::Error>>> {
         let next = Stream::poll_next(Pin::new(self), cx);
         next.map(|item| item.map(|res| res.map(TaskBuilder::new).map(|t| t.build())))
     }
@@ -152,14 +150,13 @@ where
 
 // Backend case: poll the backend, drop `None`s (no task available right
 // now), and project each `Task` down to its `args`.
-impl<B, Conn, Id> PipeNextStream<B::Args, Conn, Id> for FromBackend<B>
+impl<B, Id> PipeNextStream<B::Args, Id> for FromBackend<B>
 where
     B: Backend + Send + 'static,
     B::Error: std::error::Error + Send + Sync + 'static,
     B::Args: Send + 'static,
     B::Id: Display,
     Id: 'static,
-    Conn: 'static,
     <B::Codec as Codec<B::Args>>::Error: std::error::Error + Send + Sync + 'static,
 {
     type Error = PollNextArgsError<B>;
@@ -168,17 +165,17 @@ where
         &mut self,
         cx: &mut Context<'_>,
         worker: &WorkerContext,
-    ) -> Poll<Option<Result<Task<B::Args, Conn, Id>, Self::Error>>> {
+    ) -> Poll<Option<Result<Task<B::Args, Id>, Self::Error>>> {
         let next = self.0.poll_next_args(cx, worker);
         next.map(|item| match item {
-            Some(Ok(task)) => Some(Ok(task.map_backend::<Conn, Id>())),
+            Some(Ok(task)) => Some(Ok(task.map_id_type::<Id>())),
             Some(Err(e)) => Some(Err(e)),
             None => None,
         })
     }
 }
 
-impl<S, Dst, Args, Conn> Deref for Pipe<Dst, S, Args, Conn> {
+impl<S, Dst, Args> Deref for Pipe<Dst, S, Args> {
     type Target = Dst;
 
     fn deref(&self) -> &Self::Target {
@@ -186,13 +183,13 @@ impl<S, Dst, Args, Conn> Deref for Pipe<Dst, S, Args, Conn> {
     }
 }
 
-impl<S, Dst, Args, Conn> DerefMut for Pipe<Dst, S, Args, Conn> {
+impl<S, Dst, Args> DerefMut for Pipe<Dst, S, Args> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.into
     }
 }
 
-impl<S, Dst, Args, Conn> Pipe<Dst, S, Args, Conn> {
+impl<S, Dst, Args> Pipe<Dst, S, Args> {
     /// Create a new `Pipe` from a raw `from` source and an `into` sink.
     /// Prefer [`PipeExt::pipe_to`] or [`BackendExt::pipe_to`] over calling
     /// this directly.
@@ -205,7 +202,7 @@ impl<S, Dst, Args, Conn> Pipe<Dst, S, Args, Conn> {
     }
 }
 
-impl<S: fmt::Debug, Dst: fmt::Debug, Args, Conn> fmt::Debug for Pipe<Dst, S, Args, Conn> {
+impl<S: fmt::Debug, Dst: fmt::Debug, Args> fmt::Debug for Pipe<Dst, S, Args> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Pipe")
             .field("from", &self.from)
@@ -214,29 +211,28 @@ impl<S: fmt::Debug, Dst: fmt::Debug, Args, Conn> fmt::Debug for Pipe<Dst, S, Arg
     }
 }
 
-impl<Args, Conn, S, TSink, CdcErr> Backend for Pipe<TSink, S, Args, Conn>
+impl<Args, S, TSink, CdcErr> Backend for Pipe<TSink, S, Args>
 where
-    S: PipeNextStream<Args, Conn, TSink::Id> + Send + 'static,
+    S: PipeNextStream<Args, TSink::Id> + Send + 'static,
     S::Error: std::error::Error + Send + Sync + 'static,
     TSink: Backend<Args = Args>
         + TaskSink<Args>
         + Unpin
         + Send
         + 'static
-        + Sink<Task<TSink::Compact, Conn, TSink::Id>>,
+        + Sink<Task<TSink::Compact, TSink::Id>>,
     <TSink as Backend>::Error: std::error::Error + Send + Sync + 'static,
     TSink::Id: Display + Send + Sync + 'static,
     TSink::Codec: Codec<Args, Error = CdcErr> + Send + Sync + 'static,
-    <TSink as Sink<Task<TSink::Compact, Conn, TSink::Id>>>::Error:
+    <TSink as Sink<Task<TSink::Compact, TSink::Id>>>::Error:
         std::error::Error + Send + Sync + 'static,
     Args: Send + 'static,
     CdcErr: std::error::Error + Send + Sync + 'static,
     TSink::Compact: Send,
-    Conn: 'static,
 {
     type Args = Args;
     type Id = TSink::Id;
-    type Connection = Conn;
+    type Config = TSink::Config;
     type Layer = TSink::Layer;
     type Error = PipeError;
     type Codec = TSink::Codec;
@@ -246,8 +242,8 @@ where
         self.into.codec()
     }
 
-    fn queue(&self) -> Queue {
-        self.into.queue()
+    fn config(&self) -> &Self::Config {
+        self.into.config()
     }
 
     fn middleware(&self) -> Self::Layer {
@@ -269,7 +265,7 @@ where
         &mut self,
         cx: &mut Context<'_>,
         worker: &WorkerContext,
-    ) -> Poll<Option<Result<Task<Self::Compact, Self::Connection, Self::Id>, Self::Error>>> {
+    ) -> Poll<Option<Result<Task<Self::Compact, Self::Id>, Self::Error>>> {
         let mut source_done = false;
 
         loop {
@@ -323,7 +319,6 @@ where
 
         self.into
             .poll_next(cx, worker)
-            .map_ok(|task| task.map_backend())
             .map_err(|e| PipeError::Inner(e.into()))
     }
 
@@ -339,25 +334,24 @@ where
 }
 
 /// Utility for piping a plain stream of `Result<Args, Err>` into a backend.
-pub trait PipeExt<B, Args, Conn>
+pub trait PipeExt<B, Args>
 where
     B: Backend,
-    Self: PipeNextStream<Args, Conn, B::Id> + Sized,
+    Self: PipeNextStream<Args, B::Id> + Sized,
 {
     /// Pipe the current stream into the provided sink backend.
-    fn pipe_to(self, backend: B) -> Pipe<B, Self, Args, Conn>;
+    fn pipe_to(self, backend: B) -> Pipe<B, Self, Args>;
 }
 
-impl<B, Args, Conn, Err, S> PipeExt<B, Args, Conn> for S
+impl<B, Args, Err, S> PipeExt<B, Args> for S
 where
     S: Stream<Item = Result<Args, Err>> + Send + Unpin + 'static,
     B::Error: Into<BoxDynError> + Send + Sync + 'static,
     B: Backend<Args = Args> + TaskSink<Args>,
     Err: 'static,
     Args: 'static,
-    Conn: 'static,
 {
-    fn pipe_to(self, backend: B) -> Pipe<B, Self, Args, Conn> {
+    fn pipe_to(self, backend: B) -> Pipe<B, Self, Args> {
         Pipe::new(self, backend)
     }
 }
@@ -373,29 +367,28 @@ pub enum PipeError {
     Inner(BoxDynError),
 }
 
-delegate_sink!(Pipe<Dst, S, Args, Conn>, into);
+delegate_sink!(Pipe<Dst, S, Args, >, into);
 
 delegate_expose!(
-    impl<B, S, Args, Conn, CdcErr> for Pipe<B, S, Args, Conn>
+    impl<B, S, Args,  CdcErr> for Pipe<B, S, Args, >
     where {
         B: Send + Sync,
-        S: PipeNextStream<Args, Conn, B::Id> + Send + Sync + 'static,
+        S: PipeNextStream<Args,  B::Id> + Send + Sync + 'static,
         S::Error: std::error::Error + Send + Sync + 'static,
-        B: Backend<Args = Args, Connection = Conn>
+        B: Backend<Args = Args>
             + TaskSink<Args>
             + Unpin
             + Send
             + 'static
-            + Sink<Task<B::Compact, Conn, B::Id>>,
+            + Sink<Task<B::Compact,  B::Id>>,
         <B as Backend>::Error: std::error::Error + Send + Sync + 'static,
         B::Id: Display + Send + Sync + 'static,
         B::Codec: Codec<Args, Error = CdcErr> + Send + Sync + 'static,
-        <B as Sink<Task<B::Compact, Conn, B::Id>>>::Error:
+        <B as Sink<Task<B::Compact,  B::Id>>>::Error:
             std::error::Error + Send + Sync + 'static,
         Args: Send + Sync + 'static,
         CdcErr: std::error::Error + Send + Sync + 'static,
         B::Compact: Send,
-        Conn: Send + Sync + 'static,
     }
     => into,
     wrap = |this, result| result.map_err(|e| PipeError::Inner(e.into()))

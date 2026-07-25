@@ -68,7 +68,7 @@ pub trait BackendExt: Backend {
         &mut self,
         cx: &mut Context<'_>,
         worker: &WorkerContext,
-    ) -> Poll<Option<Result<Task<Self::Args, Self::Connection, Self::Id>, PollNextArgsError<Self>>>>
+    ) -> Poll<Option<Result<Task<Self::Args, Self::Id>, PollNextArgsError<Self>>>>
     where
         Self: Sized,
         <Self::Codec as Codec<Self::Args>>::Error: std::error::Error,
@@ -93,7 +93,7 @@ pub trait BackendExt: Backend {
     /// Useful for bridging two backend implementations — e.g. draining an
     /// ephemeral/legacy queue into a durable one, or fanning a lightweight
     /// source into a shared sink that multiple producers write into.
-    fn pipe_to<Dst>(self, backend: Dst) -> Pipe<Dst, FromBackend<Self>, Self::Args, Dst::Connection>
+    fn pipe_to<Dst>(self, backend: Dst) -> Pipe<Dst, FromBackend<Self>, Self::Args>
     where
         Self: Sized,
         Dst: Backend<Args = Self::Args>,

@@ -49,13 +49,13 @@ impl Attempt {
     }
 }
 
-impl<Args, Conn, Id> FromRequest<Task<Args, Conn, Id>> for Attempt
+impl<Args, Id> FromRequest<Task<Args, Id>> for Attempt
 where
     Args: Sync,
     Id: Sync + Send,
 {
     type Error = Infallible;
-    async fn from_request(task: &Task<Args, Conn, Id>) -> Result<Self, Self::Error> {
+    async fn from_request(task: &Task<Args, Id>) -> Result<Self, Self::Error> {
         Ok(task.ctx.attempt.clone())
     }
 }

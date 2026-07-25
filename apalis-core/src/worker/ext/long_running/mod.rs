@@ -216,9 +216,9 @@ impl<Res: Send + 'static> RunnerContext<Res> {
     }
 }
 
-impl<Args: Sync, Conn: Send + Sync, Id: Sync + Send> FromRequest<Task<Args, Conn, Id>> for Runner {
+impl<Args: Sync, Id: Sync + Send> FromRequest<Task<Args, Id>> for Runner {
     type Error = MissingDataError;
-    async fn from_request(task: &Task<Args, Conn, Id>) -> Result<Self, Self::Error> {
+    async fn from_request(task: &Task<Args, Id>) -> Result<Self, Self::Error> {
         let runner: &Self = task.ctx.data.get_checked()?;
         Ok(runner.clone())
     }
@@ -259,9 +259,9 @@ pub struct LongRunningService<S> {
     config: LongRunningConfig,
 }
 
-impl<S, Args, Conn, Id> Service<Task<Args, Conn, Id>> for LongRunningService<S>
+impl<S, Args, Id> Service<Task<Args, Id>> for LongRunningService<S>
 where
-    S: Service<Task<Args, Conn, Id>>,
+    S: Service<Task<Args, Id>>,
     S::Future: Send + 'static,
     S::Response: Send,
     S::Error: Send,
@@ -277,7 +277,7 @@ where
         self.service.poll_ready(cx)
     }
 
-    fn call(&mut self, mut task: Task<Args, Conn, Id>) -> Self::Future {
+    fn call(&mut self, mut task: Task<Args, Id>) -> Self::Future {
         let tracker = TaskTracker::new();
         let worker: WorkerContext = task
             .ctx
@@ -301,29 +301,27 @@ where
 /// Helper trait for building long running workers from [`WorkerBuilder`]
 ///
 /// See [module level documentation](self) for more details.
-pub trait LongRunningExt<Args, Conn, Source, Middleware>: Sized {
+pub trait LongRunningExt<Args, Source, Middleware>: Sized {
     /// Extension for executing long running jobs
-    fn long_running(
-        self,
-    ) -> WorkerBuilder<Args, Conn, Source, Stack<LongRunningLayer, Middleware>> {
+    fn long_running(self) -> WorkerBuilder<Args, Source, Stack<LongRunningLayer, Middleware>> {
         self.long_running_with_cfg(Default::default())
     }
     /// Extension for executing long running jobs with a config
     fn long_running_with_cfg(
         self,
         cfg: LongRunningConfig,
-    ) -> WorkerBuilder<Args, Conn, Source, Stack<LongRunningLayer, Middleware>>;
+    ) -> WorkerBuilder<Args, Source, Stack<LongRunningLayer, Middleware>>;
 }
 
-impl<Args, B, M, Conn> LongRunningExt<Args, Conn, B, M> for WorkerBuilder<Args, Conn, B, M>
+impl<Args, B, M> LongRunningExt<Args, B, M> for WorkerBuilder<Args, B, M>
 where
     M: Layer<LongRunningLayer>,
-    B: Backend<Args = Args, Connection = Conn>,
+    B: Backend<Args = Args>,
 {
     fn long_running_with_cfg(
         self,
         cfg: LongRunningConfig,
-    ) -> WorkerBuilder<Args, Conn, B, Stack<LongRunningLayer, M>> {
+    ) -> WorkerBuilder<Args, B, Stack<LongRunningLayer, M>> {
         let this = self.layer(LongRunningLayer::new(cfg));
         WorkerBuilder {
             name: this.name,

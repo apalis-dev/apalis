@@ -54,7 +54,7 @@ where
     B: Backend,
 {
     name: String,
-    graph: Mutex<DiGraph<DagService<B::Compact, B::Connection, B::Id>, ()>>,
+    graph: Mutex<DiGraph<DagService<B::Compact, B::Id>, ()>>,
     node_mapping: Mutex<HashMap<String, NodeIndex>>,
 }
 
@@ -91,7 +91,7 @@ where
         service: S,
     ) -> NodeBuilder<'_, Input, S::Response, B>
     where
-        S: Service<Task<Input, B::Connection, B::Id>> + Send + 'static + Sync + Clone,
+        S: Service<Task<Input, B::Id>> + Send + 'static + Sync + Clone,
         S::Future: Send + 'static,
         B::Codec: Codec<Input, Compact = B::Compact, Error = CodecError>
             + Codec<S::Response, Compact = B::Compact, Error = CodecError>
@@ -126,15 +126,11 @@ where
         node: F,
     ) -> NodeBuilder<'_, Input, O, B>
     where
-        TaskFn<F, Input, B::Connection, FnArgs>:
-            Service<Task<Input, B::Connection, B::Id>, Response = O, Error = Err> + Clone,
+        TaskFn<F, Input, FnArgs>: Service<Task<Input, B::Id>, Response = O, Error = Err> + Clone,
         F: Send + 'static + Sync,
         Input: Send + 'static + Sync,
         FnArgs: Send + 'static + Sync,
-        B::Connection: Send + Sync + 'static,
-        <TaskFn<F, Input, B::Connection, FnArgs> as Service<
-            Task<Input, B::Connection, B::Id>,
-        >>::Future: Send + 'static,
+        <TaskFn<F, Input, FnArgs> as Service<Task<Input, B::Id>>>::Future: Send + 'static,
         B::Codec: Codec<Input, Compact = B::Compact, Error = CodecError> + 'static,
         B::Codec: Codec<O, Compact = B::Compact, Error = CodecError> + Send + Clone + 'static,
         CodecError: Into<BoxDynError> + Send + 'static,
@@ -151,16 +147,12 @@ where
         router: F,
     ) -> NodeBuilder<'_, Input, O, B>
     where
-        TaskFn<F, Input, B::Connection, FnArgs>:
-            Service<Task<Input, B::Connection, B::Id>, Response = O, Error = Err> + Clone,
+        TaskFn<F, Input, FnArgs>: Service<Task<Input, B::Id>, Response = O, Error = Err> + Clone,
         F: Send + 'static + Sync,
         Input: Send + 'static + Sync,
         FnArgs: Send + 'static + Sync,
-        <TaskFn<F, Input, B::Connection, FnArgs> as Service<
-            Task<Input, B::Connection, B::Id>,
-        >>::Future: Send + 'static,
+        <TaskFn<F, Input, FnArgs> as Service<Task<Input, B::Id>>>::Future: Send + 'static,
         O: Into<NodeIndex>,
-        B::Connection: Send + Sync + 'static,
         B::Codec: Codec<Input, Compact = B::Compact, Error = CodecError> + 'static,
         B::Codec: Codec<O, Compact = B::Compact, Error = CodecError> + Send + Clone + 'static,
         CodecError: Into<BoxDynError> + Send + 'static,
@@ -168,7 +160,7 @@ where
         B: Send + Sync + 'static,
         Input: DagCodec<B, Error = CodecError> + Send + Sync + 'static,
     {
-        self.add_node::<TaskFn<F, Input, B::Connection, FnArgs>, Input, CodecError>(
+        self.add_node::<TaskFn<F, Input, FnArgs>, Input, CodecError>(
             std::any::type_name::<F>(),
             task_fn(router),
         )

@@ -283,10 +283,10 @@ impl Debug for Monitor {
 impl Monitor {
     fn run_worker<Args, S, B, M>(
         mut ctx: WorkerContext,
-        worker: Worker<Args, B::Connection, B, S, M>,
+        worker: Worker<Args, B, S, M>,
     ) -> BoxFuture<'static, Result<(), WorkerError>>
     where
-        S: Service<Task<Args, B::Connection, B::Id>> + Send + 'static,
+        S: Service<Task<Args, B::Id>> + Send + 'static,
         S::Future: Send,
         S::Error: Send + Sync + 'static + Into<BoxDynError>,
         B: Backend<Args = Args> + Send + Unpin + 'static,
@@ -295,11 +295,10 @@ impl Monitor {
         M: Layer<<<B as Backend>::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service> + 'static,
         <M as Layer<
             <<B as Backend>::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service,
-        >>::Service: Service<Task<Args, B::Connection, B::Id>> + Send + 'static,
-            <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::Id>>>::Future: Send,
-        <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::Id>>>::Error: Into<BoxDynError> + Send + Sync + 'static,
+        >>::Service: Service<Task<Args, B::Id>> + Send + 'static,
+            <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Id>>>::Future: Send,
+        <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Id>>>::Error: Into<BoxDynError> + Send + Sync + 'static,
         Args: Send + 'static,
-        B::Connection: Send + Sync + 'static,
         B::Id: Sync + Send + 'static,
         <B::Codec as Codec<B::Args>>::Error: Into<BoxDynError>,
 
@@ -339,23 +338,22 @@ impl Monitor {
     #[must_use]
     pub fn register<Args, S, B, M>(
         mut self,
-        factory: impl Fn(usize) -> Worker<Args, B::Connection, B, S, M> + 'static + Send + Sync,
+        factory: impl Fn(usize) -> Worker<Args, B, S, M> + 'static + Send + Sync,
     ) -> Self
     where
-        S: Service<Task<Args, B::Connection, B::Id>> + Send + 'static,
+        S: Service<Task<Args, B::Id>> + Send + 'static,
         S::Future: Send,
         S::Error: Send + Sync + 'static + Into<BoxDynError>,
         B: Backend<Args = Args> + Send + Unpin + 'static,
         B::Error: Into<BoxDynError> + Send + 'static,
         Args: Send + 'static,
-        B::Connection: Send + Sync + 'static,
         B::Layer: Layer<ReadinessService<TrackerService<S>>> + 'static,
         M: Layer<<<B as Backend>::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service> + 'static,
         <M as Layer<
             <<B as Backend>::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service,
-        >>::Service: Service<Task<Args, B::Connection, B::Id>> + Send + 'static,
-            <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::Id>>>::Future: Send,
-        <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::Id>>>::Error:
+        >>::Service: Service<Task<Args, B::Id>> + Send + 'static,
+            <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Id>>>::Future: Send,
+        <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Id>>>::Error:
             Into<BoxDynError> + Send + Sync + 'static,
         B::Id: Send + Sync + 'static,
         <B::Codec as Codec<B::Args>>::Error: Into<BoxDynError>,

@@ -62,10 +62,7 @@ pub struct TaskRow {
 
 impl TaskRow {
     /// Convert the TaskRow into a Task with decoded arguments
-    pub fn try_into_task<D, Args, Id, Conn>(
-        self,
-        codec: &D,
-    ) -> Result<Task<Args, Conn, Id>, FromRowError>
+    pub fn try_into_task<D, Args, Id>(self, codec: &D) -> Result<Task<Args, Id>, FromRowError>
     where
         D::Error: Into<BoxDynError> + Send + Sync + 'static,
         Id: FromStr,
@@ -100,7 +97,7 @@ impl TaskRow {
     }
 
     /// Convert the TaskRow into a Task with compacted arguments
-    pub fn try_into_task_compact<Id, Conn>(self) -> Result<Task<Vec<u8>, Conn, Id>, FromRowError>
+    pub fn try_into_task_compact<Id>(self) -> Result<Task<Vec<u8>, Id>, FromRowError>
     where
         Id: FromStr,
         <Id as FromStr>::Err: std::error::Error + Send + Sync + 'static,

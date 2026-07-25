@@ -43,25 +43,24 @@ pub trait TaskSink<Args>: Backend {
     /// Allows pushing a fully constructed task into the backend
     fn push_task(
         &mut self,
-        task: Task<Args, Self::Connection, Self::Id>,
+        task: Task<Args, Self::Id>,
     ) -> impl Future<Output = Result<(), TaskSinkError<Self::Error>>> + Send;
 
     /// Allows pushing a fully constructed task into the backend
     fn push_all(
         &mut self,
-        tasks: impl Stream<Item = Task<Args, Self::Connection, Self::Id>> + Unpin + Send,
+        tasks: impl Stream<Item = Task<Args, Self::Id>> + Unpin + Send,
     ) -> impl Future<Output = Result<(), TaskSinkError<Self::Error>>> + Send;
 }
 
 impl<Args, S, E, C> TaskSink<Args> for S
 where
-    S: Sink<Task<C::Compact, Self::Connection, Self::Id>, Error = E>
+    S: Sink<Task<C::Compact, Self::Id>, Error = E>
         + Unpin
         + Backend<Args = Args, Error = E, Codec = C>
         + Send,
     Args: Send,
     C::Compact: Send,
-    S::Connection: Send + Sync,
     S::Id: Send + Sync + 'static,
     C: Codec<Args> + Clone + Send + Sync,
     E: Send,
@@ -115,7 +114,7 @@ where
 
     async fn push_task(
         &mut self,
-        task: Task<Args, Self::Connection, Self::Id>,
+        task: Task<Args, Self::Id>,
     ) -> Result<(), TaskSinkError<Self::Error>> {
         use futures_util::SinkExt;
         let codec = self.codec().clone();
@@ -131,7 +130,7 @@ where
 
     async fn push_all(
         &mut self,
-        tasks: impl Stream<Item = Task<Args, Self::Connection, Self::Id>> + Unpin + Send,
+        tasks: impl Stream<Item = Task<Args, Self::Id>> + Unpin + Send,
     ) -> Result<(), TaskSinkError<Self::Error>> {
         use futures_util::SinkExt;
         let codec = self.codec().clone();

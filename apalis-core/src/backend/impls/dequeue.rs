@@ -9,7 +9,7 @@ use futures_sink::Sink;
 use tower_layer::Identity;
 
 use crate::{
-    backend::{Backend, codec::IdentityCodec, queue::Queue},
+    backend::{Backend, codec::IdentityCodec},
     error::BoxDynError,
     task::{Task, task_id::RandomId},
     worker::context::WorkerContext,
@@ -20,7 +20,7 @@ use crate::{
 /// This backend is primarily intended for testing and demonstration purposes. It does not persist tasks and is not suitable for production use.
 #[derive(Debug, Clone)]
 pub struct VecDequeBackend<T> {
-    queue: Arc<Mutex<VecDeque<Task<T, (), RandomId>>>>,
+    queue: Arc<Mutex<VecDeque<Task<T, RandomId>>>>,
     waker: Arc<Mutex<Option<Waker>>>,
 }
 
@@ -67,7 +67,7 @@ where
 {
     type Args = T;
     type Id = RandomId;
-    type Connection = ();
+    type Config = ();
     type Layer = Identity;
     type Error = VecDequeError;
     type Codec = IdentityCodec;
@@ -77,8 +77,8 @@ where
         &IdentityCodec
     }
 
-    fn queue(&self) -> Queue {
-        Queue::from(std::any::type_name::<T>())
+    fn config(&self) -> &Self::Config {
+        &()
     }
 
     fn poll_ready(
@@ -107,7 +107,7 @@ where
         &mut self,
         _cx: &mut Context<'_>,
         _worker: &WorkerContext,
-    ) -> Poll<Option<Result<Task<Self::Compact, Self::Connection, Self::Id>, Self::Error>>> {
+    ) -> Poll<Option<Result<Task<Self::Compact, Self::Id>, Self::Error>>> {
         match self
             .queue
             .lock()
@@ -137,7 +137,7 @@ where
     }
 }
 
-impl<T> Sink<Task<T, (), RandomId>> for VecDequeBackend<T>
+impl<T> Sink<Task<T, RandomId>> for VecDequeBackend<T>
 where
     T: Send + Unpin + 'static,
 {
@@ -147,7 +147,7 @@ where
         Poll::Ready(Ok(()))
     }
 
-    fn start_send(self: Pin<&mut Self>, item: Task<T, (), RandomId>) -> Result<(), Self::Error> {
+    fn start_send(self: Pin<&mut Self>, item: Task<T, RandomId>) -> Result<(), Self::Error> {
         let this = self.get_mut();
 
         let mut tasks = this

@@ -11,7 +11,7 @@ pub struct WorkflowRouter<B>
 where
     B: Backend,
 {
-    pub(super) steps: HashMap<usize, SteppedService<B::Compact, B::Connection, B::Id>>,
+    pub(super) steps: HashMap<usize, SteppedService<B::Compact, B::Id>>,
 }
 
 impl<B> WorkflowRouter<B>

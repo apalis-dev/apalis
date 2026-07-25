@@ -34,7 +34,7 @@ pub mod prelude {
             RunningWorker, StatType, Statistic, TaskResult, TaskSink, TaskSinkError, Update,
             WaitForCompletion,
         },
-        backend::{codec::*, custom::*, ext::pipe::*, memory::*, poll_strategy::*, shared::*},
+        backend::{codec::*, custom::*, ext::pipe::*, factory::*, memory::*, poll_strategy::*},
         error::*,
         layers::*,
         monitor::{ExitError, Monitor, MonitorError, MonitoredWorkerError, shutdown::Shutdown},

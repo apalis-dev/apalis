@@ -79,7 +79,7 @@ pub use self::{from_request::FromRequest, into_response::IntoResponse};
 ///
 /// - [`FromRequest`]
 /// - [`IntoResponse`]
-pub fn task_fn<F, Args, Conn, FnArgs>(f: F) -> TaskFn<F, Args, Conn, FnArgs> {
+pub fn task_fn<F, Args, FnArgs>(f: F) -> TaskFn<F, Args, FnArgs> {
     TaskFn {
         f,
         req: PhantomData,
@@ -90,15 +90,15 @@ pub fn task_fn<F, Args, Conn, FnArgs>(f: F) -> TaskFn<F, Args, Conn, FnArgs> {
 /// An executable service implemented by a closure.
 ///
 /// See [`task_fn`] for more details.
-pub struct TaskFn<F, Args, Conn, FnArgs> {
+pub struct TaskFn<F, Args, FnArgs> {
     f: F,
-    req: PhantomData<(Args, Conn)>,
+    req: PhantomData<Args>,
     fn_args: PhantomData<FnArgs>,
 }
 
-impl<T: Copy, Args, Conn, FnArgs> Copy for TaskFn<T, Args, Conn, FnArgs> {}
+impl<T: Copy, Args, FnArgs> Copy for TaskFn<T, Args, FnArgs> {}
 
-impl<T: Clone, Args, Conn, FnArgs> Clone for TaskFn<T, Args, Conn, FnArgs> {
+impl<T: Clone, Args, FnArgs> Clone for TaskFn<T, Args, FnArgs> {
     fn clone(&self) -> Self {
         Self {
             f: self.f.clone(),
@@ -108,17 +108,13 @@ impl<T: Clone, Args, Conn, FnArgs> Clone for TaskFn<T, Args, Conn, FnArgs> {
     }
 }
 
-impl<T, Args, Conn, FnArgs> fmt::Debug for TaskFn<T, Args, Conn, FnArgs> {
+impl<T, Args, FnArgs> fmt::Debug for TaskFn<T, Args, FnArgs> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TaskFn")
             .field("f", &std::any::type_name::<T>())
             .field(
                 "req",
-                &format_args!(
-                    "PhantomData<Task<{}, {}>>",
-                    std::any::type_name::<Args>(),
-                    std::any::type_name::<Conn>()
-                ),
+                &format_args!("PhantomData<Task<{}>>", std::any::type_name::<Args>(),),
             )
             .field(
                 "fn_args",
@@ -134,14 +130,14 @@ type FnFuture<F, O, R, E> = Map<F, fn(O) -> std::result::Result<R, E>>;
 macro_rules! impl_service_fn {
     ($($K:ident),+) => {
         #[allow(unused_parens)]
-        impl<T, F, Args: Send + 'static, R, Conn: Send + Sync + 'static, Id: Send + Sync + 'static, $($K),+> Service<Task<Args, Conn, Id>> for TaskFn<T, Args, Conn, ($($K),+)>
+        impl<T, F, Args: Send + 'static, R, Id: Send + Sync + 'static, $($K),+> Service<Task<Args,  Id>> for TaskFn<T, Args,  ($($K),+)>
         where
             T: FnMut(Args, $($K),+) -> F + Send + Clone + 'static,
             F: Future + Send,
             F::Output: IntoResponse<Output = R>,
             $(
-                $K: FromRequest<Task<Args, Conn, Id>> + Send,
-                < $K as FromRequest<Task<Args, Conn, Id>> >::Error: std::error::Error + 'static + Send + Sync,
+                $K: FromRequest<Task<Args,  Id>> + Send,
+                < $K as FromRequest<Task<Args,  Id>> >::Error: std::error::Error + 'static + Send + Sync,
             )+
         {
             type Response = R;
@@ -152,7 +148,7 @@ macro_rules! impl_service_fn {
                 Poll::Ready(Ok(()))
             }
 
-            fn call(&mut self, task: Task<Args, Conn, Id>) -> Self::Future {
+            fn call(&mut self, task: Task<Args,  Id>) -> Self::Future {
                 let mut svc = self.f.clone();
                 #[allow(non_snake_case)]
                 let fut = async move {
@@ -171,23 +167,22 @@ macro_rules! impl_service_fn {
         }
 
         #[allow(unused_parens)]
-        impl<T, Args, Conn, F, R, B, $($K),+>
-            IntoWorkerService<B, TaskFn<T, Args, Conn, ($($K),+)>, Args, Conn> for T
+        impl<T, Args,  F, R, B, $($K),+>
+            IntoWorkerService<B, TaskFn<T, Args,  ($($K),+)>, Args> for T
         where
-            B: Backend<Args= Args, Connection = Conn>,
+            B: Backend<Args= Args, >,
             T: FnMut(Args, $($K),+) -> F + Send + Clone + 'static,
             F: Future + Send,
             Args: Send + 'static,
-            Conn: Send + Sync + 'static,
             B::Id: Send + Sync + 'static,
             F::Output: IntoResponse<Output = R>,
             $(
-                $K: FromRequest<Task<Args, Conn, B::Id>> + Send,
-                < $K as FromRequest<Task<Args, Conn, B::Id>> >::Error: std::error::Error + 'static + Send + Sync,
+                $K: FromRequest<Task<Args,  B::Id>> + Send,
+                < $K as FromRequest<Task<Args,  B::Id>> >::Error: std::error::Error + 'static + Send + Sync,
             )+
         {
             type Backend = B;
-            fn into_service(self, backend: B) -> WorkerService<B, TaskFn<T, Args, Conn, ($($K),+)>> {
+            fn into_service(self, backend: B) -> WorkerService<B, TaskFn<T, Args,  ($($K),+)>> {
                 WorkerService {
                     backend,
                     service: task_fn(self),
@@ -197,7 +192,7 @@ macro_rules! impl_service_fn {
     };
 }
 
-impl<T, F, Args, R, Conn, Id> Service<Task<Args, Conn, Id>> for TaskFn<T, Args, Conn, ()>
+impl<T, F, Args, R, Id> Service<Task<Args, Id>> for TaskFn<T, Args, ()>
 where
     T: FnMut(Args) -> F,
     F: Future,
@@ -211,24 +206,23 @@ where
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, task: Task<Args, Conn, Id>) -> Self::Future {
+    fn call(&mut self, task: Task<Args, Id>) -> Self::Future {
         let fut = (self.f)(task.args);
 
         fut.map(F::Output::into_response)
     }
 }
 
-impl<T, Args, Conn, F, R, Backend> IntoWorkerService<Backend, TaskFn<T, Args, Conn, ()>, Args, Conn>
-    for T
+impl<T, Args, F, R, Backend> IntoWorkerService<Backend, TaskFn<T, Args, ()>, Args> for T
 where
     T: FnMut(Args) -> F,
     F: Future,
     F::Output: IntoResponse<Output = R>,
-    Backend: crate::backend::Backend<Args = Args, Connection = Conn>,
+    Backend: crate::backend::Backend<Args = Args>,
     Args: Send,
 {
     type Backend = Backend;
-    fn into_service(self, backend: Backend) -> WorkerService<Backend, TaskFn<T, Args, Conn, ()>> {
+    fn into_service(self, backend: Backend) -> WorkerService<Backend, TaskFn<T, Args, ()>> {
         WorkerService {
             backend,
             service: task_fn(self),
@@ -236,10 +230,10 @@ where
     }
 }
 
-impl<Args, Conn, S, B> IntoWorkerService<B, S, Args, Conn> for S
+impl<Args, S, B> IntoWorkerService<B, S, Args> for S
 where
-    S: Service<Task<Args, Conn, B::Id>>,
-    B: Backend<Args = Args, Connection = Conn>,
+    S: Service<Task<Args, B::Id>>,
+    B: Backend<Args = Args>,
 {
     type Backend = B;
     fn into_service(self, backend: B) -> WorkerService<B, S> {

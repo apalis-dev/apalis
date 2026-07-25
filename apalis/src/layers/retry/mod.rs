@@ -122,10 +122,9 @@ impl<B> BackoffRetryPolicy<B> {
     }
 }
 
-impl<T, Res, Conn, B, Err: Any, Id> Policy<Task<T, Conn, Id>, Res, Err> for BackoffRetryPolicy<B>
+impl<T, Res, B, Err: Any, Id> Policy<Task<T, Id>, Res, Err> for BackoffRetryPolicy<B>
 where
     T: Clone,
-    Conn: Clone,
     Id: Clone,
     B: Backoff,
     B::Future: Send + 'static,
@@ -134,7 +133,7 @@ where
 
     fn retry(
         &mut self,
-        req: &mut Task<T, Conn, Id>,
+        req: &mut Task<T, Id>,
         result: &mut Result<Res, Err>,
     ) -> Option<Self::Future> {
         let attempt = req.ctx.attempt.current();
@@ -159,7 +158,7 @@ where
         }
     }
 
-    fn clone_request(&mut self, req: &Task<T, Conn, Id>) -> Option<Task<T, Conn, Id>> {
+    fn clone_request(&mut self, req: &Task<T, Id>) -> Option<Task<T, Id>> {
         let req = req.clone();
         Some(req)
     }
@@ -205,17 +204,16 @@ impl RetryPolicy {
     }
 }
 
-impl<T, Res, Conn, Err: Any, Id> Policy<Task<T, Conn, Id>, Res, Err> for RetryPolicy
+impl<T, Res, Err: Any, Id> Policy<Task<T, Id>, Res, Err> for RetryPolicy
 where
     T: Clone,
-    Conn: Clone,
     Id: Clone,
 {
     type Future = std::future::Ready<()>;
 
     fn retry(
         &mut self,
-        req: &mut Task<T, Conn, Id>,
+        req: &mut Task<T, Id>,
         result: &mut Result<Res, Err>,
     ) -> Option<Self::Future> {
         let attempt = req.ctx.attempt.current();
@@ -238,7 +236,7 @@ where
         }
     }
 
-    fn clone_request(&mut self, req: &Task<T, Conn, Id>) -> Option<Task<T, Conn, Id>> {
+    fn clone_request(&mut self, req: &Task<T, Id>) -> Option<Task<T, Id>> {
         let req = req.clone();
         Some(req)
     }
@@ -264,18 +262,17 @@ impl<P, F> RetryIfPolicy<P, F> {
         FromTaskConfigPolicy::new(self)
     }
 }
-impl<T, Res, Conn, P, F, Err, Id> Policy<Task<T, Conn, Id>, Res, Err> for RetryIfPolicy<P, F>
+impl<T, Res, P, F, Err, Id> Policy<Task<T, Id>, Res, Err> for RetryIfPolicy<P, F>
 where
     T: Clone,
-    Conn: Clone,
-    P: Policy<Task<T, Conn, Id>, Res, Err>,
+    P: Policy<Task<T, Id>, Res, Err>,
     F: Fn(&Err) -> bool + Send + Sync + 'static,
 {
     type Future = P::Future;
 
     fn retry(
         &mut self,
-        req: &mut Task<T, Conn, Id>,
+        req: &mut Task<T, Id>,
         result: &mut Result<Res, Err>,
     ) -> Option<Self::Future> {
         let worker = req.ctx.data.get::<WorkerContext>()?;
@@ -293,7 +290,7 @@ where
         }
     }
 
-    fn clone_request(&mut self, req: &Task<T, Conn, Id>) -> Option<Task<T, Conn, Id>> {
+    fn clone_request(&mut self, req: &Task<T, Id>) -> Option<Task<T, Id>> {
         self.inner.clone_request(req)
     }
 }
@@ -370,17 +367,16 @@ impl Default for FromTaskConfigPolicy<RetryPolicy> {
     }
 }
 
-impl<T, Res, Conn, P, Err, Id> Policy<Task<T, Conn, Id>, Res, Err> for FromTaskConfigPolicy<P>
+impl<T, Res, P, Err, Id> Policy<Task<T, Id>, Res, Err> for FromTaskConfigPolicy<P>
 where
     T: Clone,
-    Conn: Clone,
-    P: Policy<Task<T, Conn, Id>, Res, Err>,
+    P: Policy<Task<T, Id>, Res, Err>,
 {
     type Future = P::Future;
 
     fn retry(
         &mut self,
-        req: &mut Task<T, Conn, Id>,
+        req: &mut Task<T, Id>,
         result: &mut Result<Res, Err>,
     ) -> Option<Self::Future> {
         let worker = req.ctx.data.get::<WorkerContext>()?;
@@ -403,7 +399,7 @@ where
         }
     }
 
-    fn clone_request(&mut self, req: &Task<T, Conn, Id>) -> Option<Task<T, Conn, Id>> {
+    fn clone_request(&mut self, req: &Task<T, Id>) -> Option<Task<T, Id>> {
         self.inner.clone_request(req)
     }
 }
@@ -414,7 +410,7 @@ pub trait RetryMetadataExt {
     fn retries(self, retries: usize) -> Self;
 }
 
-impl<Args, Conn, Id> RetryMetadataExt for TaskBuilder<Args, Conn, Id> {
+impl<Args, Id> RetryMetadataExt for TaskBuilder<Args, Id> {
     /// Set number of retries in the metadata
     fn retries(self, retries: usize) -> Self {
         self.metadata(&RetryConfig { retries })
