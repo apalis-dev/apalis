@@ -70,15 +70,15 @@ version = "1.0.104"
 criteria = "safe-to-deploy"
 
 [[exemptions.apalis]]
-version = "1.0.0-rc.9"
+version = "1.0.0-rc.10"
 criteria = "safe-to-deploy"
 
 [[exemptions.apalis-core]]
-version = "1.0.0-rc.9"
+version = "1.0.0-rc.10"
 criteria = "safe-to-deploy"
 
 [[exemptions.apalis-workflow]]
-version = "0.1.0-rc.9"
+version = "0.1.0-rc.10"
 criteria = "safe-to-deploy"
 
 [[exemptions.atomic-waker]]

@@ -10,6 +10,10 @@ on:
       - '**/deny.toml'
 
   pull_request:
+    paths: 
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - '**/deny.toml'
   workflow_call:
     
 

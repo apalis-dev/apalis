@@ -1,7 +1,14 @@
 on:
   push:
     branches: [main, develop]
+    paths:
+      - "**/Cargo.toml"
+      - "**/*.rs"
   pull_request:
+    paths:
+      - "**/Cargo.lock"
+      - "**/Cargo.toml"
+      - "**/*.rs"
   workflow_call:
 
 name: Check and Test
@@ -46,7 +53,6 @@ jobs:
         with:
           command: test
           args: --all
-
 
   fmt:
     name: Rustfmt

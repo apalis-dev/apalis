@@ -208,7 +208,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "apalis"
-version = "1.0.0-rc.9"
+version = "1.0.0-rc.10"
 dependencies = [
  "apalis-core",
  "apalis-file-storage",
@@ -235,7 +235,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-codec"
-version = "0.1.0-rc.9"
+version = "0.1.0-rc.10"
 dependencies = [
  "apalis-core",
  "bincode",
@@ -247,7 +247,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-core"
-version = "1.0.0-rc.9"
+version = "1.0.0-rc.10"
 dependencies = [
  "dashmap",
  "document-features",
@@ -271,7 +271,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-file-storage"
-version = "0.1.0-rc.9"
+version = "0.1.0-rc.10"
 dependencies = [
  "apalis-codec",
  "apalis-core",
@@ -290,7 +290,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-workflow"
-version = "0.1.0-rc.9"
+version = "0.1.0-rc.10"
 dependencies = [
  "apalis-codec",
  "apalis-core",

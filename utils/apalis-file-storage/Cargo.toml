@@ -1,12 +1,12 @@
 [package]
 name = "apalis-file-storage"
-version = "0.1.0-rc.9"
+version = "0.1.0-rc.10"
 rust-version.workspace = true
 edition.workspace = true
 repository.workspace = true
 authors = ["Njuguna Mureithi <mureithinjuguna@gmail.com>"]
 license = "MIT"
-description = "A test-friendly single process file-based storage backend for apalis"
+description = "A file-based backend for apalis that supports json and csv"
 publish = true
 documentation = "https://docs.rs/apalis-file-storage"
 keywords = ["apalis", "file", "storage", "backend", "rust"]
@@ -16,7 +16,7 @@ categories = ["database", "filesystem", "asynchronous", "data-structures"]
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
-apalis-core = { path = "../../apalis-core", version = "1.0.0-rc.9", default-features = false, features = [
+apalis-core = { path = "../../apalis-core", version = "1.0.0-rc.10", default-features = false, features = [
     "sleep",
     "serde",
 ] }
@@ -33,7 +33,7 @@ futures-util = { version = "0.3.34", features = [
     "std",
 ], default-features = false }
 futures-core = { version = "0.3.34", default-features = false }
-apalis-codec = { path = "../apalis-codec", version = "0.1.0-rc.9", default-features = false, features = [
+apalis-codec = { path = "../apalis-codec", version = "0.1.0-rc.10", default-features = false, features = [
     "json",
 ] }
 tempfile = "3.27.0"
