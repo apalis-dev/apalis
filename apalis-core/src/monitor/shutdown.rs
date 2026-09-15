@@ -7,7 +7,7 @@
 use std::{
     pin::Pin,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, Weak,
         atomic::{AtomicBool, Ordering},
     },
     task::{Context, Poll, Waker},
@@ -39,6 +39,26 @@ impl Shutdown {
             result
         }
     }
+
+    /// Register a waker slot to be woken the moment shutdown starts.
+    ///
+    /// Awaiting [`Shutdown`] itself is not enough for a worker: a worker parked on an idle
+    /// backend is only re-polled when its own waker fires, and setting the shutdown flag
+    /// does not touch it. Each worker therefore hands its waker slot over here, once, when
+    /// the monitor attaches this handle to it.
+    ///
+    /// The slot is held weakly, so a dropped worker does not keep it alive; dead slots are
+    /// pruned when shutdown starts. Registering the same slot twice is a no-op.
+    pub(crate) fn register_waker(&self, waker: &Arc<Mutex<Option<Waker>>>) {
+        let Ok(mut listeners) = self.inner.listeners.lock() else {
+            return;
+        };
+        let slot = Arc::downgrade(waker);
+        if listeners.iter().any(|listener| listener.ptr_eq(&slot)) {
+            return;
+        }
+        listeners.push(slot);
+    }
 }
 
 impl Default for Shutdown {
@@ -51,17 +71,39 @@ impl Default for Shutdown {
 pub(crate) struct ShutdownCtx {
     state: AtomicBool,
     waker: Mutex<Option<Waker>>,
+    /// Waker slots of the workers attached to this handle. See [`Shutdown::register_waker`].
+    listeners: Mutex<Vec<Weak<Mutex<Option<Waker>>>>>,
 }
 impl ShutdownCtx {
     fn new() -> Self {
         Self {
             state: AtomicBool::default(),
             waker: Mutex::default(),
+            listeners: Mutex::default(),
         }
     }
     fn shutdown(&self) {
         self.state.store(true, Ordering::Relaxed);
         self.wake();
+        self.wake_listeners();
+    }
+
+    /// Wake every registered worker so it observes the flag, dropping slots whose worker is gone.
+    fn wake_listeners(&self) {
+        let Ok(mut listeners) = self.listeners.lock() else {
+            return;
+        };
+        listeners.retain(|listener| {
+            let Some(slot) = listener.upgrade() else {
+                return false;
+            };
+            if let Ok(waker) = slot.lock() {
+                if let Some(waker) = waker.as_ref() {
+                    waker.wake_by_ref();
+                }
+            }
+            true
+        });
     }
 
     fn is_shutting_down(&self) -> bool {
