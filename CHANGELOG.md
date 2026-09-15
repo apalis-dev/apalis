@@ -5,6 +5,7 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 
 - *bump*: to v1.0.0-rc.10 ([#775](https://github.com/apalis-dev/apalis/pull/775))
+- ci(deps): bump actions/cache from 4 to 6 ([#752](https://github.com/apalis-dev/apalis/pull/752))
 - **chore (api)!**: standardize execution context ([#751](https://github.com/apalis-dev/apalis/pull/751))
 - **chore**: bump opentelemetry_sdk ([#750](https://github.com/apalis-dev/apalis/pull/750))
 - **refactor**: improve file storage adding csv functionality ([#749](https://github.com/apalis-dev/apalis/pull/749))
