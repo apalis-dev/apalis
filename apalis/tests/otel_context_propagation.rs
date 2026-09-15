@@ -1,10 +1,10 @@
 use std::sync::{Arc, Mutex, Once};
 
 use apalis::{
-    layers::tracing::{ContextualTaskSpan, OtelTraceContext, TraceLayer, TracingContext},
+    layers::tracing::{ContextualTaskSpan, TraceLayer, TracingContext},
     prelude::*,
 };
-use apalis_core::{error::BoxDynError, task::metadata::Meta};
+use apalis_core::error::BoxDynError;
 use futures::SinkExt;
 use opentelemetry::{
     global,
@@ -17,9 +17,15 @@ use tracing_subscriber::prelude::*;
 
 const ZERO_TRACE_ID: &str = "00000000000000000000000000000000";
 
+#[cfg(feature = "opentelemetry")]
+use apalis::layers::tracing::OtelTraceContext;
+#[cfg(feature = "opentelemetry")]
+use apalis_core::task::metadata::Meta;
+
 #[derive(Debug, Clone)]
 struct ObservedSpanContext {
     trace_id: String,
+    #[cfg(feature = "opentelemetry")]
     span_id: String,
 }
 
@@ -43,10 +49,12 @@ fn current_span_context() -> ObservedSpanContext {
     let sc = otel_span.span_context();
     ObservedSpanContext {
         trace_id: format!("{:032x}", sc.trace_id()),
+        #[cfg(feature = "opentelemetry")]
         span_id: format!("{:016x}", sc.span_id()),
     }
 }
 
+#[cfg(feature = "opentelemetry")]
 #[tokio::test]
 async fn otel_context_propagates_producer_to_consumer() {
     init_otel_for_tests();
@@ -159,6 +167,7 @@ async fn otel_context_invalid_traceparent_is_ignored_safely() {
     assert_ne!(consumer.trace_id, ZERO_TRACE_ID);
 }
 
+#[cfg(feature = "opentelemetry")]
 #[tokio::test]
 async fn otel_tracestate_roundtrip_is_preserved() {
     init_otel_for_tests();

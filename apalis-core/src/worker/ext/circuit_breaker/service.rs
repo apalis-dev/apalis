@@ -12,6 +12,7 @@ use crate::error::BoxDynError;
 use crate::worker::ext::circuit_breaker::CircuitBreakerConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum CircuitState {
     Closed,   // Normal operation
     Open,     // Circuit is open, rejecting requests
@@ -300,10 +301,10 @@ mod tests {
     #[test]
     fn test_circuit_breaker_config() {
         let config = CircuitBreakerConfig::default()
-            .with_failure_threshold(10)
-            .with_recovery_timeout(Duration::from_secs(30))
-            .with_success_threshold(0.8)
-            .with_half_open_max_calls(5);
+            .failure_threshold(10)
+            .recovery_timeout(Duration::from_secs(30))
+            .success_threshold(0.8)
+            .half_open_max_calls(5);
 
         assert_eq!(config.failure_threshold, 10);
         assert_eq!(config.recovery_timeout, Duration::from_secs(30));

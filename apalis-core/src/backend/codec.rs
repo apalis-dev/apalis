@@ -6,9 +6,6 @@
 //! between a type `T` and a more compact or transport-friendly representation.
 //! This is particularly useful for serializing/deserializing, compressing/expanding,
 //! or otherwise encoding/decoding values in a custom format.
-//!
-//! The module includes several implementations of the `Codec` trait, such as `IdentityCodec`
-//! and `NoopCodec`, as well as a JSON codec when the `json` feature is enabled.
 
 /// A trait for converting values between a type `T` and a more compact or
 /// transport-friendly representation for a `Backend`. Examples include json
@@ -45,24 +42,4 @@ pub trait Codec<T> {
     /// Returns [`Self::Error`] if the compact representation cannot
     /// be decoded into a valid `T`.
     fn decode(&self, val: &Self::Compact) -> Result<T, Self::Error>;
-}
-
-/// A codec that performs no transformation, returning the input value as-is.
-#[derive(Debug, Clone, Default)]
-pub struct IdentityCodec;
-
-impl<T> Codec<T> for IdentityCodec
-where
-    T: Clone,
-{
-    type Compact = T;
-    type Error = std::convert::Infallible;
-
-    fn encode(&self, val: &T) -> Result<Self::Compact, Self::Error> {
-        Ok(val.clone())
-    }
-
-    fn decode(&self, val: &Self::Compact) -> Result<T, Self::Error> {
-        Ok(val.clone())
-    }
 }

@@ -1,0 +1,22 @@
+[package]
+name = "stepped-workflow"
+version = "0.1.0"
+license = "MIT"
+publish = false
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+apalis = { path = "../../apalis", features = ["limit", "catch-panic", "retry"] }
+apalis-workflow = { path = "../../apalis-workflow" }
+apalis-codec = { path = "../../utils/apalis-codec" }
+serde = { version = "1", features = ["derive"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+serde_json = "1"
+
+[dependencies.tracing]
+default-features = false
+version = "0.1"
+
+

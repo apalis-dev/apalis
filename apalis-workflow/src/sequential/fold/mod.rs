@@ -1,27 +1,29 @@
 use std::{marker::PhantomData, task::Context};
 
 use apalis_core::{
-    backend::{Backend, TaskSinkError, codec::Codec},
+    backend::{Backend, BackendConfig, TaskSinkError, WireFormatBackend, codec::Codec},
     error::BoxDynError,
+    task::task_fn::{TaskFn, task_fn},
     task::{
         Task,
         builder::TaskBuilder,
         metadata::{Metadata, MetadataError, MetadataStore},
-        task_id::TaskId,
+        task_id::GenerateId,
     },
-    task_fn::{TaskFn, task_fn},
 };
-use futures::{FutureExt, Sink, SinkExt, future::BoxFuture};
+use futures_util::{FutureExt, Sink, SinkExt, future::BoxFuture};
 use serde::{Deserialize, Serialize};
+use serde_json::to_value;
 use tower::Service;
 
 use crate::{
     SteppedService,
-    id_generator::GenerateId,
-    sequential::context::{StepContext, WorkflowContext},
-    sequential::router::{GoTo, StepResult, WorkflowRouter},
-    sequential::step::{Layer, Stack, Step},
-    sequential::workflow::Workflow,
+    sequential::{
+        context::{StepContext, WorkflowContext},
+        router::{GoTo, StepResponse, WorkflowRouter},
+        step::{Layer, Stack, Step},
+        workflow::SteppedFlow,
+    },
 };
 
 /// The fold layer that folds over a collection of items.
@@ -46,15 +48,15 @@ where
         }
     }
 }
-impl<Start, C, L, I: IntoIterator<Item = C>, B: Backend> Workflow<Start, I, B, L> {
+impl<Start, C, L, I: IntoIterator<Item = C>, B: Backend> SteppedFlow<Start, I, B, L> {
     /// Folds over a collection of items in the workflow.
+    #[allow(clippy::type_complexity)]
     pub fn fold<F, Output, FnArgs, Init>(
         self,
         fold: F,
-    ) -> Workflow<Start, Output, B, Stack<Fold<TaskFn<F, (Init, C), B::Connection, FnArgs>, Init>, L>>
+    ) -> SteppedFlow<Start, Output, B, Stack<Fold<TaskFn<F, (Init, C), FnArgs>, Init>, L>>
     where
-        TaskFn<F, (Init, C), B::Connection, FnArgs>:
-            Service<Task<(Init, C), B::Connection, B::Id>, Response = Output>,
+        TaskFn<F, (Init, C), FnArgs>: Service<Task<(Init, C)>, Response = Output>,
     {
         self.add_step(Fold {
             fold: task_fn(fold),
@@ -74,30 +76,28 @@ pub struct FoldStep<S, F, Init> {
 impl<S, F, Input, I: IntoIterator<Item = Input>, Init, B, Err, CodecError> Step<I, B>
     for FoldStep<S, F, Init>
 where
-    F: Service<Task<(Init, Input), B::Connection, B::Id>, Response = Init>
-        + Send
-        + Sync
-        + 'static
-        + Clone,
+    F: Service<Task<(Init, Input)>, Response = Init> + Send + Sync + 'static + Clone,
     S: Step<Init, B>,
     B: Backend<Error = Err>
+        + WireFormatBackend
+        + BackendConfig
         + Send
         + Sync
         + Clone
-        + Sink<Task<B::Compact, B::Connection, B::Id>, Error = Err>
+        + Sink<Task<B::Compact>, Error = Err>
         + Unpin
         + 'static,
     I: IntoIterator<Item = Input> + Send + Sync + 'static,
-    B::Connection: Send + Sync + 'static,
     B::Codec: Codec<(Init, Vec<Input>), Error = CodecError, Compact = B::Compact>
         + Codec<Init, Error = CodecError, Compact = B::Compact>
         + Codec<I, Error = CodecError, Compact = B::Compact>
         + Codec<(Init, Input), Error = CodecError, Compact = B::Compact>
         + Send
+        + Sync
         + Clone
         + 'static,
     B::Id: GenerateId + Sync + Send + 'static + Clone,
-    Init: Default + Send + Sync + 'static,
+    Init: Default + Serialize + Send + Sync + 'static,
     Err: std::error::Error + Send + Sync + 'static,
     CodecError: std::error::Error + Send + Sync + 'static,
     F::Error: Into<BoxDynError> + Send + 'static,
@@ -144,28 +144,29 @@ impl<F, Init, I, B> FoldService<F, Init, I, B> {
     }
 }
 
-impl<F, Init, I, B, Input, CodecError, Err> Service<Task<B::Compact, B::Connection, B::Id>>
-    for FoldService<F, Init, I, B>
+impl<F, Init, I, B, Input, CodecError, Err> Service<Task<B::Compact>> for FoldService<F, Init, I, B>
 where
-    F: Service<Task<(Init, Input), B::Connection, B::Id>, Response = Init> + Send + 'static + Clone,
+    F: Service<Task<(Init, Input)>, Response = Init> + Send + 'static + Clone,
     B: Backend<Error = Err>
+        + WireFormatBackend
+        + BackendConfig
+        + Clone
+        + Sink<Task<B::Compact>, Error = Err>
         + Send
         + Sync
-        + Clone
-        + Sink<Task<B::Compact, B::Connection, B::Id>, Error = Err>
         + Unpin
         + 'static,
     I: IntoIterator<Item = Input> + Send + 'static,
-    B::Connection: Send + Sync + 'static,
     B::Codec: Codec<(Init, Vec<Input>), Error = CodecError, Compact = B::Compact>
         + Codec<Init, Error = CodecError, Compact = B::Compact>
         + Codec<I, Error = CodecError, Compact = B::Compact>
         + Codec<(Init, Input), Error = CodecError, Compact = B::Compact>
         + Send
+        + Sync
         + Clone
         + 'static,
     B::Id: GenerateId + Sync + Send + 'static,
-    Init: Default + Send + 'static,
+    Init: Default + Serialize + Send + 'static,
     Err: std::error::Error + Send + Sync + 'static,
     CodecError: std::error::Error + Send + Sync + 'static,
     F::Error: Into<BoxDynError> + Send + 'static,
@@ -173,7 +174,7 @@ where
     B::Compact: Send + 'static,
     Input: Send + 'static,
 {
-    type Response = GoTo<StepResult<B::Compact, B::Id>>;
+    type Response = GoTo<StepResponse>;
     type Error = BoxDynError;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
@@ -181,17 +182,16 @@ where
         self.fold.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, task: Task<B::Compact, B::Connection, B::Id>) -> Self::Future {
-        let state = FoldState::extract(&task.ctx.metadata).unwrap_or(FoldState::Init);
-        let mut ctx = task.ctx.data.get::<StepContext<B>>().cloned().unwrap();
+    fn call(&mut self, task: Task<B::Compact>) -> Self::Future {
+        let state = FoldState::extract(task.metadata()).unwrap_or(FoldState::Init);
+        let mut ctx = task.data().get::<StepContext<B>>().cloned().unwrap();
         let codec = ctx.backend.codec().clone();
         let mut fold = self.fold.clone();
 
         match state {
             FoldState::Init => async move {
-                let task_id = TaskId::new(B::Id::generate());
-                let steps: Task<I, _, _> =
-                    task.try_map_args(|arg| B::Codec::decode(&codec, &arg))?;
+                let task_id = B::Id::generate();
+                let steps: Task<I> = task.try_map_args(|arg| B::Codec::decode(&codec, &arg))?;
                 let steps = steps.args.into_iter().collect::<Vec<_>>();
                 let task = TaskBuilder::new(B::Codec::encode(&codec, &(Init::default(), steps))?)
                     .metadata(&WorkflowContext {
@@ -203,9 +203,9 @@ where
                 ctx.backend
                     .send(task)
                     .await
-                    .map_err(|e| TaskSinkError::PushError(e))?;
-                Ok(GoTo::Next(StepResult {
-                    result: B::Codec::encode(&codec, &Init::default())?,
+                    .map_err(TaskSinkError::PushError)?;
+                Ok(GoTo::Next(StepResponse {
+                    result: to_value(Init::default())?,
                     next_task_id: Some(task_id),
                 }))
             }
@@ -222,7 +222,7 @@ where
 
                 match rest.len() {
                     0 if ctx.has_next => {
-                        let task_id = TaskId::new(B::Id::generate());
+                        let task_id = B::Id::generate();
                         let result = B::Codec::encode(&codec, &response)?;
                         let next_step = TaskBuilder::new(result)
                             .task_id(task_id.clone())
@@ -233,20 +233,20 @@ where
                         ctx.backend
                             .send(next_step)
                             .await
-                            .map_err(|e| TaskSinkError::PushError(e))?;
-                        Ok(GoTo::Break(StepResult {
-                            result: B::Codec::encode(&codec, &response)?,
+                            .map_err(TaskSinkError::PushError)?;
+                        Ok(GoTo::Break(StepResponse {
+                            result: to_value(&response)?,
                             next_task_id: Some(task_id),
                         }))
                     }
-                    0 => Ok(GoTo::Break(StepResult {
-                        result: B::Codec::encode(&codec, &response)?,
+                    0 => Ok(GoTo::Break(StepResponse {
+                        result: to_value(&response)?,
                         next_task_id: None,
                     })),
                     1.. => {
                         // Shouldn't this be limited?
-                        let task_id = TaskId::new(B::Id::generate());
-                        let result = B::Codec::encode(&codec, &response)?;
+                        let task_id = B::Id::generate();
+                        let result = to_value(&response)?;
                         let steps = TaskBuilder::new(B::Codec::encode(&codec, &(response, rest))?)
                             .task_id(task_id.clone())
                             .metadata(&WorkflowContext {
@@ -257,8 +257,8 @@ where
                         ctx.backend
                             .send(steps)
                             .await
-                            .map_err(|e| TaskSinkError::PushError(e))?;
-                        Ok(GoTo::Next(StepResult {
+                            .map_err(TaskSinkError::PushError)?;
+                        Ok(GoTo::Next(StepResponse {
                             result,
                             next_task_id: Some(task_id),
                         }))
@@ -272,6 +272,7 @@ where
 
 /// The state of the fold operation
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FoldState {
     /// Initializing state
     Init,
@@ -283,6 +284,7 @@ const FOLD_STATE_KEY: &str = "apalis_workflow.fold.state";
 
 /// An error representing an invalid [`FoldState`]
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum FoldStateError {
     /// The fold state key is missing
     #[error("the data for key {FOLD_STATE_KEY} is missing")]

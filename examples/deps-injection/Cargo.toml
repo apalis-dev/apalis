@@ -1,0 +1,21 @@
+[package]
+name = "deps-injection"
+version = "0.1.0"
+license = "MIT"
+publish = false
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+apalis = { path = "../../apalis", features = ["tracing"] }
+serde = { version = "1", features = ["derive"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+tower = "0.5"
+
+
+[dependencies.tracing]
+default-features = false
+version = "0.1"
+
+

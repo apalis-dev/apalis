@@ -1,0 +1,90 @@
+name: Update Changelog
+
+on:
+  pull_request:
+    types: [opened, edited]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-changelog:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@master
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Setup git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Update CHANGELOG
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          REPO="${{ github.repository }}"
+          EVENT="${{ github.event.action }}"
+
+          FORMATTED_TITLE="$(echo "$PR_TITLE" | sed -E 's/^([a-zA-Z0-9_-]+):/*\1*:/')"
+          CHANGELOG_ENTRY="- ${FORMATTED_TITLE} ([#${PR_NUMBER}](https://github.com/${REPO}/pull/${PR_NUMBER}))"
+
+          # Pattern to match an existing entry for this PR number (anywhere in the file)
+          PR_PATTERN="(#${PR_NUMBER})"
+
+          if [ "$EVENT" = "opened" ]; then
+            # On open: only insert if no entry for this PR number already exists
+            if grep -qF "$PR_PATTERN" CHANGELOG.md; then
+              echo "Changelog entry for #${PR_NUMBER} already exists, skipping."
+            else
+              awk -v entry="$CHANGELOG_ENTRY" '
+                /^## \[Unreleased\]$/ {
+                  print
+                  print ""
+                  print entry
+                  skip_blank=1
+                  next
+                }
+                skip_blank && /^$/ { skip_blank=0; next }
+                { skip_blank=0; print }
+              ' CHANGELOG.md > CHANGELOG.md.tmp
+              mv CHANGELOG.md.tmp CHANGELOG.md
+            fi
+
+          elif [ "$EVENT" = "edited" ]; then
+            # On edit: replace the existing entry, or insert if it doesn't exist yet
+            if grep -qF "$PR_PATTERN" CHANGELOG.md; then
+              # Replace the specific line that references this PR number
+              awk -v entry="$CHANGELOG_ENTRY" -v pattern="$PR_PATTERN" '
+                index($0, pattern) { print entry; next }
+                { print }
+              ' CHANGELOG.md > CHANGELOG.md.tmp
+              mv CHANGELOG.md.tmp CHANGELOG.md
+            else
+              echo "No existing entry for #${PR_NUMBER}, inserting under [Unreleased]."
+              awk -v entry="$CHANGELOG_ENTRY" '
+                /^## \[Unreleased\]$/ {
+                  print
+                  print ""
+                  print entry
+                  skip_blank=1
+                  next
+                }
+                skip_blank && /^$/ { skip_blank=0; next }
+                { skip_blank=0; print }
+              ' CHANGELOG.md > CHANGELOG.md.tmp
+              mv CHANGELOG.md.tmp CHANGELOG.md
+            fi
+          fi
+
+      - name: Commit CHANGELOG changes
+        run: |
+          git add CHANGELOG.md
+          git commit -m "docs: update CHANGELOG for PR #${{ github.event.pull_request.number }}" || echo "No changes to commit"
+
+      - name: Push commits
+        run: git push origin HEAD:${{ github.event.pull_request.head.ref }}

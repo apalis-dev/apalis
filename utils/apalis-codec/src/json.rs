@@ -6,7 +6,7 @@ use serde_json::Value;
 
 /// Json encoding and decoding
 #[derive(Debug, Clone, Default)]
-pub struct JsonCodec<Output> {
+pub struct JsonCodec<Output = Vec<u8>> {
     _o: PhantomData<Output>,
 }
 

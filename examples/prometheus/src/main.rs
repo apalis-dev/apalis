@@ -68,7 +68,7 @@ fn setup_metrics_recorder() -> PrometheusHandle {
     ];
 
     PrometheusBuilder::new()
-        .set_buckets_for_metric(Matcher::Prefix("request".to_string()), EXPONENTIAL_SECONDS)
+        .set_buckets_for_metric(Matcher::Prefix("request".to_owned()), EXPONENTIAL_SECONDS)
         .expect("Could not setup Prometheus")
         .install_recorder()
         .expect("Could not install Prometheus recorder")
@@ -85,7 +85,6 @@ async fn add_new_job<T>(
 where
     T: 'static + Debug + Serialize + DeserializeOwned + Unpin + Send + Sync,
 {
-    dbg!(&input);
     let new_job = storage.push(input).await;
 
     match new_job {

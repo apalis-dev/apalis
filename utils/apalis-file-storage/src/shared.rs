@@ -13,7 +13,7 @@ use serde_json::Value;
 /// # Example
 ///
 /// ```rust,no_run
-/// # use apalis_core::backend::shared::MakeShared;
+/// # use apalis_core::backend::factory::BackendFactory;
 /// # use apalis_core::task::Task;
 /// # use apalis_core::worker::context::WorkerContext;
 /// # use apalis_core::worker::builder::WorkerBuilder;
@@ -25,15 +25,15 @@ use serde_json::Value;
 /// #[tokio::main]
 /// async fn main() {
 ///     let mut store = SharedJsonStore::new();
-///     let mut int_store = store.make_shared().unwrap();
+///     let mut int_store = store.create().unwrap();
 ///     int_store.push(42).await.unwrap();
 ///
 ///     async fn task(
 ///         task: u32,
-///         ctx: WorkerContext,
+///         worker: WorkerContext,
 ///     ) -> Result<(), BoxDynError> {
 ///         tokio::time::sleep(Duration::from_millis(2)).await;
-///         ctx.stop()?;
+///         worker.stop()?;
 ///         Ok(())
 ///     }
 ///
@@ -51,10 +51,11 @@ use std::{fmt::Debug, sync::Arc};
 
 use apalis_core::{
     backend::{
+        factory::BackendFactory,
         memory::{MemorySink, MemoryStorage, MemoryStorageError},
-        shared::MakeShared,
+        queue::Queue,
     },
-    task::{Task, builder::TaskBuilder, metadata::MetadataStore, task_id::RandomId},
+    task::{Task, builder::TaskBuilder},
 };
 
 use crate::JsonStorage;
@@ -86,52 +87,35 @@ impl SharedJsonStore {
     }
 }
 
-impl<Args: Send + Serialize + for<'de> Deserialize<'de> + Unpin + 'static> MakeShared<Args>
-    for SharedJsonStore
+impl<Args: Send + Serialize + for<'de> Deserialize<'de> + Unpin + 'static + Clone>
+    BackendFactory<Args> for SharedJsonStore
 {
-    type Backend = MemoryStorage<Args, MetadataStore>;
+    type Backend = MemoryStorage<Args>;
 
-    type Config = String;
+    type Error = MemoryStorageError;
 
-    type MakeError = MemoryStorageError;
-
-    fn make_shared(&mut self) -> Result<Self::Backend, Self::MakeError>
-    where
-        Self::Config: Default,
-    {
-        self.make_shared_with_config(std::any::type_name::<Args>().to_owned())
+    fn create(&mut self) -> Result<Self::Backend, Self::Error> {
+        self.create_with_config(())
     }
 
-    fn make_shared_with_config(
-        &mut self,
-        queue: Self::Config,
-    ) -> Result<Self::Backend, Self::MakeError> {
-        let (sender, receiver) = self.create_channel::<Args>(&queue);
+    fn create_with_config(&mut self, _: ()) -> Result<Self::Backend, Self::Error> {
+        let (sender, receiver) = self.create_channel::<Args>();
         let sender = MemorySink::new(Arc::new(futures_util::lock::Mutex::new(sender)));
         Ok(MemoryStorage::new_with(sender, receiver))
     }
 }
 
-type BoxSink<Args> = Box<
-    dyn Sink<Task<Args, MetadataStore, RandomId>, Error = MemoryStorageError>
-        + Send
-        + Sync
-        + Unpin
-        + 'static,
->;
+type BoxSink<Args> =
+    Box<dyn Sink<Task<Args>, Error = MemoryStorageError> + Send + Sync + Unpin + 'static>;
 
 impl SharedJsonStore {
     fn create_channel<Args: 'static + for<'de> Deserialize<'de> + Serialize + Send + Unpin>(
         &self,
-        queue: &str,
-    ) -> (
-        BoxSink<Args>,
-        BoxStream<'static, Task<Args, MetadataStore, RandomId>>,
-    ) {
+    ) -> (BoxSink<Args>, BoxStream<'static, Task<Args>>) {
         // Create a channel for communication
         let sender = self.inner.clone();
 
-        let queue_config = queue.to_owned();
+        let queue_config = std::any::type_name::<Args>();
 
         // Create a wrapped sender that will insert into the in-memory store
         let wrapped_sender = {
@@ -139,18 +123,11 @@ impl SharedJsonStore {
 
             sender
                 .sink_map_err(|e| MemoryStorageError::Other(e.into()))
-                .with_flat_map(move |task: Task<Args, MetadataStore, RandomId>| {
-                    let mut task = task.into_builder();
-                    task.ctx
-                        .metadata
-                        .insert("queue", queue_config.clone())
-                        .unwrap();
-
-                    let res = task
-                        .try_map_args(|s| {
-                            serde_json::to_value(s).map_err(|e| MemoryStorageError::Other(e.into()))
-                        })
-                        .map(|t| t.build());
+                .with_flat_map(move |mut task: Task<Args>| {
+                    task.inject_metadata(&Queue::from(queue_config)).unwrap();
+                    let res = task.try_map_args(|s| {
+                        serde_json::to_value(s).map_err(|e| MemoryStorageError::Other(e.into()))
+                    });
 
                     futures_util::stream::iter(vec![res])
                 })
@@ -158,7 +135,7 @@ impl SharedJsonStore {
 
         // Create a stream that filters by type T
         let filtered_stream = {
-            let queue_config = queue.to_owned();
+            let queue_config = std::any::type_name::<Args>().to_owned();
             sender.map(|s| s.unwrap()).filter_map(move |(_, job)| {
                 let queue_config = queue_config.clone();
                 async move {
@@ -167,7 +144,7 @@ impl SharedJsonStore {
                         let args = Args::deserialize(&job.args).ok()?;
                         let task = TaskBuilder::new(args)
                             .with_metadata(job.ctx)
-                            .task_id(job.task_id.unwrap())
+                            .task_id(job.task_id)
                             .build();
                         Some(task)
                     } else {
@@ -179,12 +156,7 @@ impl SharedJsonStore {
 
         // Combine the sender and receiver
         let sender = Box::new(wrapped_sender)
-            as Box<
-                dyn Sink<Task<Args, MetadataStore, RandomId>, Error = MemoryStorageError>
-                    + Send
-                    + Sync
-                    + Unpin,
-            >;
+            as Box<dyn Sink<Task<Args>, Error = MemoryStorageError> + Send + Sync + Unpin>;
         let receiver = filtered_stream.boxed();
 
         (sender, receiver)
@@ -198,7 +170,7 @@ mod tests {
 
     use apalis_core::worker::context::WorkerContext;
     use apalis_core::{
-        backend::{TaskSink, shared::MakeShared},
+        backend::{TaskSink, factory::BackendFactory},
         worker::{builder::WorkerBuilder, ext::event_listener::EventListenerExt},
     };
 
@@ -209,17 +181,17 @@ mod tests {
     #[tokio::test]
     async fn basic_shared() {
         let mut store = SharedJsonStore::new();
-        let mut string_store = store.make_shared().unwrap();
-        let mut int_store = store.make_shared_with_config("int".into()).unwrap();
+        let mut string_store = store.create().unwrap();
+        let mut int_store = store.create_with_config(()).unwrap();
         for i in 0..ITEMS {
             string_store.push(format!("ITEM: {i}")).await.unwrap();
             int_store.push(i).await.unwrap();
         }
 
-        async fn task(task: u32, ctx: WorkerContext) -> Result<(), BoxDynError> {
+        async fn task(task: u32, worker: WorkerContext) -> Result<(), BoxDynError> {
             tokio::time::sleep(Duration::from_millis(2)).await;
             if task == ITEMS - 1 {
-                ctx.stop()?;
+                worker.stop()?;
                 return Err("Worker stopped!")?;
             }
             Ok(())
@@ -227,22 +199,22 @@ mod tests {
 
         let string_worker = WorkerBuilder::new("rango-tango-string")
             .backend(string_store)
-            .on_event(|ctx, ev| {
-                println!("CTX {:?}, On Event = {ev:?}", ctx.name());
+            .on_event(|worker, ev| {
+                println!("CTX {:?}, On Event = {ev:?}", worker.name());
             })
-            .build(|req: String, ctx: WorkerContext| async move {
+            .build(|req: String, worker: WorkerContext| async move {
                 tokio::time::sleep(Duration::from_millis(2)).await;
                 println!("{req}");
                 if req.ends_with(&(ITEMS - 1).to_string()) {
-                    ctx.stop().unwrap();
+                    worker.stop().unwrap();
                 }
             })
             .run();
 
         let int_worker = WorkerBuilder::new("rango-tango-int")
             .backend(int_store)
-            .on_event(|ctx, ev| {
-                println!("CTX {:?}, On Event = {ev:?}", ctx.name());
+            .on_event(|worker, ev| {
+                println!("CTX {:?}, On Event = {ev:?}", worker.name());
             })
             .build(task)
             .run();

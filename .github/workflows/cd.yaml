@@ -42,11 +42,6 @@ jobs:
         with:
           command: publish
           args: ${{ env.PUBLISH_OPTS }} -p apalis-core
-      - name: publish apalis-sql
-        uses: actions-rs/cargo@v1
-        with:
-          command: publish
-          args: ${{ env.PUBLISH_OPTS }} -p apalis-sql
       - name: publish apalis-codec
         uses: actions-rs/cargo@v1
         with:

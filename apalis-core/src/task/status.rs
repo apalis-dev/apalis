@@ -39,6 +39,7 @@ pub enum Status {
 
 /// Errors that can occur when parsing a `Status` from a string
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum StatusError {
     #[error("Unknown state: {0}")]
     /// Unknown state error
@@ -103,12 +104,12 @@ impl AtomicStatus {
     /// Load the current status
     #[must_use]
     pub fn load(&self) -> Status {
-        Status::from_u8(self.0.load(Ordering::Acquire)).unwrap()
+        Status::from_u8(self.0.load(Ordering::SeqCst)).unwrap()
     }
 
     /// Store a new status
     pub fn store(&self, status: Status) {
-        self.0.store(status as u8, Ordering::Release);
+        self.0.store(status as u8, Ordering::SeqCst);
     }
     /// Swap the current status with a new one, returning the old status
     #[must_use]

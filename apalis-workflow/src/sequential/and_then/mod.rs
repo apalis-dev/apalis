@@ -1,25 +1,25 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, task::Context};
 
 use apalis_core::{
-    backend::{Backend, codec::Codec},
+    backend::{Backend, BackendConfig, WireFormatBackend, codec::Codec},
     error::BoxDynError,
-    task::Task,
-    task_fn::{TaskFn, task_fn},
+    task::task_fn::{TaskFn, task_fn},
+    task::{Task, task_id::GenerateId},
 };
-use futures::{
+use futures_util::{
     FutureExt, Sink,
     future::{BoxFuture, ready},
 };
+use serde::Serialize;
 use tower::{Service, ServiceBuilder, layer::layer_fn};
 
 use crate::{
     SteppedService,
-    id_generator::GenerateId,
     sequential::context::StepContext,
-    sequential::router::{GoTo, StepResult, WorkflowRouter},
+    sequential::router::{GoTo, StepResponse, WorkflowRouter},
     sequential::service::handle_step_result,
     sequential::step::{Layer, Stack, Step},
-    sequential::workflow::Workflow,
+    sequential::workflow::SteppedFlow,
 };
 
 /// A layer that represents an `and_then` step in the workflow.
@@ -56,20 +56,18 @@ where
     }
 }
 
-impl<F, Input, S, B, CodecError, SinkError> Step<Input, B> for AndThenStep<F, S>
+impl<F, Input, S, B, CodecError, Err> Step<Input, B> for AndThenStep<F, S>
 where
-    B: Backend<Error = SinkError>
+    B: Backend<Error = Err>
+        + WireFormatBackend
+        + BackendConfig
+        + Sink<Task<B::Compact>, Error = Err>
         + Send
         + Sync
-        + 'static
+        + Unpin
         + Clone
-        + Sink<Task<B::Compact, B::Connection, B::Id>, Error = SinkError>
-        + Unpin,
-    F: Service<Task<Input, B::Connection, B::Id>, Error = BoxDynError>
-        + Send
-        + Sync
-        + 'static
-        + Clone,
+        + 'static,
+    F: Service<Task<Input>, Error = BoxDynError> + Send + Sync + 'static + Clone,
     S: Step<F::Response, B>,
     Input: Send + Sync + 'static,
     F::Future: Send + 'static,
@@ -78,15 +76,15 @@ where
         + Codec<Input, Error = CodecError, Compact = B::Compact>
         + Codec<S::Response, Error = CodecError, Compact = B::Compact>
         + Send
+        + Sync
         + Clone
         + 'static,
     CodecError: std::error::Error + Send + Sync + 'static,
     B::Id: GenerateId + Send + Sync + 'static,
     S::Response: Send + 'static,
     B::Compact: Send + 'static,
-    B::Connection: Send + Sync + 'static,
-    SinkError: std::error::Error + Send + Sync + 'static,
-    F::Response: Send + 'static,
+    F::Response: Send + Serialize + 'static,
+    Err: std::error::Error + Send + Sync + 'static,
 {
     type Response = F::Response;
     type Error = F::Error;
@@ -94,11 +92,11 @@ where
         let svc = ServiceBuilder::new()
             .layer(layer_fn(|s| AndThenService {
                 service: s,
-                _marker: PhantomData::<(B, Input)>,
+                _marker: PhantomData::<fn(B, Input) -> ()>,
             }))
             .map_response(|res: F::Response| GoTo::Next(res))
             .service(self.then_fn.clone());
-        let svc = SteppedService::<B::Compact, B::Connection, B::Id>::new(svc);
+        let svc = SteppedService::<B::Compact>::new(svc);
         let count = ctx.steps.len();
         ctx.steps.insert(count, svc);
         self.step.register(ctx)
@@ -109,7 +107,7 @@ where
 #[derive(Debug)]
 pub struct AndThenService<Svc, Backend, Cur> {
     service: Svc,
-    _marker: PhantomData<(Backend, Cur)>,
+    _marker: PhantomData<fn(Backend, Cur) -> ()>,
 }
 
 impl<Svc: Clone, Backend, Cur> Clone for AndThenService<Svc, Backend, Cur> {
@@ -131,46 +129,44 @@ impl<Svc, Backend, Cur> AndThenService<Svc, Backend, Cur> {
     }
 }
 
-impl<S, B, Cur, Res, CodecErr, SinkError> Service<Task<B::Compact, B::Connection, B::Id>>
-    for AndThenService<S, B, Cur>
+impl<S, B, Cur, Res, CodecErr, Err> Service<Task<B::Compact>> for AndThenService<S, B, Cur>
 where
-    S: Service<Task<Cur, B::Connection, B::Id>, Response = GoTo<Res>>,
+    S: Service<Task<Cur>, Response = GoTo<Res>>,
     S::Future: Send + 'static,
-    B: Backend<Error = SinkError>
-        + Sync
-        + Send
-        + 'static
+    B: Backend<Error = Err>
+        + WireFormatBackend
+        + Sink<Task<B::Compact>, Error = Err>
+        + BackendConfig
         + Clone
-        + Sink<Task<B::Compact, B::Connection, B::Id>, Error = SinkError>
-        + Unpin,
+        + Send
+        + Unpin
+        + Sync
+        + 'static,
     B::Codec: Codec<Cur, Compact = B::Compact, Error = CodecErr>
         + Codec<Res, Compact = B::Compact, Error = CodecErr>
         + Send
-        + Clone,
+        + Clone
+        + Sync,
     S::Error: Into<BoxDynError> + Send + 'static,
     CodecErr: Into<BoxDynError> + Send + 'static,
     Cur: Send + 'static,
     B::Id: GenerateId + Send + Sync + 'static,
-    SinkError: std::error::Error + Send + Sync + 'static,
-    Res: Send + 'static,
+    Res: Send + Serialize + 'static,
     B::Compact: Send + 'static,
-    B::Connection: Send + Sync + 'static,
+    Err: std::error::Error + Send + Sync + 'static,
 {
-    type Response = GoTo<StepResult<B::Compact, B::Id>>;
+    type Response = GoTo<StepResponse>;
     type Error = BoxDynError;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
-    fn poll_ready(
-        &mut self,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
         self.service.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, request: Task<B::Compact, B::Connection, B::Id>) -> Self::Future {
-        let mut ctx = request.ctx.data.get::<StepContext<B>>().cloned().unwrap();
-        let codec = ctx.backend.codec().clone();
-        let compacted = request.try_map_args(|t| B::Codec::decode(&codec, &t));
+    fn call(&mut self, request: Task<B::Compact>) -> Self::Future {
+        let mut ctx = request.data().get::<StepContext<B>>().cloned().unwrap();
+        let codec = ctx.backend.codec();
+        let compacted = request.try_map_args(|t| B::Codec::decode(codec, &t));
         match compacted {
             Ok(task) => {
                 let fut = self.service.call(task);
@@ -185,7 +181,7 @@ where
     }
 }
 
-impl<Start, Cur, B, L> Workflow<Start, Cur, B, L>
+impl<Start, Cur, B, L> SteppedFlow<Start, Cur, B, L>
 where
     B: Backend,
 {
@@ -202,13 +198,13 @@ where
     ///     .and_then(transform)
     ///     .and_then(load);
     /// ```
+    #[allow(clippy::type_complexity)]
     pub fn and_then<F, O, FnArgs>(
         self,
         and_then: F,
-    ) -> Workflow<Start, O, B, Stack<AndThen<TaskFn<F, Cur, B::Connection, FnArgs>>, L>>
+    ) -> SteppedFlow<Start, O, B, Stack<AndThen<TaskFn<F, Cur, FnArgs>>, L>>
     where
-        TaskFn<F, Cur, B::Connection, FnArgs>:
-            Service<Task<Cur, B::Connection, B::Id>, Response = O>,
+        TaskFn<F, Cur, FnArgs>: Service<Task<Cur>, Response = O>,
     {
         self.add_step(AndThen {
             then_fn: task_fn(and_then),

@@ -13,7 +13,7 @@
 //!
 //! let builder = WorkerBuilder::new("my-worker")
 //! #   .backend(in_memory)
-//!     .on_event(|ctx: &WorkerContext, event: &Event| {
+//!     .on_event(|wrk: &WorkerContext, event: &Event| {
 //!         println!("Received event: {:?}", event);
 //!     });
 //! ```
@@ -25,17 +25,16 @@ use tower_service::Service;
 
 use crate::{
     backend::Backend,
-    task::Task,
     worker::{Event, WorkerContext, builder::WorkerBuilder, event::RawEventListener},
 };
 
 /// Worker extension for emitting events
-pub trait EventListenerExt<Args, Conn, Source, Middleware>: Sized {
+pub trait EventListenerExt<Args, Source, Middleware>: Sized {
     /// Register a callback for worker events
     fn on_event<F: Fn(&WorkerContext, &Event) + Send + Sync + 'static>(
         self,
         f: F,
-    ) -> WorkerBuilder<Args, Conn, Source, Stack<EventListenerLayer, Middleware>>;
+    ) -> WorkerBuilder<Args, Source, Stack<EventListenerLayer, Middleware>>;
 }
 
 /// Middleware for emitting events
@@ -64,9 +63,9 @@ pub struct EventListenerService<S> {
     service: S,
 }
 
-impl<S, Args, Conn, Id> Service<Task<Args, Conn, Id>> for EventListenerService<S>
+impl<S, Req> Service<Req> for EventListenerService<S>
 where
-    S: Service<Task<Args, Conn, Id>>,
+    S: Service<Req>,
 {
     type Response = S::Response;
     type Error = S::Error;
@@ -79,20 +78,19 @@ where
         self.service.poll_ready(cx)
     }
 
-    fn call(&mut self, request: Task<Args, Conn, Id>) -> Self::Future {
+    fn call(&mut self, request: Req) -> Self::Future {
         self.service.call(request)
     }
 }
 
-impl<Args, P, M, Conn> EventListenerExt<Args, Conn, P, M> for WorkerBuilder<Args, Conn, P, M>
+impl<Args, P, M> EventListenerExt<Args, P, M> for WorkerBuilder<Args, P, M>
 where
-    P: Backend<Args = Args, Connection = Conn>,
-    M: Layer<EventListenerLayer>,
+    P: Backend,
 {
     fn on_event<F: Fn(&WorkerContext, &Event) + Send + Sync + 'static>(
         self,
         f: F,
-    ) -> WorkerBuilder<Args, Conn, P, Stack<EventListenerLayer, M>> {
+    ) -> WorkerBuilder<Args, P, Stack<EventListenerLayer, M>> {
         let new_fn = self
             .event_handler
             .write()

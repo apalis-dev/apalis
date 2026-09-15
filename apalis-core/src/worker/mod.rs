@@ -82,27 +82,19 @@
 //! }
 //! # }
 //! ```
-//!
-//! # Test Utilities
-//! The [`test_worker`] module includes utilities for unit tests and validation of worker behavior.
-use crate::backend::Backend;
-use crate::backend::codec::Codec;
+use crate::backend::{Backend, BackendConfig};
 use crate::error::{BoxDynError, WorkerError};
 use crate::monitor::shutdown::Shutdown;
 use crate::task::Task;
-use crate::task::attempt::Attempt;
 use crate::task::data::Data;
-use crate::worker::call_all::{CallAllError, CallAllUnordered};
-use crate::worker::context::{Tracked, WorkerContext, WorkerHandle};
+use crate::worker::call_all::CallAllUnordered;
+use crate::worker::context::WorkerContext;
 use crate::worker::event::{Event, RawEventListener};
-use futures_core::stream::BoxStream;
+use crate::worker::lifecycle::{LifecycleLayer, LifecycleService};
+use crate::worker::stream::WorkerStream;
 use futures_util::{Future, FutureExt, Stream, StreamExt, TryFutureExt};
-use std::fmt::Debug;
 use std::fmt::{self};
 use std::marker::PhantomData;
-use std::pin::Pin;
-use std::sync::atomic::Ordering;
-use std::task::{Context, Poll};
 use tower_layer::{Layer, Stack};
 use tower_service::Service;
 
@@ -111,10 +103,15 @@ pub mod call_all;
 pub mod context;
 pub mod event;
 pub mod ext;
+pub(crate) mod handle;
+pub mod lifecycle;
+pub mod service;
 mod state;
-pub mod test_worker;
+mod stream;
 
-/// Core component responsible for task polling, execution, and lifecycle management.
+/// A worker polls a backend and processes tasks using a service.
+///
+/// Its the core component responsible for task polling, execution, and lifecycle management.
 ///
 /// # Example
 /// Basic example:
@@ -145,17 +142,17 @@ pub mod test_worker;
 /// ```
 /// See [module level documentation](self) for more details.
 #[must_use = "Workers must be run or streamed to execute tasks"]
-pub struct Worker<Args, Conn, Backend, Svc, Middleware> {
-    pub(crate) name: String,
+pub struct Worker<Args, Backend, Svc, Middleware> {
+    pub(crate) context: WorkerContext,
     pub(crate) backend: Backend,
     pub(crate) service: Svc,
     pub(crate) middleware: Middleware,
-    pub(crate) task_marker: PhantomData<(Args, Conn)>,
+    pub(crate) task_marker: PhantomData<Args>,
     pub(crate) shutdown: Option<Shutdown>,
     pub(crate) event_handler: RawEventListener,
 }
 
-impl<Args, Conn, B, Svc, Middleware> fmt::Debug for Worker<Args, Conn, B, Svc, Middleware>
+impl<Args, B, Svc, Middleware> fmt::Debug for Worker<Args, B, Svc, Middleware>
 where
     Svc: fmt::Debug,
     B: fmt::Debug,
@@ -168,11 +165,11 @@ where
     }
 }
 
-impl<Args, Conn, B, Svc, M> Worker<Args, Conn, B, Svc, M> {
+impl<Args, B, Svc, M> Worker<Args, B, Svc, M> {
     /// Build a worker that is ready for execution
-    pub fn new(name: String, backend: B, service: Svc, layers: M) -> Self {
+    pub fn new(context: WorkerContext, backend: B, service: Svc, layers: M) -> Self {
         Self {
-            name,
+            context,
             backend,
             service,
             middleware: layers,
@@ -183,22 +180,27 @@ impl<Args, Conn, B, Svc, M> Worker<Args, Conn, B, Svc, M> {
     }
 }
 
-impl<Args, S, B, M> Worker<Args, B::Connection, B, S, M>
+impl<Args, S, M, FB> Worker<Args, FB, S, M>
 where
-    B: Backend<Args = Args> + Send + Unpin + 'static,
-    S: Service<Task<Args, B::Connection, B::Id>> + Send + 'static,
+    FB: BackendConfig + Backend<Task = Task<FB::Args>> + Send + Unpin + 'static,
+    S: Service<Task<FB::Args>> + Send + 'static,
+    FB::Args: Send + 'static,
     Args: Send + 'static,
-    B::Connection: Send + Sync + 'static,
-    B::Error: Into<BoxDynError> + Send + 'static,
-    B::Layer: Layer<ReadinessService<TrackerService<S>>>,
-    M: Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>,
-    <M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service:
-        Service<Task<Args, B::Connection, B::Id>> + Send + 'static,
-    <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::Id>>>::Future: Send,
-        <<M as Layer<<B::Layer as Layer<ReadinessService<TrackerService<S>>>>::Service>>::Service as Service<Task<Args, B::Connection, B::Id>>>::Error: Into<BoxDynError> + Send + Sync + 'static,
-    B::Id: Send + Sync + 'static,
-    <B::Codec as Codec<B::Args>>::Error: Into<BoxDynError>,
-
+    FB::Error: Into<BoxDynError> + Send + 'static,
+    M: Layer<LifecycleService<S>>,
+    FB::Layer: Layer<<M as Layer<LifecycleService<S>>>::Service>,
+    <FB::Layer as Layer<<M as Layer<LifecycleService<S>>>::Service>>::Service:
+        Service<Task<FB::Args>>,
+    <FB::Layer as Layer<<M as Layer<LifecycleService<S>>>::Service>>::Service: Send + 'static,
+    <<FB::Layer as Layer<<M as Layer<LifecycleService<S>>>::Service>>::Service as Service<
+        Task<<FB as BackendConfig>::Args>,
+    >>::Future: Send,
+    <<FB::Layer as Layer<<M as Layer<LifecycleService<S>>>::Service>>::Service as Service<
+        Task<<FB as BackendConfig>::Args>,
+    >>::Error: Into<BoxDynError> + Send + Sync + 'static,
+    <<FB::Layer as Layer<<M as Layer<LifecycleService<S>>>::Service>>::Service as Service<
+        Task<<FB as BackendConfig>::Args>,
+    >>::Response: Send + Sync + 'static,
 {
     /// Run the worker until completion
     ///
@@ -229,19 +231,10 @@ where
     /// }
     /// ```
     pub async fn run(self) -> Result<(), WorkerError> {
-        let mut ctx = WorkerContext::new::<M::Service>(&self.name);
-        self.run_with_ctx(&mut ctx).await
-    }
-
-    /// Run the worker with the given context.
-    ///
-    /// See [`run`](Self::run) for an example.
-    pub async fn run_with_ctx(self, ctx: &mut WorkerContext) -> Result<(), WorkerError> {
-        let mut stream = self.stream_with_ctx(ctx);
+        let mut stream = self.stream();
         while let Some(res) = stream.next().await {
             match res {
-                Ok(_) => {},
-                Err(WorkerError::GracefulExit) => return Ok(()),
+                Ok(_) => {}
                 Err(e) => return Err(e),
             }
         }
@@ -252,18 +245,17 @@ where
     pub async fn run_until<Fut, Err>(mut self, signal: Fut) -> Result<(), WorkerError>
     where
         Fut: Future<Output = Result<(), Err>> + Send + 'static,
-        B: Send,
+        FB: Send,
         M: Send,
         Err: Into<WorkerError> + Send + 'static,
     {
         let shutdown = self.shutdown.take().unwrap_or_default();
         let terminator = shutdown.shutdown_after(signal);
-        let mut ctx = WorkerContext::new::<M::Service>(&self.name);
-        let c = ctx.clone();
-        let worker = self.run_with_ctx(&mut ctx).boxed();
+        let c = self.context.clone();
+        let worker = self.run();
         futures_util::try_join!(
+            worker,
             terminator.map_ok(|_| c.stop()).map_err(|e| e.into()),
-            worker
         )
         .map(|_| ())
     }
@@ -297,7 +289,7 @@ where
     ///     let worker = WorkerBuilder::new("worker-1")
     ///         .backend(storage)
     ///         .build(handler);
-    ///     worker.run_until_ctx(|ctx| async move {
+    ///     worker.run_with_ctx(|ctx| async move {
     ///         sleep(Duration::from_secs(1)).await;
     ///         ctx.stop()?;
     ///         Ok(())
@@ -305,18 +297,16 @@ where
     ///     Ok(())
     /// }
     /// ```
-    pub async fn run_until_ctx<F, Fut>(mut self, fut: F) -> Result<(), WorkerError>
+    pub async fn run_with_ctx<F, Fut>(mut self, mut fut: F) -> Result<(), WorkerError>
     where
-        F: FnOnce(WorkerContext) -> Fut + Send + 'static,
-        Fut: Future<Output = Result<(), WorkerError>> + Send + 'static,
-        B: Send,
+        F: FnMut(WorkerContext) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<(), WorkerError>> + Send,
+        FB: Send,
         M: Send,
     {
         let shutdown = self.shutdown.take().unwrap_or_default();
-        let mut ctx = WorkerContext::new::<M::Service>(&self.name);
-        let c = ctx.clone();
-        let terminator = shutdown.shutdown_after(fut(c));
-        let worker = self.run_with_ctx(&mut ctx).boxed();
+        let terminator = shutdown.shutdown_after(fut(self.context.clone()));
+        let worker = self.run().boxed();
         futures_util::try_join!(terminator.map_ok(|_| ()), worker).map(|_| ())
     }
 
@@ -349,21 +339,15 @@ where
     ///     Ok(())
     /// }
     /// ```
-    pub fn stream(self) -> impl Stream<Item = Result<Event, WorkerError>> + use<Args, S, B, M> {
-        let mut ctx = WorkerContext::new::<M::Service>(&self.name);
-        self.stream_with_ctx(&mut ctx)
-    }
-
-    /// Returns a stream that will yield events as they occur within the worker's lifecycle when provided
-    /// with a [`WorkerContext`].
-    ///
-    /// See [`stream`](Self::stream) for an example.
-    pub fn stream_with_ctx(self, ctx: &mut WorkerContext) -> impl Stream<Item = Result<Event, WorkerError>> + use<Args, S, B, M> {
-        let backend = self.backend;
+    pub fn stream(
+        mut self,
+    ) -> impl Stream<Item = Result<Event, WorkerError>> + use<Args, S, M, FB> {
+        let ctx = &mut self.context;
+        ctx.bind_service::<M::Service>();
+        let mut backend = self.backend;
         let event_handler = self.event_handler;
-        ctx.wrap_listener(event_handler);
-        let worker = ctx.clone();
-        let backend_middleware = backend.middleware();
+        ctx.add_listener(event_handler);
+        let backend_middleware = backend.middleware(ctx);
 
         struct ServiceBuilder<L> {
             layer: L,
@@ -384,234 +368,32 @@ where
         }
 
         let svc = ServiceBuilder {
-            layer: Data::new(worker.clone()),
+            layer: Data::new(ctx.clone()),
         };
         let service = svc
-            // pass the user defined middleware first
-            .layer(self.middleware)
             // backend middleware should be the next layer so it can observe all requests released by user middleware
             .layer(backend_middleware)
-            // when all layers are ready, inform the worker is ready to accept tasks
-            .layer(ReadinessLayer::new(worker.clone()))
-            // Track all tasks to allow graceful shutdowns
-            // we also increment the attempt count on the first poll
-            // this ensures that the attempt count is accurate even if the task fails before completion
-            .layer(TrackerLayer::new(worker.clone()))
+            // pass the user defined middleware
+            .layer(self.middleware)
+            // A lifecycle service that
+            // - when all layers are ready, inform the worker its ready to accept tasks
+            // - Track all tasks to allow graceful shutdowns
+            // - increment the attempt count on the first poll
+            // - Generate a task token
+            .layer(LifecycleLayer::new(ctx.clone()))
             .service(self.service);
-
-        // One `poll_fn` owns `backend` and drives poll_ready -> poll_compact in
-        // order every time it's polled, registering the current task's waker
-        // into `worker` first so a backend's internal future resolving can wake
-        // this exact task.
-        let worker_ctx = worker.clone();
-
-        let tasks = Self::poll_tasks(service, backend, worker_ctx);
-
-        let mut w = worker.clone();
-        let mut ww = w.clone();
-        let starter: BoxStream<'static, _> = futures_util::stream::once(async move {
-
-            ww.start()?;
-            Ok(Some(Event::Start))
-        })
-        .filter_map(|res: Result<Option<Event>, WorkerError>| async move {
-
-            match res {
-                Ok(res) => res.map(Ok),
-                Err(e) => Some(Err(e)),
-            }
-        })
-        .boxed();
-
-        // Shutdown-completion awaiting now goes through the private `WorkerHandle`
-        // instead of polling `WorkerContext` directly — `WorkerContext` no
-        // longer implements `Future` at all, so this is the only path capable of
-        // awaiting worker completion.
-        let handle = WorkerHandle::new(worker);
-        let wait_for_exit: BoxStream<'static, _> = futures_util::stream::once(async move {
-            match handle.await {
-                Ok(_) => Err(WorkerError::GracefulExit),
-                Err(e) => Err(e),
-            }
-        })
-        .boxed();
-
-        #[allow(clippy::needless_continue)]
-        let work_stream = futures_util::stream_select!(wait_for_exit, tasks);
-
-        starter.chain(work_stream).map(move |res| {
-            if let Ok(e) = &res {
-                w.emit(e);
-            }
-            res
-        })
-}
-    fn poll_tasks<Svc>(
-        service: Svc,
-        backend: B,
-        worker: WorkerContext,
-    ) -> BoxStream<'static, Result<Event, WorkerError>>
-    where
-        Svc: Service<Task<Args, B::Connection, B::Id>> + Send + 'static,
-        Args: Send + 'static,
-        Svc::Future: Send,
-        B::Connection: Send + Sync + 'static,
-        Svc::Error: Into<BoxDynError> + Sync + Send,
-        <B::Codec as Codec<B::Args>>::Error: Into<BoxDynError>,
-
-    {
-        let stream = CallAllUnordered::new(service, backend, worker).map(|r| match r {
-            Ok(Some(_)) => Ok(Event::Success),
-            Ok(None) => Ok(Event::Idle),
-            Err(CallAllError::ServiceError(err)) => Ok(Event::Error(err.into().into())),
-            Err(CallAllError::PollError(err)) => Err(WorkerError::PollError(err)),
-            Err(CallAllError::CodecError(err)) => Err(WorkerError::CodecError(err)),
-        });
-        stream.boxed()
-    }
-}
-
-#[derive(Debug, Clone)]
-struct TrackerLayer {
-    ctx: WorkerContext,
-}
-
-impl TrackerLayer {
-    fn new(ctx: WorkerContext) -> Self {
-        Self { ctx }
-    }
-}
-
-impl<S> Layer<S> for TrackerLayer {
-    type Service = TrackerService<S>;
-
-    fn layer(&self, service: S) -> Self::Service {
-        TrackerService {
-            ctx: self.ctx.clone(),
-            service,
-        }
-    }
-}
-/// Service that tracks a tasks future allowing graceful shutdowns
-#[derive(Debug, Clone)]
-pub struct TrackerService<S> {
-    ctx: WorkerContext,
-    service: S,
-}
-
-impl<S, Args, Conn, Id> Service<Task<Args, Conn, Id>> for TrackerService<S>
-where
-    S: Service<Task<Args, Conn, Id>>,
-{
-    type Response = S::Response;
-    type Error = S::Error;
-    type Future = Tracked<AttemptOnPollFuture<S::Future>>;
-
-    fn poll_ready(&mut self, cx: &mut std::task::Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.service.poll_ready(cx)
-    }
-
-    fn call(&mut self, task: Task<Args, Conn, Id>) -> Self::Future {
-        let attempt = task.ctx.attempt.clone();
-        self.ctx.track(AttemptOnPollFuture {
-            attempt,
-            fut: self.service.call(task),
-            polled: false,
-        })
-    }
-}
-
-/// A future that increments the attempt count on the first poll
-#[pin_project::pin_project]
-#[derive(Debug)]
-pub struct AttemptOnPollFuture<Fut> {
-    attempt: Attempt,
-    #[pin]
-    fut: Fut,
-    polled: bool,
-}
-
-impl<Fut> AttemptOnPollFuture<Fut> {
-    /// Create a new attempt on poll future
-    pub fn new(attempt: Attempt, fut: Fut) -> Self {
-        Self {
-            attempt,
-            fut,
-            polled: false,
-        }
-    }
-}
-
-impl<Fut: Future> Future for AttemptOnPollFuture<Fut> {
-    type Output = Fut::Output;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut this = self.project();
-        if !(*this.polled) {
-            *this.polled = true;
-            let _ = this.attempt.increment();
-        }
-        this.fut.poll_unpin(cx)
-    }
-}
-
-/// Injects the [`ReadinessService`] to track when workers are ready to accept new tasks
-#[derive(Debug, Clone)]
-struct ReadinessLayer {
-    ctx: WorkerContext,
-}
-
-impl ReadinessLayer {
-    fn new(ctx: WorkerContext) -> Self {
-        Self { ctx }
-    }
-}
-
-impl<S> Layer<S> for ReadinessLayer {
-    type Service = ReadinessService<S>;
-
-    fn layer(&self, inner: S) -> Self::Service {
-        ReadinessService {
-            inner,
-            ctx: self.ctx.clone(),
-        }
-    }
-}
-/// Service that tracks the readiness of underlying services
-///
-/// Should be the innermost service
-#[derive(Debug, Clone)]
-pub struct ReadinessService<S> {
-    inner: S,
-    ctx: WorkerContext,
-}
-
-impl<S, Request> Service<Request> for ReadinessService<S>
-where
-    S: Service<Request>,
-{
-    type Response = S::Response;
-    type Error = S::Error;
-    type Future = S::Future;
-
-    fn poll_ready(&mut self, cx: &mut std::task::Context<'_>) -> Poll<Result<(), Self::Error>> {
-        if self.ctx.is_shutting_down() || self.ctx.is_paused() {
-            self.ctx.is_ready.store(false, Ordering::SeqCst);
-            return Poll::Pending;
-        }
-        // Delegate poll_ready to the inner service
-        let result = self.inner.poll_ready(cx);
-        // Update the readiness state based on the result
-        match &result {
-            Poll::Ready(Ok(_)) => self.ctx.is_ready.store(true, Ordering::SeqCst),
-            Poll::Pending | Poll::Ready(Err(_)) => self.ctx.is_ready.store(false, Ordering::SeqCst),
-        }
-
-        result
-    }
-
-    fn call(&mut self, req: Request) -> Self::Future {
-        self.inner.call(req)
+        let w = ctx.clone();
+        StreamExt::inspect(
+            WorkerStream::new(service, backend, ctx),
+            move |res| match &res {
+                Ok(e) => {
+                    w.emit_event(e);
+                }
+                Err(e) => {
+                    error!("WorkerError: {e}");
+                }
+            },
+        )
     }
 }
 
@@ -619,8 +401,12 @@ where
 mod tests {
     use std::{
         future::ready,
+        io::ErrorKind,
         ops::Deref,
-        sync::{Arc, atomic::AtomicUsize},
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
         time::Duration,
     };
 
@@ -629,7 +415,7 @@ mod tests {
 
     use crate::{
         backend::{TaskSink, memory::MemoryStorage},
-        task::ExecutionContext,
+        task::{ExecutionContext, context::TaskContext},
         worker::{
             builder::WorkerBuilder,
             ext::{
@@ -649,7 +435,7 @@ mod tests {
     async fn basic_worker_run() {
         let mut in_memory = MemoryStorage::new();
         for i in 0..ITEMS {
-            in_memory.push(i.into()).await.unwrap();
+            in_memory.push(i).await.unwrap();
         }
 
         #[derive(Clone, Debug, Default)]
@@ -664,28 +450,36 @@ mod tests {
 
         async fn task(
             task: u32,
+            worker: WorkerContext,
             count: Data<Count>,
-            ctx: WorkerContext,
+            ctx: TaskContext,
         ) -> Result<(), BoxDynError> {
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            tokio::spawn(ctx.run_until_executed(async {
+                tokio::time::sleep(Duration::from_secs(3)).await;
+                // Because the task stops after 2 seconds
+                println!("This is never called");
+            }));
+            tokio::time::sleep(Duration::from_secs(2)).await;
             count.fetch_add(1, Ordering::Relaxed);
             if task == ITEMS - 1 {
-                ctx.stop().unwrap();
+                worker.stop().unwrap();
                 return Err("Worker stopped!")?;
             }
+
+            println!("Elapsed: {:?}", ctx.elapsed());
             Ok(())
         }
 
         #[derive(Debug, Clone)]
         struct MyAcknowledger;
 
-        impl<Conn: Debug, Id: Debug> Acknowledge<(), Conn, Id> for MyAcknowledger {
+        impl Acknowledge<()> for MyAcknowledger {
             type Error = SendError;
             type Future = BoxFuture<'static, Result<(), SendError>>;
             fn ack(
                 &mut self,
                 res: &Result<(), BoxDynError>,
-                ctx: &ExecutionContext<Conn, Id>,
+                ctx: &ExecutionContext,
             ) -> Self::Future {
                 println!("{res:?}, {ctx:?}");
                 // Call webhook with the result and ctx?
@@ -699,8 +493,8 @@ mod tests {
             .break_circuit()
             .long_running()
             .ack_with(MyAcknowledger)
-            .on_event(|ctx, ev| {
-                println!("On Event = {ev:?} from {}", ctx.name());
+            .on_event(|wrk, ev| {
+                println!("On Event = {ev:?} from {}", wrk.name());
             })
             .build(task);
         worker.run().await.unwrap();
@@ -736,8 +530,8 @@ mod tests {
             .data(Count::default())
             .break_circuit()
             .long_running()
-            .on_event(|ctx, ev| {
-                println!("CTX {:?}, On Event = {ev:?}", ctx.name());
+            .on_event(|wrk, ev| {
+                println!("CTX {:?}, On Event = {ev:?}", wrk.name());
             })
             .build(task);
         let mut event_stream = worker.stream();
@@ -759,20 +553,24 @@ mod tests {
 
         let worker = WorkerBuilder::new("rango-tango")
             .backend(in_memory)
-            .on_event(|ctx, ev| {
-                println!("On Event = {ev:?} from {}", ctx.name());
+            .on_event(|wrk, ev| {
+                println!("On Event = {ev:?} from {}", wrk.name());
             })
             .build(task);
         let signal = async {
             let ctrl_c = tokio::signal::ctrl_c().map_err(|e| e.into());
-            let timeout = tokio::time::sleep(Duration::from_secs(5))
-                .map(|_| Err::<(), WorkerError>(WorkerError::GracefulExit));
+            let timeout = tokio::time::sleep(Duration::from_secs(5)).map(|_| {
+                Err::<(), WorkerError>(WorkerError::IoError(std::io::Error::new(
+                    ErrorKind::Other,
+                    "Timeout",
+                )))
+            });
             let _ = futures_util::try_join!(ctrl_c, timeout)?;
             Ok::<(), WorkerError>(())
         };
         let res = worker.run_until(signal).await;
         match res {
-            Err(WorkerError::GracefulExit) => {
+            Err(WorkerError::IoError(_)) => {
                 println!("Worker exited gracefully");
             }
             _ => panic!("Expected graceful exit error"),

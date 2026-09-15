@@ -28,15 +28,15 @@ async fn main() {
     json_store.push(42).await.unwrap();
 
 
-    async fn task(task: u32, ctx: WorkerContext) -> Result<(), BoxDynError> {
+    async fn task(task: u32, worker: WorkerContext) -> Result<(), BoxDynError> {
         tokio::time::sleep(Duration::from_secs(1)).await;
-        ctx.stop().unwrap();
+        worker.stop().unwrap();
         Ok(())
     }
 
     let worker = WorkerBuilder::new("rango-tango")
         .backend(json_store)
-        .on_event(|ctx, ev| {
+        .on_event(|worker, ev| {
             println!("On Event = {:?}", ev);
         })
         .build(task);

@@ -2,8 +2,7 @@
 //!
 //! [`WorkerContext`] is responsible for managing
 //! the execution lifecycle of a worker, tracking tasks, handling shutdown, and emitting
-//! lifecycle events. It also provides [`Tracked`] for wrapping and monitoring asynchronous
-//! tasks within the worker domain.
+//! lifecycle events.
 //!
 //! ## Lifecycle
 //! A `WorkerContext` goes through distinct phases of operation:
@@ -18,8 +17,7 @@
 //! once the worker is shut down and all tasks have completed.
 //!
 //! ## Task Management
-//! Asynchronous tasks can be tracked using [`WorkerContext::track`], which wraps a future
-//! in a [`Tracked`] type. This ensures:
+//! Asynchronous tasks can be tracked which ensures:
 //! - Task count is incremented before execution and decremented on completion
 //! - Shutdown is automatically triggered once all tasks are done
 //!
@@ -35,8 +33,8 @@
 //! used to drive progress toward shutdown completion.
 //!
 //! ## Event Handling
-//! Worker lifecycle events (e.g., `Start`, `Stop`) can be emitted using [`WorkerContext::emit`].
-//! Custom handlers can be registered via [`WorkerContext::wrap_listener`] to hook into these transitions.
+//! Worker lifecycle events (e.g., `Start`, `Stop`) are emitted automatically
+//! and custom ones can be emitted using [`WorkerContext::emit`].
 //!
 //! ## Request Integration
 //! `WorkerContext` implements [`FromRequest`] so it can be extracted automatically in request
@@ -44,26 +42,30 @@
 //!
 //! ## Types
 //! - [`WorkerContext`] — shared state container for a worker
-//! - [`Tracked`] — future wrapper for task lifecycle tracking
 use std::{
-    any::type_name,
-    fmt,
-    future::Future,
-    pin::Pin,
+    fmt::{self},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
-    task::{Context, Poll, Waker},
+    task::{Context, Waker},
+    time::{Duration, Instant},
 };
+
+use dashmap::DashSet;
 
 use crate::{
     error::{WorkerError, WorkerStateError},
     monitor::shutdown::Shutdown,
-    task::{Task, data::MissingDataError},
-    task_fn::FromRequest,
+    task::from_request::FromRequest,
+    task::{
+        ExecutionContext, Task,
+        context::{TaskContext, TaskStateError},
+        data::MissingDataError,
+    },
     worker::{
         event::{Event, EventListener, RawEventListener},
+        lifecycle::TaskLifecycleError,
         state::{InnerWorkerState, WorkerState},
     },
 };
@@ -76,66 +78,41 @@ use crate::{
 ///  **Tip**: All fields are wrapped inside [`Arc`] so it should be cheap to clone
 #[derive(Clone)]
 pub struct WorkerContext {
-    pub(super) name: Arc<String>,
-    task_count: Arc<AtomicUsize>,
+    pub(crate) name: Arc<String>,
     /// The waker used to wake the worker when tasks complete or shutdown is triggered.
     waker: Arc<Mutex<Option<Waker>>>,
     state: Arc<WorkerState>,
     pub(crate) shutdown: Option<Shutdown>,
     event_handler: EventListener,
     pub(super) is_ready: Arc<AtomicBool>,
-    pub(super) service: &'static str,
+    service: &'static str,
+    tasks: Arc<DashSet<TaskContext>>,
+    instant: Instant,
+    restarts: Arc<AtomicUsize>,
 }
 
 impl fmt::Debug for WorkerContext {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("WorkerContext")
             .field("shutdown", &["Shutdown handle"])
-            .field("task_count", &self.task_count)
+            .field("task_count", &self.task_count())
             .field("state", &self.state.load(Ordering::SeqCst))
             .field("service", &self.service)
             .field("is_ready", &self.is_ready)
+            .field("tasks", &"[..]")
+            .field("elapsed", &self.instant.elapsed())
+            .field("restarts", &self.restarts)
             .finish()
-    }
-}
-
-/// A future tracked by the worker
-#[pin_project::pin_project(PinnedDrop)]
-#[derive(Debug)]
-pub struct Tracked<F> {
-    ctx: WorkerContext,
-    #[pin]
-    task: F,
-}
-
-impl<F: Future> Future for Tracked<F> {
-    type Output = F::Output;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<F::Output> {
-        let this = self.project();
-
-        match this.task.poll(cx) {
-            res @ Poll::Ready(_) => res,
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-#[pin_project::pinned_drop]
-impl<F> PinnedDrop for Tracked<F> {
-    fn drop(self: Pin<&mut Self>) {
-        self.ctx.end_task();
     }
 }
 
 impl WorkerContext {
     /// Create a new worker context
     #[must_use]
-    pub fn new<S>(name: &str) -> Self {
+    pub fn new(name: &str) -> Self {
         Self {
             name: Arc::new(name.to_owned()),
-            service: type_name::<S>(),
-            task_count: Default::default(),
+            service: "Unspecified",
             waker: Default::default(),
             state: Default::default(),
             shutdown: Default::default(),
@@ -143,12 +120,15 @@ impl WorkerContext {
                 // noop
             })),
             is_ready: Default::default(),
+            tasks: Default::default(),
+            instant: Instant::now(),
+            restarts: Default::default(),
         }
     }
 
     /// Get the worker id
     #[must_use]
-    pub fn name(&self) -> &String {
+    pub fn name(&self) -> &str {
         &self.name
     }
 
@@ -162,26 +142,22 @@ impl WorkerContext {
             .store(InnerWorkerState::Running, Ordering::SeqCst);
         self.is_ready.store(false, Ordering::SeqCst);
         info!("Worker {} started", self.name());
+        self.wake();
         Ok(())
     }
 
     /// Restart running the worker
-    pub fn restart(&mut self) -> Result<(), WorkerError> {
+    pub(crate) fn restart(&self) -> Result<(), WorkerError> {
         self.state
             .store(InnerWorkerState::Pending, Ordering::SeqCst);
         self.is_ready.store(false, Ordering::SeqCst);
+        self.cleanup();
+        self.restarts.fetch_add(1, Ordering::SeqCst);
         info!("Worker {} restarted", self.name());
+        self.wake();
         Ok(())
     }
 
-    /// Start a task that is tracked by the worker
-    pub fn track<F: Future>(&self, task: F) -> Tracked<F> {
-        self.start_task();
-        Tracked {
-            ctx: self.clone(),
-            task,
-        }
-    }
     /// Pauses a worker, preventing any new jobs from being polled
     pub fn pause(&self) -> Result<(), WorkerError> {
         if !self.is_running() {
@@ -227,10 +203,85 @@ impl WorkerContext {
         self.is_running() && !self.is_shutting_down() && self.is_ready.load(Ordering::SeqCst)
     }
 
-    /// Get the type of service
+    /// Get the `type_name` of the service used
+    ///
+    /// ## Example
+    /// ```ignore
+    /// async fn send_email(email: Email) {}
+    ///
+    /// // Might be something like:
+    /// TaskFn<send_email, Email, ()>>
+    /// ```
     #[must_use]
     pub fn get_service(&self) -> &str {
         self.service
+    }
+
+    pub(super) fn bind_service<T>(&mut self) {
+        let service = std::any::type_name::<T>();
+
+        const RULES: &[(&str, &str, &str)] = &[
+            (
+                "Retry<",
+                "Trace<",
+                "`retries()` must be before `enable_tracing()`; traces produced will provide invalid attempt information",
+            ),
+            (
+                "Retry<",
+                "PrometheusService<",
+                "`retries()` must be before `prometheus()`; metrics inside retries will be invalid",
+            ),
+            (
+                "Retry<",
+                "Timeout<",
+                "`retries()` must be before `timeout()`; timeouts will be applied to the total retry process",
+            ),
+            (
+                "Timeout<",
+                "Trace<",
+                "`timeout()` should be before `enable_tracing()`; otherwise timeout failures may not be reflected correctly in traces",
+            ),
+            (
+                "Timeout<",
+                "PrometheusService<",
+                "`timeout()` should be before `prometheus()`; otherwise timeout failures may not be reflected correctly in metrics",
+            ),
+            (
+                "ConcurrencyLimit<",
+                "Retry<",
+                "`concurrency()` should generally be before `retries()`; otherwise each retry may consume a separate concurrency slot",
+            ),
+            (
+                "ConcurrencyLimit<",
+                "Timeout<",
+                "`concurrency()` should generally be before `timeout()`; otherwise queued requests may consume timeout duration",
+            ),
+            (
+                "RateLimit<",
+                "Retry<",
+                "`rate_limit()` should generally be before `retries()`; otherwise retries may consume rate-limit capacity",
+            ),
+            (
+                "LoadShed<",
+                "Retry<",
+                "`load_shed()` should generally be before `retries()`; otherwise retries may repeatedly encounter load-shed failures",
+            ),
+            (
+                "Retry<",
+                "CatchPanicService<",
+                "`catch_panic()` should generally be after `retries()` if panics are intended to participate in retry handling",
+            ),
+        ];
+
+        for &(outer, inner, message) in RULES {
+            if let (Some(a), Some(b)) = (service.find(outer), service.find(inner)) {
+                if a > b {
+                    warn!("{message}");
+                }
+            }
+        }
+
+        self.service = service;
     }
 
     /// Checks whether the worker is running
@@ -254,20 +305,27 @@ impl WorkerContext {
     /// Checks whether the worker has been stopped
     #[must_use]
     pub fn is_stopped(&self) -> bool {
-        self.state.load(Ordering::SeqCst) == InnerWorkerState::Stopped
+        self.state.load(Ordering::SeqCst) == InnerWorkerState::Stopped || self.is_terminated()
+    }
+
+    /// Checks whether the worker is terminated
+    ///
+    #[must_use]
+    pub fn is_terminated(&self) -> bool {
+        self.state.load(Ordering::SeqCst) == InnerWorkerState::Terminated
     }
 
     /// Checks the current futures in the worker domain
     /// This include futures spawned via `worker.track`
     #[must_use]
     pub fn task_count(&self) -> usize {
-        self.task_count.load(Ordering::Relaxed)
+        self.tasks.len()
     }
 
     /// Checks whether the worker has pending tasks
     #[must_use]
     pub fn has_pending_tasks(&self) -> bool {
-        self.task_count.load(Ordering::Relaxed) > 0
+        self.task_count() > 0
     }
 
     /// Is the shutdown token called
@@ -276,9 +334,20 @@ impl WorkerContext {
         self.is_stopped() || self.shutdown.as_ref().is_some_and(|s| s.is_shutting_down())
     }
 
-    /// Allows workers to emit events
-    pub fn emit(&mut self, event: &Event) {
+    /// Get the current worker state
+    #[must_use]
+    pub fn state(&self) -> &str {
+        self.state.as_str()
+    }
+
+    /// Emits an event to the worker's event handler
+    pub(crate) fn emit_event(&self, event: &Event) {
         self.emit_ref(event);
+    }
+
+    /// Emits a [`Event::Custom`] to the worker's event handler
+    pub fn emit<T: Send + Sync + 'static>(&self, data: T) {
+        self.emit_ref(&Event::custom(data));
     }
 
     fn emit_ref(&self, event: &Event) {
@@ -286,8 +355,16 @@ impl WorkerContext {
         handler(self, event);
     }
 
+    /// Calls a method to signify a heartbeat with the worker
+    pub fn heartbeat(&self, cx: &mut Context<'_>) {
+        self.register_waker(cx);
+        self.emit_ref(&Event::HeartBeat);
+        // Mark the worker as ready/alive.
+        self.is_ready.store(true, Ordering::SeqCst);
+    }
+
     /// Wraps the event listener with a new function
-    pub fn wrap_listener<F: Fn(&Self, &Event) + Send + Sync + 'static>(&mut self, f: F) {
+    pub(crate) fn add_listener<F: Fn(&Self, &Event) + Send + Sync + 'static>(&mut self, f: F) {
         let cur = self.event_handler.clone();
         let new: RawEventListener = Box::new(move |ctx, ev| {
             f(ctx, ev);
@@ -310,16 +387,6 @@ impl WorkerContext {
         }
     }
 
-    fn start_task(&self) {
-        self.task_count.fetch_add(1, Ordering::Relaxed);
-    }
-
-    fn end_task(&self) {
-        if self.task_count.fetch_sub(1, Ordering::Relaxed) == 1 {
-            self.wake();
-        }
-    }
-
     pub(crate) fn wake(&self) {
         if let Ok(waker) = self.waker.lock() {
             if let Some(waker) = &*waker {
@@ -327,57 +394,133 @@ impl WorkerContext {
             }
         }
     }
-}
 
-/// Internal handle used to await worker shutdown completion.
-///
-/// This owns the `Future` impl that used to live on `WorkerContext` directly.
-/// `WorkerContext` itself is `Clone` and handed out freely to backends,
-/// middleware, and user code — it deliberately does NOT implement `Future`,
-/// so nothing outside this module can accidentally spawn a second task
-/// awaiting worker completion with its own independent waker. Only
-/// `stream_with_ctx`'s single unified `stream_select!` loop drives shutdown
-/// awaiting, via this private handle.
-pub(super) struct WorkerHandle {
-    inner: WorkerContext,
-}
+    /// Register the [`ExecutionContext`] to get the [`TaskContext`]
+    pub(super) fn register_task(
+        &self,
+        ctx: &Arc<ExecutionContext>,
+    ) -> Result<TaskContext, TaskLifecycleError> {
+        let task_id = ctx
+            .task_id()
+            .ok_or(TaskLifecycleError::MissingTaskId)?
+            .to_string();
 
-impl WorkerHandle {
-    pub(super) fn new(ctx: WorkerContext) -> Self {
-        Self { inner: ctx }
-    }
-}
+        let tasks = &self.tasks;
 
-impl Future for WorkerHandle {
-    type Output = Result<(), WorkerError>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = &self.inner;
-        let task_count = this.task_count.load(Ordering::Relaxed);
-        let state = this.state.load(Ordering::SeqCst);
-
-        if state == InnerWorkerState::Pending {
-            return Poll::Ready(Err(WorkerError::StateError(WorkerStateError::NotStarted)));
+        if tasks.contains(task_id.as_str()) {
+            return Err(TaskLifecycleError::Duplicate);
         }
-        if this.is_shutting_down() && task_count == 0 {
-            Poll::Ready(Ok(()))
+
+        let token = TaskContext::new(ctx);
+        tasks.insert(token.clone());
+        Ok(token)
+    }
+
+    /// Cancel a specific task, if it's tracked.
+    pub fn cancel_task(&self, context: &TaskContext) -> Result<(), TaskStateError> {
+        if let Some(token) = self.tasks.get(context) {
+            token.cancel()
         } else {
-            // Same single shared waker slot as before — sound here because
-            // this is the only place in the codebase that ever polls a
-            // worker-completion future or drives backend polling for this
-            // worker; both live under the one stream_select! task below.
-            this.register_waker(cx);
-            Poll::Pending
+            Err(TaskStateError::TaskNotFound)
         }
+    }
+
+    /// Remove the token once the task completes, to avoid unbounded growth.
+    pub(super) fn remove_task(&self, ctx: &TaskContext) -> bool {
+        let task_id = ctx.task_id();
+        self.tasks.remove(task_id).is_some()
+    }
+
+    /// Extracts the [`TaskContext`] from the [`WorkerContext`]
+    pub(crate) fn get_task_context(
+        &self,
+        ctx: &Arc<ExecutionContext>,
+    ) -> Result<TaskContext, MissingDataError> {
+        self.get_task(ctx.task_id().unwrap().to_string().as_str())
+    }
+
+    /// Get the task context for a task attached to a worker
+    pub fn get_task(&self, task_id: &str) -> Result<TaskContext, MissingDataError> {
+        let tasks = &self.tasks;
+        Ok(tasks
+            .get(task_id)
+            .ok_or(MissingDataError::NotFound("TaskContext".to_owned()))?
+            .clone())
+    }
+
+    /// Remove any completed tasks
+    pub fn cleanup(&self) {
+        let tasks = &self.tasks;
+        tasks.retain(|token| !(token.is_completed() && token.is_empty()));
+    }
+
+    /// Get the context of each running task
+    #[must_use]
+    pub fn tasks(&self) -> Vec<TaskContext> {
+        self.tasks.iter().map(|s| s.clone()).collect()
+    }
+
+    /// Returns the amount of time elapsed since this worker started.
+    #[must_use]
+    pub fn elapsed(&self) -> Duration {
+        self.instant.elapsed()
+    }
+
+    /// Returns the number of times the worker has been restated:
+    ///
+    /// See also [`Monitor::should_restart`]
+    ///
+    /// [`Monitor::should_restart`]: crate::monitor::Monitor::should_restart
+    #[must_use]
+    pub fn restarts(&self) -> usize {
+        self.restarts.load(Ordering::SeqCst)
+    }
+
+    /// This forces a shutting down worker to exit.
+    pub fn kill(&mut self) -> Result<(), WorkerError> {
+        if !self.is_shutting_down() {
+            return Err(WorkerError::StateError(WorkerStateError::InvalidState(
+                "Worker is not shutting down".to_owned(),
+            )));
+        }
+        if self.task_count() != 0 {
+            self.tasks()
+                .into_iter()
+                .map(|a| a.cancel())
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| {
+                    WorkerError::StateError(WorkerStateError::InvalidState(e.to_string()))
+                })?;
+        }
+        self.state
+            .store(InnerWorkerState::Terminated, Ordering::SeqCst);
+        self.wake();
+        Ok(())
     }
 }
 
-impl<Args: Sync, Conn: Send + Sync, Id: Sync + Send> FromRequest<Task<Args, Conn, Id>>
-    for WorkerContext
-{
+impl From<&str> for WorkerContext {
+    fn from(name: &str) -> Self {
+        Self::new(name)
+    }
+}
+
+impl From<String> for WorkerContext {
+    fn from(name: String) -> Self {
+        Self::new(&name)
+    }
+}
+
+impl From<&Self> for WorkerContext {
+    fn from(context: &Self) -> Self {
+        context.clone()
+    }
+}
+
+impl<Args: Sync> FromRequest<Task<Args>> for WorkerContext {
     type Error = MissingDataError;
-    async fn from_request(task: &Task<Args, Conn, Id>) -> Result<Self, Self::Error> {
-        task.ctx.data.get_checked().cloned()
+    async fn from_request(task: &Task<Args>) -> Result<Self, Self::Error> {
+        task.data().get_checked().cloned()
     }
 }
 
@@ -399,6 +542,9 @@ impl Drop for WorkerContext {
 
 #[cfg(test)]
 mod tests {
+
+    use futures_util::FutureExt;
+
     use crate::{
         backend::memory::MemoryStorage, error::BoxDynError, worker::builder::WorkerBuilder,
     };
@@ -410,43 +556,42 @@ mod tests {
     async fn test_worker_state_transitions() {
         let backend = MemoryStorage::<u32>::new();
 
-        let worker = WorkerBuilder::new("test-worker")
+        let ctx = WorkerContext::new("test-worker");
+
+        let worker = WorkerBuilder::new(&ctx)
             .backend(backend)
             .build(|_task: u32| async { Ok::<_, BoxDynError>(()) });
 
-        let mut ctx = WorkerContext::new::<()>("test-worker");
-        let ctx_handle = ctx.clone();
-
-        let worker_handle = tokio::spawn(async move { worker.run_with_ctx(&mut ctx).await });
+        let worker_handle = tokio::spawn(async move { worker.run().boxed().await });
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Initial state: worker should be running
-        assert!(ctx_handle.is_running());
-        assert!(!ctx_handle.is_shutting_down());
-        assert!(!ctx_handle.is_stopped());
+        assert!(ctx.is_running());
+        assert!(!ctx.is_shutting_down());
+        assert!(!ctx.is_stopped());
 
         // Pause the worker
-        ctx_handle.pause().unwrap();
-        assert!(ctx_handle.is_paused());
+        ctx.pause().unwrap();
+        assert!(ctx.is_paused());
         assert!(
-            !ctx_handle.is_shutting_down(),
+            !ctx.is_shutting_down(),
             "Paused worker should NOT be considered shutting down"
         );
 
         // Resume the worker
-        ctx_handle.resume().unwrap();
-        assert!(ctx_handle.is_running());
-        assert!(!ctx_handle.is_paused());
+        ctx.resume().unwrap();
+        assert!(ctx.is_running());
+        assert!(!ctx.is_paused());
 
         // Stop the worker
-        ctx_handle.stop().unwrap();
-        assert!(ctx_handle.is_stopped());
-        assert!(ctx_handle.is_shutting_down());
+        ctx.stop().unwrap();
+        assert!(ctx.is_stopped());
+        assert!(ctx.is_shutting_down());
 
         // Try to resume a stopped worker (should fail with NotPaused error since state is Stopped)
         assert!(
             matches!(
-                ctx_handle.resume(),
+                ctx.resume(),
                 Err(WorkerError::StateError(WorkerStateError::NotPaused))
             ),
             "Resuming a stopped worker should fail with NotPaused error"

@@ -8,6 +8,14 @@ macro_rules! debug {
 
 #[cfg(feature = "tracing")]
 #[allow(unused_macros)]
+macro_rules! trace {
+    ($($tt:tt)*) => {
+        tracing::trace!($($tt)*)
+    }
+}
+
+#[cfg(feature = "tracing")]
+#[allow(unused_macros)]
 macro_rules! info {
     ($($tt:tt)*) => {
         tracing::info!($($tt)*)
@@ -22,9 +30,23 @@ macro_rules! error {
     };
 }
 
+#[cfg(feature = "tracing")]
+#[allow(unused_macros)]
+macro_rules! warn {
+    ($($tt:tt)*) => {
+        tracing::warn!($($tt)*)
+    }
+}
+
 #[cfg(not(feature = "tracing"))]
 #[allow(unused_macros)]
 macro_rules! debug {
+    ($($tt:tt)*) => {};
+}
+
+#[cfg(not(feature = "tracing"))]
+#[allow(unused_macros)]
+macro_rules! trace {
     ($($tt:tt)*) => {};
 }
 
@@ -37,6 +59,12 @@ macro_rules! info {
 #[cfg(not(feature = "tracing"))]
 #[allow(unused_macros)]
 macro_rules! error {
+    ($($tt:tt)*) => {};
+}
+
+#[cfg(not(feature = "tracing"))]
+#[allow(unused_macros)]
+macro_rules! warn {
     ($($tt:tt)*) => {};
 }
 
@@ -188,11 +216,12 @@ macro_rules! features_table {
         "    worker.run().await.unwrap();\n",
         "}\n"
     ) };
-    (@assert_function MakeShared) => { "fn assert_make_shared<T: Clone + Send + 'static>(t: T); assert_make_shared(backend);" };
+    (@assert_function BackendFactory) => { "fn assert_make_shared<T: Clone + Send + 'static>(t: T); assert_make_shared(backend);" };
     // Standardized assert function mapping for identifiers
     (@assert_function Workflow) => { concat!(
         "    # use apalis_workflow::*;\n",
-        "    backend.push_start(42).await.unwrap();\n\n",
+        "    # use apalis_core::backend::TaskSink;\n",
+        "    backend.push(42).await.unwrap();\n\n",
         "    async fn task1(task: u32, worker: WorkerContext) -> u32 {\n",
         "        task + 99 \n",
         "    }\n",
@@ -203,7 +232,7 @@ macro_rules! features_table {
         "        assert_eq!(task, 142);\n",
         "        worker.stop().unwrap();\n",
         "    }\n",
-        "    let workflow = Workflow::new(\"test-workflow\")\n",
+        "    let workflow = SteppedFlow::new(\"test-workflow\")\n",
         "       .and_then(task1)\n",
         "       .and_then(task2)\n",
         "       .and_then(task3);\n",
@@ -215,24 +244,27 @@ macro_rules! features_table {
     ) };
     (@assert_function Serialization) => { concat!(
         "    # use apalis_core::backend::codec::Codec;\n",
-        "    # use apalis_core::backend::Backend;\n",
-        "   fn assert_codec<B: Backend<Args =()>>(backend: B) \n",
+        "    # use apalis_core::backend::BackendConfig;\n",
+        "    # use apalis_core::backend::WireFormatBackend;\n",
+        "   fn assert_codec<B: BackendConfig + WireFormatBackend>(backend: B) \n",
         "   where\n",
-        "       B::Codec: Codec<(), Compact=Vec<u8>>,\n",
+        "       B::Codec: Codec<B::Args, Compact=Vec<u8>>,\n",
         "   {\n",
         "   }\n",
         "   assert_codec(backend);\n",
         "}\n"
     ) };
     (@assert_function WaitForCompletion) => { concat!(
-        "# use apalis_core::backend::WaitForCompletion;\n",
-        "    fn assert_wait_for_completion<B: WaitForCompletion<Args = u32>>(backend: B) {};\n",
+        "    # use apalis_core::backend::Backend;\n",
+        "    # use apalis_core::backend::WaitForCompletion;\n",
+        "    fn assert_wait_for_completion<B: WaitForCompletion<u32> + Backend>(backend: B) {};\n",
         "    assert_wait_for_completion(backend);\n",
         "}\n"
     ) };
     (@assert_function WebUI) => { concat!(
         "# use apalis_core::backend::Expose;\n",
-        "    fn assert_web_ui<B: Expose<u32>>(backend: B) {};\n",
+        "# use apalis_core::backend::finalize::Durable;\n",
+        "    fn assert_web_ui<B: Expose<u32, Durable>>(backend: B) {};\n",
         "    assert_web_ui(backend);\n",
         "}\n"
     ) };

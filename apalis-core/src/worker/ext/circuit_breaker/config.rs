@@ -16,7 +16,7 @@ pub struct CircuitBreakerConfig {
 impl Default for CircuitBreakerConfig {
     fn default() -> Self {
         Self {
-            failure_threshold: 5,
+            failure_threshold: 50,
             recovery_timeout: Duration::from_secs(60),
             success_threshold: 0.5,
             half_open_max_calls: 3,
@@ -28,26 +28,26 @@ impl Default for CircuitBreakerConfig {
 impl CircuitBreakerConfig {
     /// Sets the failure threshold
     #[must_use]
-    pub fn with_failure_threshold(mut self, threshold: u32) -> Self {
+    pub fn failure_threshold(mut self, threshold: u32) -> Self {
         self.failure_threshold = threshold;
         self
     }
     /// Sets the recovery timeout
     #[must_use]
-    pub fn with_recovery_timeout(mut self, timeout: Duration) -> Self {
+    pub fn recovery_timeout(mut self, timeout: Duration) -> Self {
         self.recovery_timeout = timeout;
         self
     }
     /// Sets the success threshold
     #[must_use]
-    pub fn with_success_threshold(mut self, threshold: f32) -> Self {
+    pub fn success_threshold(mut self, threshold: f32) -> Self {
         self.success_threshold = threshold.clamp(0.0, 1.0);
         self
     }
 
     /// Sets the maximum number of calls allowed in the half-open state
     #[must_use]
-    pub fn with_half_open_max_calls(mut self, max_calls: u32) -> Self {
+    pub fn half_open_max_calls(mut self, max_calls: u32) -> Self {
         self.half_open_max_calls = max_calls;
         self
     }

@@ -9,12 +9,7 @@ use std::{
 use futures_sink::Sink;
 use futures_util::SinkExt;
 
-use crate::{
-    backend::{queue::Queue, *},
-    features_table,
-    task::Task,
-    worker::context::WorkerContext,
-};
+use crate::{backend::*, worker::context::WorkerContext};
 
 /// A `Backend` wrapper that swaps out the serialization codec entirely (JSON,
 /// MessagePack, Protobuf, ...) without touching storage logic.
@@ -24,13 +19,13 @@ use crate::{
         # {
         #   use apalis_core::backend::memory::MemoryStorage;
         #   use apalis_core::backend::ext::with_codec::WithCodec;
-        #   use apalis_core::backend::codec::IdentityCodec;
         #   let memory = MemoryStorage::new();
-        #   WithCodec::new(memory, IdentityCodec)
+        #.  pub struct MyCodec;
+        #   WithCodec::new(memory, MyCodec)
         # };
     "#,
-    Backend => supported("Basic Backend functionality", true),
-    TaskSink => supported("Ability to push new tasks", true),
+    Backend => supported("Basic Backend functionality", false),
+    TaskSink => supported("Ability to push new tasks", false),
     InheritsFeatures => limited("Inherits features from the underlying backend", false),
 }]
 pub struct WithCodec<B, NewCodec> {
@@ -48,27 +43,9 @@ impl<B, NewCodec> WithCodec<B, NewCodec> {
 impl<B, NewCodec> Backend for WithCodec<B, NewCodec>
 where
     B: Backend,
-    NewCodec: Codec<B::Args, Compact = B::Compact> + Send + 'static,
 {
-    type Args = B::Args;
-    type Id = B::Id;
-    type Connection = B::Connection;
+    type Task = B::Task;
     type Error = B::Error;
-    type Codec = NewCodec;
-    type Compact = B::Compact;
-    type Layer = B::Layer;
-
-    fn codec(&self) -> &Self::Codec {
-        &self.codec
-    }
-
-    fn queue(&self) -> Queue {
-        self.backend.queue()
-    }
-
-    fn middleware(&self) -> Self::Layer {
-        self.backend.middleware()
-    }
 
     fn poll_ready(
         &mut self,
@@ -82,7 +59,7 @@ where
         &mut self,
         cx: &mut Context<'_>,
         worker: &WorkerContext,
-    ) -> Poll<Option<Result<Task<Self::Compact, Self::Connection, Self::Id>, Self::Error>>> {
+    ) -> Poll<Option<Result<Self::Task, Self::Error>>> {
         self.backend.poll_next(cx, worker)
     }
     fn poll_close(
@@ -94,14 +71,32 @@ where
     }
 }
 
+impl<B, NewCodec, Args> WireFormatBackend for WithCodec<B, NewCodec>
+where
+    NewCodec: Codec<Args> + Send + 'static,
+    B: BackendConfig<Args = Args>,
+{
+    type Codec = NewCodec;
+
+    type Compact = NewCodec::Compact;
+
+    fn codec(&self) -> &Self::Codec {
+        &self.codec
+    }
+}
+
 delegate_sink!(WithCodec<B, NewCodec>, backend);
+
+delegate_deref!(WithCodec<B, NewCodec>, backend);
+
+delegate_config!(WithCodec<B, NewCodec>, backend);
 
 delegate_expose!(
     impl<B, C> for WithCodec<B, C>
     where {
-        B: Send + Sync,
-        C: Codec<B::Args, Compact = B::Compact> + Send + Sync + 'static,
-        B::Compact: Send
+        B: Send + Sync + Backend,
+        C: Send + Sync + 'static,
+
     }
     => backend
 );

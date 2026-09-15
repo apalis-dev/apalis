@@ -47,7 +47,12 @@ async fn main() -> Result<()> {
         .with(fmt_layer)
         .init();
 
-    let backend: MemoryStorage<TaskHandler> = MemoryStorage::new();
+    let mut backend: MemoryStorage<TaskHandler> = MemoryStorage::new();
+
+    backend
+        .push(TaskHandler::String("Test".to_string()))
+        .await
+        .unwrap();
 
     WorkerBuilder::new("enum_worker")
         .backend(backend)

@@ -1,10 +1,11 @@
 # apalis-workflow
 
-This crate provides a flexible and composable workflow engine for [apalis](https://github.com/apalis-dev/apalis). Can be used for building general workflows or advanced LLM workflows.
+This crate provides a flexible and composable workflow engine for [apalis](https://github.com/apalis-dev/apalis). 
+Can be used for building general workflows or advanced LLM workflows.
 
 ## Overview
 
-The workflow engine allows you to define a sequence or DAG chain of steps in a workflow.
+The workflow engine allows you to define a sequence or Graph chain of steps in a workflow.
 Workflows are built by composing steps/nodes, and can be executed using supported backends
 
 ## Features
@@ -24,21 +25,20 @@ Currently `apalis-workflow` supports sequential and directed acyclic graph based
 ```rust,ignore
 use apalis::prelude::*;
 use apalis_workflow::*;
-use apalis_file_storage::JsonStorage;;
+use apalis_file_storage::JsonStorage;
 
 #[tokio::main]
 async fn main() {
-   let workflow = Workflow::new("odd-numbers-workflow")
+    let mut in_memory = JsonStorage::new_temp().unwrap();
+   in_memory.push(10).await.unwrap();
+
+   let workflow = SteppedFlow::new("odd-numbers-workflow")
        .and_then(|a: usize| async move { Ok::<_, BoxDynError>((0..a).collect::<Vec<_>>()) })
        .filter_map(|x| async move { if x % 2 != 0 { Some(x) } else { None } })
        .and_then(|a: Vec<usize>| async move {
            println!("Sum: {}", a.iter().sum::<usize>());
            Ok::<_, BoxDynError>(())
         });
-
-   let mut in_memory = JsonStorage::new_temp().unwrap();
-
-   in_memory.push_start(10).await.unwrap();
 
    let worker = WorkerBuilder::new("rango-tango")
        .backend(in_memory)
@@ -55,7 +55,7 @@ async fn main() {
 ```rust,ignore
 use apalis::prelude::*;
 use apalis_file_storage::JsonStorage;
-use apalis_workflow::{DagFlow, WorkflowSink};
+use apalis_workflow::{GraphFlow, WorkflowSink};
 use serde_json::Value;
 
 async fn get_name(user_id: u32) -> Result<String, BoxDynError> {
@@ -89,7 +89,7 @@ async fn main() -> Result<(), BoxDynError> {
         .await
         .unwrap();
 
-    let dag_flow = DagFlow::new("user-etl-workflow");
+    let dag_flow = GraphFlow::new("user-etl-workflow");
     let get_name = dag_flow.node(get_name);
     let get_age = dag_flow.node(get_age);
     let get_address = dag_flow.node(get_address);
@@ -97,9 +97,9 @@ async fn main() -> Result<(), BoxDynError> {
         .node(collector)
         .depends_on((&get_name, &get_age, &get_address)); // Order and types matters here
 
-    dag_flow.validate()?; // Ensure DAG is valid
+    dag_flow.validate()?; // Ensure Graph is valid
 
-    info!("Executing workflow:\n{}", dag_flow); // Print the DAG structure in dot format
+    info!("Executing workflow:\n{}", dag_flow); // Print the Graph structure in dot format
 
     WorkerBuilder::new("tasty-banana")
         .backend(backend)
@@ -120,6 +120,7 @@ You can track your workflows using [apalis-board](https://github.com/apalis-dev/
 
 ## Backend Support
 
+- [x] InMemory
 - [x] [JSONStorage](https://docs.rs/apalis-file-storage/latest/apalis_file_storage/struct.JsonStorage.html)
 - [x] [SqliteStorage](https://docs.rs/apalis-sqlite#workflow-example)
 - [x] [RedisStorage](https://docs.rs/apalis-redis#workflow-example)
@@ -133,14 +134,14 @@ You can track your workflows using [apalis-board](https://github.com/apalis-dev/
 - [x] Delay: Delay execution
 - [x] FilterMap: MapReduce
 - [x] Fold
-- [-] Repeater
+- [x] Repeater
+- [x] Graph
 - [-] Subflow
-- [x] DAG
 
 ## Inspirations:
 
 - [Underway](https://github.com/maxcountryman/underway): Postgres-only `stepped` solution
-- [dagx](https://github.com/swaits/dagx): blazing fast _in-memory_ `dag` solution
+- [dagx](https://github.com/swaits/dagx): blazing fast _in-memory_ `graph` solution
 
 ## License
 

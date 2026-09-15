@@ -19,8 +19,8 @@
 //!     let worker = WorkerBuilder::new("rango-tango")
 //!         .backend(in_memory)
 //!         .parallelize(tokio::spawn)
-//!         .on_event(|ctx, ev| {
-//!             println!("CTX {:?}, On Event = {:?}", ctx.name(), ev);
+//!         .on_event(|wrk, ev| {
+//!             println!("CTX {:?}, On Event = {:?}", wrk.name(), ev);
 //!         })
 //!         .build(task);
 //!     worker.run().await.unwrap();
@@ -37,12 +37,12 @@ use tower_service::Service;
 use crate::{backend::Backend, error::BoxDynError, task::Task, worker::builder::WorkerBuilder};
 
 /// Worker extension for parallel execution
-pub trait ParallelizeExt<Args, Conn, Source, Middleware, Executor>: Sized {
+pub trait ParallelizeExt<Args, Source, Middleware, Executor>: Sized {
     /// Register the executor for parallel task execution.
     fn parallelize(
         self,
         f: Executor,
-    ) -> WorkerBuilder<Args, Conn, Source, Stack<ParallelizeLayer<Executor>, Middleware>>;
+    ) -> WorkerBuilder<Args, Source, Stack<ParallelizeLayer<Executor>, Middleware>>;
 }
 
 /// Middleware for emitting events
@@ -69,17 +69,16 @@ impl<S, Executor: Clone> Layer<S> for ParallelizeLayer<Executor> {
     }
 }
 
-/// Service for emitting events
+/// Service to allow spawning tasks with utils like `tokio::spawn`
 #[derive(Debug, Clone)]
 pub struct ParallelizeService<S, Executor> {
     service: S,
     executor: Executor,
 }
 
-impl<S, Args, Conn, Id, Fut, T, Executor, ExecErr> Service<Task<Args, Conn, Id>>
-    for ParallelizeService<S, Executor>
+impl<S, Args, Fut, T, Executor, ExecErr> Service<Task<Args>> for ParallelizeService<S, Executor>
 where
-    S: Service<Task<Args, Conn, Id>, Future = Fut>,
+    S: Service<Task<Args>, Future = Fut>,
     Executor: Fn(Fut) -> T + Send + 'static,
     Fut: Future<Output = Result<S::Response, S::Error>> + Send + 'static,
     T: Future<Output = Result<Result<S::Response, S::Error>, ExecErr>> + Send + 'static,
@@ -98,7 +97,7 @@ where
         self.service.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, request: Task<Args, Conn, Id>) -> Self::Future {
+    fn call(&mut self, request: Task<Args>) -> Self::Future {
         (self.executor)(self.service.call(request))
             .map_err(|e| e.into())
             .and_then(|s| ready(s.map_err(|e| e.into())))
@@ -106,16 +105,15 @@ where
     }
 }
 
-impl<Args, P, M, Conn, Executor> ParallelizeExt<Args, Conn, P, M, Executor>
-    for WorkerBuilder<Args, Conn, P, M>
+impl<Args, P, M, Executor> ParallelizeExt<Args, P, M, Executor> for WorkerBuilder<Args, P, M>
 where
-    P: Backend<Args = Args, Connection = Conn>,
+    P: Backend,
     M: Layer<ParallelizeLayer<Executor>>,
 {
     fn parallelize(
         self,
         f: Executor,
-    ) -> WorkerBuilder<Args, Conn, P, Stack<ParallelizeLayer<Executor>, M>> {
+    ) -> WorkerBuilder<Args, P, Stack<ParallelizeLayer<Executor>, M>> {
         self.layer(ParallelizeLayer::new(f))
     }
 }

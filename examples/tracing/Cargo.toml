@@ -10,13 +10,15 @@ anyhow = "1"
 apalis = { path = "../../apalis", features = ["opentelemetry"] }
 serde = "1"
 tokio = { version = "1", features = ["full"] }
-env_logger = "0.11"
-tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json"] }
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 email-service = { path = "../email-service" }
 futures = "0.3"
-opentelemetry = { version = "0.32.0", default-features = false, features = ["trace"] }
-opentelemetry_sdk = { version = "0.32.1", default-features = false, features = ["trace"] }
+opentelemetry = { version = "0.32.0", default-features = false, features = [
+    "trace",
+] }
+opentelemetry_sdk = { version = "0.32.1", default-features = false, features = [
+    "trace",
+] }
 tracing-opentelemetry = { version = "0.33.0", default-features = false }
 
 
@@ -24,3 +26,5 @@ tracing-opentelemetry = { version = "0.33.0", default-features = false }
 default-features = false
 version = "0.1"
 features = ["attributes"]
+
+

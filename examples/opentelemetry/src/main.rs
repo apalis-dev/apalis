@@ -23,7 +23,6 @@ use prometheus::{Encoder, Registry, TextEncoder};
 use serde::{de::DeserializeOwned, Serialize};
 use std::{fmt::Debug, net::SocketAddr, sync::OnceLock};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-// use opentelemetry_otlp::{MetricExporter, Protocol, WithExportConfig};
 
 use email_service::{send_email, Email, FORM_HTML};
 
@@ -124,7 +123,6 @@ async fn add_new_job<T>(
 where
     T: 'static + Debug + Serialize + DeserializeOwned + Unpin + Send + Sync,
 {
-    dbg!(&input);
     let new_job = storage.push(input).await;
 
     match new_job {

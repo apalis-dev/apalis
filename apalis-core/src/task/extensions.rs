@@ -73,7 +73,7 @@ impl Extensions {
 
     /// Insert a type into this `Extensions`.
     ///
-    /// If a extension of this type already existed, it will
+    /// If an extension of this type already existed, it will
     /// be returned.
     ///
     /// # Example

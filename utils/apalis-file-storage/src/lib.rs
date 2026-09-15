@@ -28,7 +28,10 @@ use crate::error::FileStorageError;
 
 use self::util::RawTask;
 use apalis_core::{
-    backend::{Backend, TaskResult, WaitForCompletion, queue::Queue},
+    backend::{
+        Backend, BackendConfig, TaskResult, TryNewBackend, WaitForCompletion, WireFormatBackend,
+        finalize::Durable,
+    },
     error::BoxDynError,
     features_table,
     task::{
@@ -58,6 +61,7 @@ pub use adapter::Adapter;
 
 /// Handles the sync policy for when to flush pending changes to disk.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum SyncPolicy {
     /// Flush to disk after every change.
     Instant,
@@ -89,7 +93,7 @@ enum PendingChange {
 /// ```rust
 /// # use apalis_file_storage::JsonStorage;;
 /// # pub fn setup_json_storage() -> JsonStorage<u32> {
-/// let mut backend = JsonStorage::new_temp().unwrap();
+/// let mut backend: JsonStorage<u32> = JsonStorage::new_temp().unwrap();
 /// # backend
 /// # }
 /// ```
@@ -97,7 +101,7 @@ enum PendingChange {
     setup = r#"
         # {
         #   use apalis_file_storage::JsonStorage;;
-        #   let mut backend = JsonStorage::new_temp().unwrap();
+        #   let mut backend: JsonStorage<u32> = JsonStorage::new_temp().unwrap();
         #   backend
         # };
     "#,
@@ -108,7 +112,7 @@ enum PendingChange {
     FetchById => not_implemented("Allow fetching a task by its ID"),
     RegisterWorker => not_supported("Allow registering a worker with the backend"),
     "[`PipeExt`]" => supported("Allow other backends to pipe to this backend", false),
-    MakeShared => supported("Share the same storage across multiple workers via [`SharedJsonStore`]", false),
+    BackendFactory => supported("Share the same storage across multiple workers via [`SharedJsonStore`]", false),
     Workflow => supported("Flexible enough to support workflows", true),
     WaitForCompletion => supported("Wait for tasks to complete without blocking", true),
     ResumeById => not_implemented("Resume a task by its ID"),
@@ -455,7 +459,7 @@ impl<A: Adapter + Unpin, Args: Unpin> Stream for FileStorage<Args, A> {
             this.read_cursor += 1;
             Poll::Ready(Some(Ok((line_id, job))))
         } else {
-            Poll::Ready(None)
+            Poll::Pending
         }
     }
 }
@@ -463,25 +467,12 @@ impl<A: Adapter + Unpin, Args: Unpin> Stream for FileStorage<Args, A> {
 impl<Args, A> Backend for FileStorage<Args, A>
 where
     Args: 'static + Send + Serialize + for<'de> Deserialize<'de> + Unpin,
-    A: Adapter + Unpin + Clone,
+    A: Adapter + Unpin,
     A::Error: std::error::Error + Send + Sync + 'static,
 {
-    type Args = Args;
-    type Id = RandomId;
+    type Task = Task<Value>;
     type Error = FileStorageError<A>;
-    type Connection = MetadataStore;
-    type Layer = AcknowledgeLayer<Self>;
-    type Codec = JsonCodec<Value>;
-    type Compact = Value;
-    fn middleware(&self) -> Self::Layer {
-        AcknowledgeLayer::new(self.clone())
-    }
-    fn codec(&self) -> &Self::Codec {
-        &self.codec
-    }
-    fn queue(&self) -> Queue {
-        std::any::type_name::<Args>().into()
-    }
+
     fn poll_ready(
         &mut self,
         cx: &mut Context<'_>,
@@ -499,14 +490,12 @@ where
         &mut self,
         cx: &mut Context<'_>,
         _: &WorkerContext,
-    ) -> Poll<Option<Result<Task<Self::Compact, Self::Connection, Self::Id>, Self::Error>>> {
+    ) -> Poll<Option<Result<Self::Task, Self::Error>>> {
         self.poll_next_unpin(cx).map_ok(|(line_id, mut job)| {
             job.ctx.insert("line_id", line_id.to_string()).unwrap();
-            let mut task = TaskBuilder::new(job.args).with_metadata(job.ctx);
-
-            if let Some(task_id) = job.task_id {
-                task = task.task_id(task_id);
-            }
+            let task = TaskBuilder::new(job.args)
+                .with_metadata(job.ctx)
+                .task_id(job.task_id);
             task.build()
         })
     }
@@ -518,6 +507,39 @@ where
     ) -> Poll<Result<(), Self::Error>> {
         self.flush()?;
         Poll::Ready(Ok(()))
+    }
+}
+
+impl<Args, A> BackendConfig for FileStorage<Args, A>
+where
+    Args: 'static + Send + Serialize + for<'de> Deserialize<'de> + Unpin,
+    A: Adapter + Unpin + Clone,
+    A::Error: std::error::Error + Send + Sync + 'static,
+{
+    type Args = Args;
+    type Id = RandomId;
+    type Kind = Durable;
+    type Config = PathBuf;
+    type Layer = AcknowledgeLayer<Self>;
+    fn middleware(&mut self, _: &mut WorkerContext) -> Self::Layer {
+        AcknowledgeLayer::new(self.clone())
+    }
+
+    fn config(&self) -> &Self::Config {
+        &self.path
+    }
+}
+
+impl<Args, A> WireFormatBackend for FileStorage<Args, A>
+where
+    Args: 'static + Send + Serialize + for<'de> Deserialize<'de> + Unpin,
+    A: Adapter + Unpin,
+    A::Error: std::error::Error + Send + Sync + 'static,
+{
+    type Codec = JsonCodec<Value>;
+    type Compact = Value;
+    fn codec(&self) -> &Self::Codec {
+        &self.codec
     }
 }
 
@@ -599,7 +621,10 @@ impl Adapter for CsvAdapter {
 
         let idempotency_key = line.get("idempotency_key").cloned();
 
-        let task_id = line.get("task_id").and_then(|s| FromStr::from_str(s).ok());
+        let task_id = line
+            .get("task_id")
+            .and_then(|s| FromStr::from_str(s).ok())
+            .unwrap_or(TaskId::from_string(RandomId::default()));
 
         let ctx = line
             .iter()
@@ -621,14 +646,7 @@ impl Adapter for CsvAdapter {
     fn from_entry(entry: &RawTask) -> Result<Self::Line, Self::Error> {
         let mut line = BTreeMap::new();
 
-        line.insert(
-            "task_id".to_owned(),
-            entry
-                .task_id
-                .as_ref()
-                .map(|t| t.to_string())
-                .unwrap_or_default(),
-        );
+        line.insert("task_id".to_owned(), entry.task_id.to_string());
 
         let args = util::from_value(Some("args"), &entry.args);
 
@@ -685,7 +703,7 @@ impl Adapter for CsvAdapter {
     }
 }
 
-impl<Args, Res, A> Acknowledge<Res, MetadataStore, RandomId> for FileStorage<Args, A>
+impl<Args, Res, A> Acknowledge<Res> for FileStorage<Args, A>
 where
     Args: Send + 'static + Debug,
     Res: Serialize,
@@ -695,15 +713,11 @@ where
 
     type Future = Ready<Result<(), Self::Error>>;
 
-    fn ack(
-        &mut self,
-        res: &Result<Res, BoxDynError>,
-        ctx: &ExecutionContext<MetadataStore, RandomId>,
-    ) -> Self::Future {
+    fn ack(&mut self, res: &Result<Res, BoxDynError>, ctx: &ExecutionContext) -> Self::Future {
         let res = |this: &mut Self| {
             let val = serde_json::to_value(res.as_ref().map_err(|e| e.to_string()))?;
             let line_id = ctx
-                .metadata
+                .metadata()
                 .get("line_id")
                 .unwrap()
                 .parse()
@@ -716,22 +730,22 @@ where
     }
 }
 
-impl<Args: 'static + Sync, A> WaitForCompletion for FileStorage<Args, A>
+impl<Args, A, O> WaitForCompletion<O> for FileStorage<Args, A>
 where
-    Args: Send + DeserializeOwned + 'static + Unpin + Serialize,
+    O: Send + DeserializeOwned + 'static + Unpin + Serialize,
     A: Adapter + Unpin + Sync + Clone,
     A::Error: std::error::Error + Send + Sync + 'static,
+    Args: Serialize + DeserializeOwned + 'static + Send + Sync + Unpin,
 {
-    type ResultStream =
-        BoxStream<'static, Result<TaskResult<Value, RandomId>, FileStorageError<A>>>;
-    fn wait_for(&self, task_ids: impl IntoIterator<Item = TaskId<Self::Id>>) -> Self::ResultStream {
+    type ResultStream = BoxStream<'static, Result<TaskResult<O>, FileStorageError<A>>>;
+    fn wait_for(&self, task_ids: impl IntoIterator<Item = TaskId>) -> Self::ResultStream {
         use futures_util::StreamExt;
         use std::{collections::HashSet, time::Duration};
 
         let task_ids: HashSet<_> = task_ids.into_iter().collect();
         struct PollState<Res, T, A: Adapter> {
             vault: FileStorage<T, A>,
-            pending_tasks: HashSet<TaskId<RandomId>>,
+            pending_tasks: HashSet<TaskId>,
             poll_interval: Duration,
             _phantom: std::marker::PhantomData<Res>,
         }
@@ -754,23 +768,31 @@ where
                     let completed_task = {
                         let vault = vault.entries.try_read().ok()?;
                         vault.iter().find_map(|value| {
-                            let task_id = value.task_id.clone()?;
+                            let attempt = value
+                                .ctx
+                                .get("attempt")
+                                .map(|s| FromStr::from_str(s))
+                                .transpose()
+                                .unwrap_or_default()
+                                .unwrap_or_default();
+                            let task_id = value.task_id.clone();
                             if state.pending_tasks.contains(&task_id) {
-                                Some((task_id, value.result.clone()?))
+                                Some((task_id, value.result.clone()?, attempt))
                             } else {
                                 None
                             }
                         })
                     };
 
-                    if let Some((task_id, result)) = completed_task {
+                    if let Some((task_id, result, attempt)) = completed_task {
                         state.pending_tasks.remove(&task_id);
-                        let result: Result<Value, String> = serde_json::from_value(result).unwrap();
+                        let result: Result<O, String> = serde_json::from_value(result).unwrap();
                         return Some((
                             Ok(TaskResult {
                                 task_id,
                                 status: Status::Done,
                                 result,
+                                attempt,
                             }),
                             state,
                         ));
@@ -786,8 +808,8 @@ where
 
     async fn check_status(
         &self,
-        task_ids: impl IntoIterator<Item = TaskId<Self::Id>> + Send,
-    ) -> Result<Vec<TaskResult<Value, RandomId>>, Self::Error> {
+        task_ids: impl IntoIterator<Item = TaskId> + Send,
+    ) -> Result<Vec<TaskResult<O>>, Self::Error> {
         use apalis_core::task::status::Status;
         use std::collections::HashSet;
         let task_ids: HashSet<_> = task_ids.into_iter().collect();
@@ -798,34 +820,56 @@ where
                 .try_read()
                 .unwrap()
                 .iter()
-                .find(|s| s.task_id.as_ref().unwrap() == &task_id)
+                .find(|s| s.task_id == task_id)
             {
+                let attempt = value
+                    .ctx
+                    .get("attempt")
+                    .map(|s| FromStr::from_str(s))
+                    .transpose()
+                    .unwrap_or_default()
+                    .unwrap_or_default();
                 if value.result.is_none() {
                     results.push(TaskResult {
                         task_id: task_id.clone(),
                         status: Status::Pending,
                         result: Err("Task not completed yet".to_owned()),
+                        attempt,
                     });
                     continue;
                 }
-                let result = match serde_json::from_value::<Result<Value, String>>(
+                let result = match serde_json::from_value::<Result<O, String>>(
                     value.result.clone().unwrap(),
                 ) {
                     Ok(result) => TaskResult {
                         task_id: task_id.clone(),
                         status: Status::Done,
                         result,
+                        attempt,
                     },
                     Err(e) => TaskResult {
                         task_id: task_id.clone(),
                         status: Status::Failed,
                         result: Err(format!("Deserialization error: {e}")),
+                        attempt,
                     },
                 };
                 results.push(result);
             }
         }
         Ok(results)
+    }
+}
+
+impl<Args: Send + 'static, A> TryNewBackend for FileStorage<Args, A>
+where
+    A: Adapter + Default + Unpin + Sync + Clone,
+    A::Error: std::error::Error + Send + Sync + 'static,
+    Args: Serialize + DeserializeOwned + 'static + Send + Sync + Unpin,
+{
+    type Backend = Self;
+    fn try_new(config: Self::Config) -> Result<Self::Backend, Self::Error> {
+        Self::new(config)
     }
 }
 
@@ -851,10 +895,10 @@ mod tests {
             json_store.push(i).await.unwrap();
         }
 
-        async fn task(task: u32, ctx: WorkerContext) -> Result<(), BoxDynError> {
+        async fn task(task: u32, worker: WorkerContext) -> Result<(), BoxDynError> {
             tokio::time::sleep(Duration::from_secs(1)).await;
             if task == ITEMS - 1 {
-                ctx.stop().unwrap();
+                worker.stop().unwrap();
                 return Err("Worker stopped!")?;
             }
             Ok(())
@@ -862,8 +906,8 @@ mod tests {
 
         let worker = WorkerBuilder::new("rango-tango-json")
             .backend(json_store)
-            .on_event(|ctx, ev| {
-                println!("On Event = {ev:?} from = {}", ctx.name());
+            .on_event(|worker, ev| {
+                println!("On Event = {ev:?} from = {}", worker.name());
             })
             .build(task);
         worker.run().await.unwrap();
@@ -890,10 +934,10 @@ mod tests {
                 .unwrap();
         }
 
-        async fn task(task: Email, ctx: WorkerContext) -> Result<(), BoxDynError> {
+        async fn task(task: Email, worker: WorkerContext) -> Result<(), BoxDynError> {
             tokio::time::sleep(Duration::from_secs(1)).await;
             if task.index == ITEMS - 1 {
-                ctx.stop().unwrap();
+                worker.stop().unwrap();
                 return Err("Worker stopped!")?;
             }
             Ok(())
@@ -901,8 +945,8 @@ mod tests {
 
         let worker = WorkerBuilder::new("rango-tango-csv")
             .backend(csv_store)
-            .on_event(|ctx, ev| {
-                println!("On Event = {ev:?} from = {}", ctx.name());
+            .on_event(|worker, ev| {
+                println!("On Event = {ev:?} from = {}", worker.name());
             })
             .build(task);
         worker.run().await.unwrap();

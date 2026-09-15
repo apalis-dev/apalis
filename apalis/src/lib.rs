@@ -17,10 +17,14 @@
     rust_2018_idioms,
     unreachable_pub
 )]
-/// apalis fully supports middleware via [`Layer`](https://docs.rs/tower/latest/tower/trait.Layer.html)
+/// Inbuilt middleware build on top of tower's [`Layer`](https://docs.rs/tower/latest/tower/trait.Layer.html)
 pub mod layers;
 
-/// Common imports
+/// Worker configuration utilities allowing easier worker decoration
+#[cfg(feature = "config")]
+pub mod config;
+
+/// A "prelude" of common imports
 pub mod prelude {
     pub use crate::layers::WorkerBuilderExt;
     #[cfg(feature = "retry")]
@@ -32,28 +36,40 @@ pub mod prelude {
             Backend, Expose, FetchById, Filter, ListAllTasks, ListQueues, ListTasks, ListWorkers,
             Metrics, QueueInfo, RegisterWorker, Reschedule, ResumeAbandoned, ResumeById,
             RunningWorker, StatType, Statistic, TaskResult, TaskSink, TaskSinkError, Update,
-            WaitForCompletion,
+            WaitForCompletion, ext::BackendExt, ext::PollNextArgsError,
         },
-        backend::{codec::*, custom::*, ext::pipe::*, memory::*, poll_strategy::*, shared::*},
+        backend::{
+            codec::*, custom::*, ext::pipe::*, ext::poll_strategy::*, ext::shared::Shared,
+            factory::*, memory::*,
+        },
         error::*,
         layers::*,
-        monitor::{ExitError, Monitor, MonitorError, MonitoredWorkerError, shutdown::Shutdown},
-        task::ExecutionContext,
-        task::Task,
-        task::attempt::Attempt,
-        task::builder::TaskBuilder,
-        task::data::{AddExtension, Data, MissingDataError},
-        task::extensions::Extensions,
-        task::metadata::{Meta, Metadata, MetadataError, MetadataStore},
-        task::status::Status,
-        task::task_id::RandomId,
-        task::task_id::TaskId,
-        task::task_id::TaskIdError,
-        task_fn::{FromRequest, IntoResponse, TaskFn, task_fn},
+        monitor::{
+            ExitError, Monitor, MonitorError, MonitoredWorkerError, context::MonitorContext,
+            shutdown::Shutdown,
+        },
+        task::{
+            ExecutionContext, Task,
+            attempt::Attempt,
+            builder::TaskBuilder,
+            context::{SubTaskFuture, TaskContext, WaitForExecutionFuture},
+            data::{AddExtension, Data, MissingDataError},
+            extensions::Extensions,
+            from_request::FromRequest,
+            into_response::IntoResponse,
+            metadata::{Meta, Metadata, MetadataError, MetadataStore},
+            status::Status,
+            task_fn::TaskFn,
+            task_fn::task_fn,
+            task_id::{RandomId, TaskId, TaskIdError},
+        },
         worker::builder::*,
         worker::ext::{
             ack::*, circuit_breaker::*, event_listener::*, long_running::*, parallelize::*,
         },
-        worker::{Worker, context::WorkerContext, event::Event},
+        worker::{
+            Worker, context::WorkerContext, event::Event, lifecycle::*, service::IntoWorkerService,
+            service::WorkerService,
+        },
     };
 }

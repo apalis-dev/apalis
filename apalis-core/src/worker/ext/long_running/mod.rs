@@ -4,17 +4,15 @@
 //! The long-running task support ensures that tasks exceeding a specified duration are properly tracked and managed, allowing for graceful shutdown and resource cleanup.
 //!
 //! ## Features
-//! - [`TaskTracker`]: Monitors the duration of tasks and provides a mechanism to wait for their completion.
 //! - [`LongRunningLayer`]: A Tower middleware layer that wraps the worker's service to add long-running task tracking capabilities.
-//! - [`Runner`]: A runner that can be injected into tasks to allow them to register long-running operations.
-//! - [`RunnerContext`]: A context object built on top of the runner for spawning long running futures.
-//! - [`Receiver`]: A receiver for results from long running futures.
+//! - [`TaskRunner`]: A runner that can be injected into tasks to allow them to register long-running operations.
 //! - [`LongRunningExt`]: Provides an extension trait for easily adding long-running support to workers.
 //!
 //! ## Example
 //!
 //! ```rust
-//! # use apalis_core::worker::ext::long_running::{Runner, LongRunningExt};
+//! # use apalis_core::worker::ext::long_running::LongRunningExt;
+//! # use apalis_core::worker::ext::long_running::TaskRunner;
 //! # use apalis_core::worker::context::WorkerContext;
 //! # use apalis_core::backend::memory::MemoryStorage;
 //! # use apalis_core::worker::builder::WorkerBuilder;
@@ -30,21 +28,18 @@
 //!
 //!     async fn task(
 //!         task: u32,
-//!         runner: Runner,
+//!         mut handle: TaskRunner<u32>,
 //! #       worker: WorkerContext,
 //!     ) -> Result<u32, BoxDynError> {
-//!         let (ctx, receiver) = runner.channel();
-//!         // Spawn and track the long-running task
-//!         // Futures should be spawned by an executor and not awaited directly
-//!         // Graceful shutdown is also ensured.
-//!         tokio::spawn(ctx.execute(async move {
-//!             // Perform a long running task
+//!         handle.execute(tokio::spawn(async move {
 //!             tokio::time::sleep(Duration::from_secs(1)).await;
-//!             task
+//!             task * 2
 //!         }));
-//!         // Close the context and await for the results
-//!         ctx.wait().await;
-//!         let res = receiver.try_collect::<Vec<_>>().await?.iter().sum::<u32>();
+//!         handle.execute(tokio::spawn(async move {
+//!             tokio::time::sleep(Duration::from_secs(1)).await;
+//!             task * 5
+//!         }));
+//!         let res = handle.try_collect::<Vec<u32>>().await?.iter().sum::<u32>();
 //! #       tokio::spawn(async move {
 //! #            tokio::time::sleep(Duration::from_secs(1)).await;
 //! #            worker.stop().unwrap();
@@ -63,32 +58,27 @@ use std::{
     fmt::Debug,
     future::Future,
     pin::Pin,
-    sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
 
-use futures_channel::mpsc;
-use futures_core::Stream;
+use futures_core::{Stream, future::BoxFuture};
+use futures_util::{FutureExt, StreamExt, stream::FuturesUnordered};
 use tower_layer::{Layer, Stack};
 use tower_service::Service;
 
 use crate::{
     backend::Backend,
-    task::{Task, data::MissingDataError},
-    task_fn::FromRequest,
+    error::BoxDynError,
+    task::from_request::FromRequest,
+    task::{Task, context::TaskContext, data::MissingDataError},
     worker::{
         builder::WorkerBuilder,
-        context::{Tracked, WorkerContext},
-        ext::long_running::{
-            future::LongRunningFuture,
-            tracker::{LongRunningError, TaskTracker, TaskTrackerWaitFuture},
-        },
+        ext::long_running::future::{LongRunningError, LongRunningFuture},
     },
 };
 /// The future implementation of the long running task
 pub mod future;
-pub mod tracker;
 
 /// Represents the long running middleware config
 ///
@@ -105,6 +95,9 @@ pub struct LongRunningConfig {
 }
 impl LongRunningConfig {
     /// Create a new long running config
+    ///
+    /// Max duration is the maximum amount of time a single operation should last
+    /// and should not be confused with `TimeoutLayer` which controls the full task execution time
     #[must_use]
     pub fn new(max_duration: Duration) -> Self {
         Self {
@@ -113,114 +106,65 @@ impl LongRunningConfig {
     }
 }
 
-/// A receiver for collecting results from tracked futures.
-#[derive(Debug)]
-pub struct Receiver<T> {
-    receiver: mpsc::UnboundedReceiver<Result<T, LongRunningError>>,
-}
-
-impl<T: Debug> Stream for Receiver<T> {
-    type Item = Result<T, LongRunningError>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match Pin::new(&mut self.receiver).poll_next(cx) {
-            Poll::Ready(Some(result)) => Poll::Ready(Some(result)),
-            Poll::Ready(None) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-/// A sender which is invoked when a future is complete
-#[derive(Debug)]
-pub struct Sender<T> {
-    sender: mpsc::UnboundedSender<Result<T, LongRunningError>>,
-}
-
-impl<T> Clone for Sender<T> {
-    fn clone(&self) -> Self {
-        Self {
-            sender: self.sender.clone(),
-        }
-    }
-}
-
-impl<T> Sender<T> {
-    /// Send a result through the channel.
-    /// Returns `Ok(())` if successful, `Err(result)` if the receiver has been dropped.
-    pub fn send(
-        &self,
-        result: Result<T, LongRunningError>,
-    ) -> Result<(), Result<T, LongRunningError>> {
-        self.sender
-            .unbounded_send(result)
-            .map_err(|e| e.into_inner())
-    }
-}
-
-/// The long running middleware context
-#[derive(Debug, Clone)]
-pub struct RunnerContext<Res> {
-    tracker: TaskTracker,
-    worker: WorkerContext,
-    config: LongRunningConfig,
-    sender: Sender<Res>,
-}
-
-impl<Res> RunnerContext<Res> {
-    /// Closes the context and waits for the long running futures to complete
-    #[must_use]
-    pub fn wait(self) -> Tracked<TaskTrackerWaitFuture> {
-        let _ = self.tracker.close();
-        self.worker.track(self.tracker.wait())
-    }
-}
-
 /// The long running task handler
 ///
 /// See [module level documentation](self) for more details.
-#[derive(Debug, Clone)]
-pub struct Runner {
-    tracker: TaskTracker,
-    worker: WorkerContext,
+#[must_use = "A runner must collect its results and use them"]
+#[derive(Debug)]
+pub struct TaskRunner<Res> {
+    task: TaskContext,
     config: LongRunningConfig,
+    results: FuturesUnordered<BoxFuture<'static, Result<Res, LongRunningError>>>,
 }
 
-impl Runner {
-    /// Create a channel for execution context
-    ///
-    /// This will allow execution of as many long running futures as possible
-    /// See [mpsc::unbounded] for more details on the limits
-    #[must_use]
-    pub fn channel<Res>(self) -> (RunnerContext<Res>, Receiver<Res>) {
-        let (sender, receiver) = mpsc::unbounded();
-
-        let sender = Sender { sender };
-        let ctx = RunnerContext {
-            config: self.config,
-            sender,
-            tracker: self.tracker.clone(),
-            worker: self.worker,
-        };
-        let receiver = Receiver { receiver };
-        (ctx, receiver)
-    }
-}
-
-impl<Res: Send + 'static> RunnerContext<Res> {
+impl<T: Send + 'static> TaskRunner<T> {
     /// Start a task that is tracked by the long running task's context
-    #[must_use]
-    pub fn execute<F: Future<Output = Res>>(&self, task: F) -> Tracked<LongRunningFuture<F>> {
-        self.worker
-            .track(self.tracker.track_future(task, &self.config, &self.sender))
+    pub fn execute<F, Err>(&mut self, future: F)
+    where
+        F: Future<Output = Result<T, Err>> + Send + Sync + 'static,
+        Err: Into<BoxDynError> + Send + 'static,
+    {
+        let fut = LongRunningFuture {
+            future,
+            task: self.task.clone(),
+            #[cfg(feature = "sleep")]
+            timeout: self.config.max_duration.map(futures_timer::Delay::new),
+            max_duration: self.config.max_duration,
+        };
+
+        self.results.push(
+            fut.map(|rs| match rs {
+                Ok(Ok(res)) => Ok(res),
+                Ok(Err(res)) => Err(LongRunningError::Execution(res.into())),
+                Err(e) => Err(e),
+            })
+            .boxed(),
+        );
     }
 }
 
-impl<Args: Sync, Conn: Send + Sync, Id: Sync + Send> FromRequest<Task<Args, Conn, Id>> for Runner {
+impl<T> Stream for TaskRunner<T> {
+    type Item = Result<T, LongRunningError>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.get_mut().results.poll_next_unpin(cx)
+    }
+}
+
+impl<Args: Sync, Res> FromRequest<Task<Args>> for TaskRunner<Res> {
     type Error = MissingDataError;
-    async fn from_request(task: &Task<Args, Conn, Id>) -> Result<Self, Self::Error> {
-        let runner: &Self = task.ctx.data.get_checked()?;
-        Ok(runner.clone())
+    async fn from_request(task: &Task<Args>) -> Result<Self, Self::Error> {
+        let config = task
+            .data()
+            .get_checked::<LongRunningConfig>()
+            .cloned()
+            .expect("LongRunningConfig should be present in ExecutionContext");
+        let task: TaskContext = TaskContext::from_request(task).await?;
+        Ok(Self {
+            task,
+            config,
+            results: FuturesUnordered::default(),
+        })
     }
 }
 
@@ -259,9 +203,9 @@ pub struct LongRunningService<S> {
     config: LongRunningConfig,
 }
 
-impl<S, Args, Conn, Id> Service<Task<Args, Conn, Id>> for LongRunningService<S>
+impl<S, Args> Service<Task<Args>> for LongRunningService<S>
 where
-    S: Service<Task<Args, Conn, Id>>,
+    S: Service<Task<Args>>,
     S::Future: Send + 'static,
     S::Response: Send,
     S::Error: Send,
@@ -277,23 +221,8 @@ where
         self.service.poll_ready(cx)
     }
 
-    fn call(&mut self, mut task: Task<Args, Conn, Id>) -> Self::Future {
-        let tracker = TaskTracker::new();
-        let worker: WorkerContext = task
-            .ctx
-            .data
-            .get()
-            .cloned()
-            .expect("Could not get worker context");
-        let config = self.config.clone();
-        let runner = Runner {
-            tracker,
-            worker,
-            config,
-        };
-        if let Some(ctx) = Arc::get_mut(&mut task.ctx) {
-            ctx.data.insert(runner);
-        }
+    fn call(&mut self, mut task: Task<Args>) -> Self::Future {
+        task.inject_data(self.config.clone());
         self.service.call(task)
     }
 }
@@ -301,32 +230,30 @@ where
 /// Helper trait for building long running workers from [`WorkerBuilder`]
 ///
 /// See [module level documentation](self) for more details.
-pub trait LongRunningExt<Args, Conn, Source, Middleware>: Sized {
+pub trait LongRunningExt<Args, Source, Middleware>: Sized {
     /// Extension for executing long running jobs
-    fn long_running(
-        self,
-    ) -> WorkerBuilder<Args, Conn, Source, Stack<LongRunningLayer, Middleware>> {
+    fn long_running(self) -> WorkerBuilder<Args, Source, Stack<LongRunningLayer, Middleware>> {
         self.long_running_with_cfg(Default::default())
     }
     /// Extension for executing long running jobs with a config
     fn long_running_with_cfg(
         self,
         cfg: LongRunningConfig,
-    ) -> WorkerBuilder<Args, Conn, Source, Stack<LongRunningLayer, Middleware>>;
+    ) -> WorkerBuilder<Args, Source, Stack<LongRunningLayer, Middleware>>;
 }
 
-impl<Args, B, M, Conn> LongRunningExt<Args, Conn, B, M> for WorkerBuilder<Args, Conn, B, M>
+impl<Args, B, M> LongRunningExt<Args, B, M> for WorkerBuilder<Args, B, M>
 where
     M: Layer<LongRunningLayer>,
-    B: Backend<Args = Args, Connection = Conn>,
+    B: Backend,
 {
     fn long_running_with_cfg(
         self,
         cfg: LongRunningConfig,
-    ) -> WorkerBuilder<Args, Conn, B, Stack<LongRunningLayer, M>> {
+    ) -> WorkerBuilder<Args, B, Stack<LongRunningLayer, M>> {
         let this = self.layer(LongRunningLayer::new(cfg));
         WorkerBuilder {
-            name: this.name,
+            context: this.context,
             request: this.request,
             layer: this.layer,
             source: this.source,
@@ -365,21 +292,19 @@ mod tests {
 
         async fn task(
             task: u32,
-            runner: Runner,
+            mut handle: TaskRunner<u32>,
             worker: WorkerContext,
         ) -> Result<u32, BoxDynError> {
-            let (ctx, receiver) = runner.channel();
-            tokio::spawn(ctx.execute(async move {
+            handle.execute(tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 task * 2
             }));
-            tokio::spawn(ctx.execute(async move {
+            handle.execute(tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 task * 5
             }));
 
-            ctx.wait().await;
-            let res = receiver.try_collect::<Vec<_>>().await?.iter().sum::<u32>();
+            let res = handle.try_collect::<Vec<u32>>().await?.iter().sum::<u32>();
 
             if task == ITEMS - 1 {
                 tokio::spawn(async move {
@@ -389,13 +314,12 @@ mod tests {
             }
             Ok(res)
         }
-        // let config = LongRunningConfig::new(Duration::from_secs(1));
+
         let worker = WorkerBuilder::new("rango-tango")
             .backend(in_memory)
-            // .long_running_with_cfg(config)
             .long_running()
-            .on_event(|ctx, ev| {
-                println!("On Event = {ev:?} from {}", ctx.name());
+            .on_event(|wrk, ev| {
+                println!("On Event = {ev:?} from {}", wrk.name());
             })
             .build(task);
         worker.run().await.unwrap();

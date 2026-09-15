@@ -1,20 +1,22 @@
 use std::time::Duration;
 
 use apalis_core::{
-    backend::{Backend, codec::Codec},
+    backend::{Backend, BackendConfig, WireFormatBackend, codec::Codec},
     error::BoxDynError,
-    task::{Task, builder::TaskBuilder, task_id::TaskId},
+    task::{Task, builder::TaskBuilder, task_id::GenerateId},
 };
-use futures::sink::SinkExt;
-use futures::{FutureExt, Sink, future::BoxFuture};
+use futures_util::SinkExt;
+use futures_util::{FutureExt, Sink, future::BoxFuture};
+use serde_json::to_value;
 use tower::Service;
 
 use crate::{
-    SteppedService, Workflow,
-    id_generator::GenerateId,
-    sequential::context::{StepContext, WorkflowContext},
-    sequential::router::{GoTo, StepResult, WorkflowRouter},
-    sequential::step::{Layer, Stack, Step},
+    SteppedFlow, SteppedService,
+    sequential::{
+        context::{StepContext, WorkflowContext},
+        router::{GoTo, StepResponse, WorkflowRouter},
+        step::{Layer, Stack, Step},
+    },
 };
 
 /// Layer that delays execution by a specified duration
@@ -48,7 +50,9 @@ impl<Input, B, S, Err> Step<Input, B> for DelayForStep<S>
 where
     B::Id: GenerateId + Send + Sync + 'static,
     B::Compact: Send + 'static,
-    B: Sink<Task<B::Compact, B::Connection, B::Id>, Error = Err>
+    B: Sink<Task<B::Compact>, Error = Err>
+        + WireFormatBackend
+        + BackendConfig
         + Unpin
         + Send
         + Sync
@@ -63,7 +67,6 @@ where
         + Clone
         + 'static,
     <B::Codec as Codec<Duration>>::Error: Into<BoxDynError>,
-    B::Connection: Send + Sync + 'static,
     Input: Send + Sync + 'static,
     <B::Codec as Codec<Input>>::Error: Into<BoxDynError>,
     B: Backend,
@@ -123,17 +126,19 @@ impl<S: Clone, F: Clone, B, Input> Clone for DelayWithStep<S, F, B, Input> {
 
 impl<Input, F, B, S, Err> Step<Input, B> for DelayWithStep<S, F, B, Input>
 where
-    F: FnMut(Task<Input, B::Connection, B::Id>) -> Duration + Send + Sync + 'static + Clone,
+    F: FnMut(Task<Input>) -> Duration + Send + Sync + 'static + Clone,
     B::Id: GenerateId + Sync + Send + 'static,
     B::Compact: Send + 'static,
-    B: Sink<Task<B::Compact, B::Connection, B::Id>, Error = Err>
+    B: Sink<Task<B::Compact>, Error = Err>
+        + BackendConfig
+        + WireFormatBackend
         + Unpin
         + Send
         + Sync
         + Clone
         + 'static,
     Err: std::error::Error + Send + Sync + 'static,
-    S: Clone + Send + Sync + 'static,
+    S: Step<Input, B> + Clone + Send + Sync + 'static,
     S::Response: Send + 'static,
     B::Codec: Codec<Duration, Compact = B::Compact>
         + Codec<Input, Compact = B::Compact>
@@ -141,11 +146,9 @@ where
         + Clone
         + 'static,
     <B::Codec as Codec<Duration>>::Error: Into<BoxDynError>,
-    B::Connection: Send + Sync + 'static,
     Input: Send + Sync + 'static,
     <B::Codec as Codec<Input>>::Error: Into<BoxDynError>,
     B: Backend,
-    S: Step<Input, B>,
 {
     type Response = Input;
     type Error = BoxDynError;
@@ -161,15 +164,20 @@ where
     }
 }
 
-impl<S, F, B: Backend + Send + Sync + 'static + Clone, Input, Err>
-    Service<Task<B::Compact, B::Connection, B::Id>> for DelayWithStep<S, F, B, Input>
+impl<S, F, B: Backend + Send + Sync + 'static + Clone, Input, Err> Service<Task<B::Compact>>
+    for DelayWithStep<S, F, B, Input>
 where
-    F: FnMut(Task<Input, B::Connection, B::Id>) -> Duration + Send + 'static + Clone,
+    F: FnMut(Task<Input>) -> Duration + Send + 'static + Clone,
     S: Step<Input, B> + Send + 'static,
     S::Response: Send + 'static,
     B::Id: GenerateId + Sync + Send + 'static,
     B::Compact: Send + 'static,
-    B: Sink<Task<B::Compact, B::Connection, B::Id>, Error = Err> + Unpin + Send + Sync,
+    B: Sink<Task<B::Compact>, Error = Err>
+        + WireFormatBackend
+        + BackendConfig
+        + Unpin
+        + Send
+        + Sync,
     Err: std::error::Error + Send + Sync + 'static,
     B::Codec: Codec<Duration, Compact = B::Compact>
         + Codec<Input, Compact = B::Compact>
@@ -178,9 +186,8 @@ where
         + 'static,
     <B::Codec as Codec<Duration>>::Error: Into<BoxDynError>,
     <B::Codec as Codec<Input>>::Error: Into<BoxDynError>,
-    B::Connection: Send + Sync + 'static,
 {
-    type Response = GoTo<StepResult<B::Compact, B::Id>>;
+    type Response = GoTo<StepResponse>;
     type Error = BoxDynError;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
@@ -191,16 +198,17 @@ where
         std::task::Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, req: Task<B::Compact, B::Connection, B::Id>) -> Self::Future {
-        let mut step_context: StepContext<B> = req.ctx.data.get().cloned().unwrap();
+    fn call(&mut self, req: Task<B::Compact>) -> Self::Future {
+        let mut step_context: StepContext<B> = req.data().get().cloned().unwrap();
         let mut f = self.f.clone();
         let codec = step_context.backend.codec().clone();
-        let task_id = TaskId::new(B::Id::generate());
+        let task_id = B::Id::generate();
         async move {
             let decoded: Input = B::Codec::decode(&codec, &req.args)
                 .map_err(|e: <B::Codec as Codec<Input>>::Error| e.into())?;
             let (args, ctx) = req.take();
-            let delay_duration = f(Task { args: decoded, ctx });
+            let delay_duration = f(Task::new_with_ctx(decoded, ctx));
+
             let task = TaskBuilder::new(args)
                 .task_id(task_id.clone())
                 .metadata(&WorkflowContext {
@@ -213,24 +221,31 @@ where
                 .send(task)
                 .await
                 .map_err(|e| BoxDynError::from(e))?;
-            Ok(GoTo::Next(StepResult {
-                result: B::Codec::encode(&codec, &delay_duration).map_err(|e| e.into())?,
-                next_task_id: Some(task_id),
-            }))
+            Ok(GoTo::DelayFor(
+                delay_duration,
+                StepResponse {
+                    result: to_value(delay_duration)?,
+                    next_task_id: Some(task_id),
+                },
+            ))
         }
         .boxed()
     }
 }
 
-impl<Start, Cur, B, L> Workflow<Start, Cur, B, L> {
+impl<Start, Cur, B, L> SteppedFlow<Start, Cur, B, L> {
     /// Delay the workflow by a fixed duration
-    pub fn delay_for(self, delay: Duration) -> Workflow<Start, Cur, B, Stack<DelayFor, L>> {
+    pub fn delay_for(self, delay: Duration) -> SteppedFlow<Start, Cur, B, Stack<DelayFor, L>> {
         self.add_step(DelayFor { duration: delay })
     }
 }
-impl<Start, Cur, B, L> Workflow<Start, Cur, B, L> {
+impl<Start, Cur, B, L> SteppedFlow<Start, Cur, B, L> {
     /// Delay the workflow by a duration determined by a function
-    pub fn delay_with<F, I>(self, f: F) -> Workflow<Start, I, B, Stack<DelayWith<F, B, I>, L>> {
+    #[allow(clippy::type_complexity)]
+    pub fn delay_with<F>(self, f: F) -> SteppedFlow<Start, Cur, B, Stack<DelayWith<F, B, Cur>, L>>
+    where
+        F: FnMut(Task<Cur>) -> Duration + Send + 'static,
+    {
         self.add_step(DelayWith {
             f,
             _marker: std::marker::PhantomData,

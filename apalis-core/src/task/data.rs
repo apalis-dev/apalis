@@ -44,14 +44,13 @@
 //! - [`FromRequest`] trait for extracting data from task contexts.
 //! - [`Task`] type representing a unit of work.
 use std::{
-    ops::Deref,
-    sync::Arc,
+    ops::{Deref, DerefMut},
     task::{Context, Poll},
 };
 
 use tower_service::Service;
 
-use crate::{task::Task, task_fn::FromRequest};
+use crate::{task::Task, task::from_request::FromRequest};
 
 /// Extension data for tasks.
 /// This is commonly used to share state across tasks. or across layers within the same tasks
@@ -95,6 +94,12 @@ impl<T> Deref for Data<T> {
     }
 }
 
+impl<T> DerefMut for Data<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 impl<S, T> tower_layer::Layer<S> for Data<T>
 where
     T: Clone + Send + Sync + 'static,
@@ -116,9 +121,9 @@ pub struct AddExtension<S, T> {
     value: T,
 }
 
-impl<S, T, Args, Conn, Id> Service<Task<Args, Conn, Id>> for AddExtension<S, T>
+impl<S, T, Args> Service<Task<Args>> for AddExtension<S, T>
 where
-    S: Service<Task<Args, Conn, Id>>,
+    S: Service<Task<Args>> + Send + 'static,
     T: Clone + Send + Sync + 'static,
 {
     type Response = S::Response;
@@ -130,27 +135,24 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, mut task: Task<Args, Conn, Id>) -> Self::Future {
-        if let Some(ctx) = Arc::get_mut(&mut task.ctx) {
-            ctx.data.insert(self.value.clone());
-        }
+    fn call(&mut self, mut task: Task<Args>) -> Self::Future {
+        task.inject_data(self.value.clone());
         self.inner.call(task)
     }
 }
 
 /// Error type for missing data in a task's context.
 #[derive(Debug, thiserror::Error, PartialEq)]
+#[non_exhaustive]
 pub enum MissingDataError {
     /// The type was not found in the task's data map
     #[error("the type for key `{0}` is not available")]
     NotFound(String),
 }
 
-impl<T: Clone + Send + Sync + 'static, Args: Sync, Conn: Send + Sync, Id: Sync + Send>
-    FromRequest<Task<Args, Conn, Id>> for Data<T>
-{
+impl<T: Clone + Send + Sync + 'static, Args: Sync> FromRequest<Task<Args>> for Data<T> {
     type Error = MissingDataError;
-    async fn from_request(task: &Task<Args, Conn, Id>) -> Result<Self, Self::Error> {
-        task.ctx.data.get_checked().cloned().map(Self::new)
+    async fn from_request(task: &Task<Args>) -> Result<Self, Self::Error> {
+        task.data().get_checked().cloned().map(Self::new)
     }
 }

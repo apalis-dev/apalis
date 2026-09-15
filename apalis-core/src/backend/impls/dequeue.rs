@@ -9,9 +9,12 @@ use futures_sink::Sink;
 use tower_layer::Identity;
 
 use crate::{
-    backend::{Backend, codec::IdentityCodec, queue::Queue},
+    backend::{Backend, BackendConfig, finalize::Ephemeral},
     error::BoxDynError,
-    task::{Task, task_id::RandomId},
+    task::{
+        Task,
+        task_id::{RandomId, TaskId},
+    },
     worker::context::WorkerContext,
 };
 
@@ -20,7 +23,7 @@ use crate::{
 /// This backend is primarily intended for testing and demonstration purposes. It does not persist tasks and is not suitable for production use.
 #[derive(Debug, Clone)]
 pub struct VecDequeBackend<T> {
-    queue: Arc<Mutex<VecDeque<Task<T, (), RandomId>>>>,
+    queue: Arc<Mutex<VecDeque<Task<T>>>>,
     waker: Arc<Mutex<Option<Waker>>>,
 }
 
@@ -52,6 +55,7 @@ impl<T> VecDequeBackend<T> {
 
 /// Error type for VecDequeBackend
 #[derive(Debug, thiserror::Error, Clone)]
+#[non_exhaustive]
 pub enum VecDequeError {
     /// Error occurred during polling
     #[error("Polling error: {0}")]
@@ -61,25 +65,9 @@ pub enum VecDequeError {
     SendError(Arc<BoxDynError>),
 }
 
-impl<T> Backend for VecDequeBackend<T>
-where
-    T: Send + Clone + 'static,
-{
-    type Args = T;
-    type Id = RandomId;
-    type Connection = ();
-    type Layer = Identity;
+impl<T> Backend for VecDequeBackend<T> {
+    type Task = Task<T>;
     type Error = VecDequeError;
-    type Codec = IdentityCodec;
-    type Compact = T;
-
-    fn codec(&self) -> &Self::Codec {
-        &IdentityCodec
-    }
-
-    fn queue(&self) -> Queue {
-        Queue::from(std::any::type_name::<T>())
-    }
 
     fn poll_ready(
         &mut self,
@@ -99,15 +87,11 @@ where
         }
     }
 
-    fn middleware(&self) -> Self::Layer {
-        Identity::new()
-    }
-
     fn poll_next(
         &mut self,
         _cx: &mut Context<'_>,
         _worker: &WorkerContext,
-    ) -> Poll<Option<Result<Task<Self::Compact, Self::Connection, Self::Id>, Self::Error>>> {
+    ) -> Poll<Option<Result<Self::Task, Self::Error>>> {
         match self
             .queue
             .lock()
@@ -121,23 +105,14 @@ where
 
     fn poll_close(
         &mut self,
-        cx: &mut Context<'_>,
-        worker: &WorkerContext,
+        _: &mut Context<'_>,
+        _: &WorkerContext,
     ) -> Poll<Result<(), Self::Error>> {
-        if self
-            .queue
-            .lock()
-            .map_err(|e| VecDequeError::PollError(Arc::new(e.to_string().into())))?
-            .is_empty()
-        {
-            Poll::Ready(Ok(()))
-        } else {
-            self.poll_ready(cx, worker)
-        }
+        Poll::Ready(Ok(()))
     }
 }
 
-impl<T> Sink<Task<T, (), RandomId>> for VecDequeBackend<T>
+impl<T> Sink<Task<T>> for VecDequeBackend<T>
 where
     T: Send + Unpin + 'static,
 {
@@ -147,7 +122,7 @@ where
         Poll::Ready(Ok(()))
     }
 
-    fn start_send(self: Pin<&mut Self>, item: Task<T, (), RandomId>) -> Result<(), Self::Error> {
+    fn start_send(self: Pin<&mut Self>, mut item: Task<T>) -> Result<(), Self::Error> {
         let this = self.get_mut();
 
         let mut tasks = this
@@ -155,10 +130,9 @@ where
             .lock()
             .map_err(|e| VecDequeError::SendError(Arc::new(e.to_string().into())))?;
 
-        if let Some(ref key) = item.ctx.idempotency_key {
+        if let Some(ref key) = item.idempotency_key() {
             let exists = tasks.iter().any(|task| {
-                task.ctx
-                    .idempotency_key
+                task.idempotency_key()
                     .as_ref()
                     .map(|existing| existing == key)
                     .unwrap_or(false)
@@ -169,10 +143,17 @@ where
             }
         }
 
+        if item.task_id().is_none() {
+            item = item
+                .into_builder()
+                .task_id(TaskId::from_string(RandomId::default()))
+                .build();
+        }
+
         tasks.push_back(item);
 
-        if let Some(waker) = this.waker.lock().unwrap().take() {
-            waker.wake();
+        if let Some(waker) = this.waker.lock().unwrap().as_ref() {
+            waker.wake_by_ref();
         }
 
         Ok(())
@@ -184,5 +165,24 @@ where
 
     fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
+    }
+}
+
+impl<Args> BackendConfig for VecDequeBackend<Args> {
+    type Args = Args;
+    type Id = RandomId;
+
+    type Kind = Ephemeral;
+
+    type Config = ();
+
+    type Layer = Identity;
+
+    fn config(&self) -> &Self::Config {
+        &()
+    }
+
+    fn middleware(&mut self, _worker: &mut WorkerContext) -> Self::Layer {
+        Identity::new()
     }
 }

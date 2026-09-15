@@ -1,8 +1,7 @@
 //! Utilities for executing all tasks from a backend to a service.
 //!
 //! A combinator for calling all requests from a `Backend` to a service, yielding responses
-//! as they arrive. It supports both ordered and unordered response handling, allowing for flexible integration
-//! with asynchronous services.
+//! as they arrive.
 use futures_util::{Stream, ready, stream::FuturesUnordered};
 use std::{
     fmt,
@@ -12,12 +11,7 @@ use std::{
 };
 use tower_service::Service;
 
-use crate::{
-    backend::{Backend, codec::Codec},
-    error::BoxDynError,
-    task::Task,
-    worker::WorkerContext,
-};
+use crate::{backend::Backend, error::BoxDynError, worker::WorkerContext};
 
 /// A stream of responses received from the inner service in received order,
 /// driven by a `Backend` directly instead of a plain `Stream`.
@@ -25,7 +19,7 @@ use crate::{
 #[pin_project::pin_project]
 pub(super) struct CallAllUnordered<Svc, B>
 where
-    Svc: Service<Task<<B as Backend>::Args, <B as Backend>::Connection, <B as Backend>::Id>>,
+    Svc: Service<B::Task>,
     B: Backend,
 {
     #[pin]
@@ -34,7 +28,7 @@ where
 
 impl<Svc, B> CallAllUnordered<Svc, B>
 where
-    Svc: Service<Task<B::Args, B::Connection, B::Id>>,
+    Svc: Service<B::Task>,
     B: Backend + Unpin,
 {
     /// Create new [`CallAllUnordered`] combinator.
@@ -47,10 +41,9 @@ where
 
 impl<Svc, B> Stream for CallAllUnordered<Svc, B>
 where
-    Svc: Service<Task<B::Args, B::Connection, B::Id>>,
+    Svc: Service<B::Task>,
     B: Backend + Unpin,
-    B::Error: Into<BoxDynError>,
-    <B::Codec as Codec<B::Args>>::Error: Into<BoxDynError>,
+    B::Error: Into<BoxDynError> + Send + 'static,
 {
     type Item = Result<Option<Svc::Response>, CallAllError<Svc::Error>>;
 
@@ -61,6 +54,7 @@ where
 
 /// Error type that combines backend errors and service errors
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum CallAllError<ServiceError> {
     /// Error originating from `Backend::poll_ready` or `Backend::poll`
     #[error("Backend error: {0}")]
@@ -101,7 +95,7 @@ where
     worker: WorkerContext,
     queue: Q,
     eof: bool,
-    curr_req: Option<Task<B::Args, B::Connection, B::Id>>,
+    curr_req: Option<B::Task>,
 }
 
 impl<Svc, B, Q> fmt::Debug for CallAll<Svc, B, Q>
@@ -128,7 +122,7 @@ pub(crate) trait Drive<F: Future> {
 
 impl<Svc, B, Q> CallAll<Svc, B, Q>
 where
-    Svc: Service<Task<B::Args, B::Connection, B::Id>>,
+    Svc: Service<B::Task>,
     B: Backend + Unpin,
     Q: Drive<Svc::Future>,
 {
@@ -146,16 +140,17 @@ where
 
 impl<Svc, B, Q> Stream for CallAll<Svc, B, Q>
 where
-    Svc: Service<Task<B::Args, B::Connection, B::Id>>,
+    Svc: Service<B::Task>,
     B: Backend + Unpin,
     Q: Drive<Svc::Future>,
-    B::Error: Into<BoxDynError>,
-    <B::Codec as Codec<B::Args>>::Error: Into<BoxDynError>,
+    B::Error: Into<BoxDynError> + Send + 'static,
 {
     type Item = Result<Option<Svc::Response>, CallAllError<Svc::Error>>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
+
+        this.worker.register_waker(cx);
 
         loop {
             // First, see if we have any responses to yield
@@ -168,6 +163,7 @@ where
             let shutting_down = *this.eof || this.worker.is_shutting_down();
 
             if shutting_down {
+                trace!("worker shutting down, draining queue");
                 if !this.queue.is_empty() {
                     return Poll::Pending;
                 }
@@ -206,17 +202,8 @@ where
             if this.curr_req.is_none() {
                 match ready!(this.backend.as_mut().get_mut().poll_next(cx, this.worker)) {
                     Some(Ok(next_req)) => {
-                        let codec = this.backend.codec();
-                        let res = next_req.try_map_args(|args| codec.decode(&args));
-                        match res {
-                            Err(e) => {
-                                *this.eof = true;
-                                return Poll::Ready(Some(Err(CallAllError::CodecError(e.into()))));
-                            }
-                            Ok(next) => {
-                                *this.curr_req = Some(next);
-                            }
-                        }
+                        trace!("backend yielded task");
+                        *this.curr_req = Some(next_req);
                     }
                     Some(Err(e)) => {
                         return Poll::Ready(Some(Err(CallAllError::PollError(e.into()))));

@@ -10,7 +10,7 @@ use tracing::Span;
 /// `on_request` callback is called.
 ///
 /// [`Trace`]: super::Trace
-pub trait OnRequest<Args, Conn, Id> {
+pub trait OnRequest<Args> {
     /// Do the thing.
     ///
     /// `span` is the `tracing` [`Span`], corresponding to this request, produced by the closure
@@ -20,14 +20,14 @@ pub trait OnRequest<Args, Conn, Id> {
     /// [`Span`]: https://docs.rs/tracing/latest/tracing/span/index.html
     /// [record]: https://docs.rs/tracing/latest/tracing/span/struct.Span.html#method.record
     /// [`TraceLayer::make_span_with`]: crate::layers::tracing::TraceLayer::make_span_with
-    fn on_request(&mut self, request: &Task<Args, Conn, Id>, span: &Span);
+    fn on_request(&mut self, request: &Task<Args>, span: &Span);
 }
 
-impl<Args, F, Conn, Id> OnRequest<Args, Conn, Id> for F
+impl<Args, F> OnRequest<Args> for F
 where
-    F: for<'a> FnMut(&'a Task<Args, Conn, Id>, &'a Span),
+    F: for<'a> FnMut(&'a Task<Args>, &'a Span),
 {
-    fn on_request(&mut self, request: &Task<Args, Conn, Id>, span: &Span) {
+    fn on_request(&mut self, request: &Task<Args>, span: &Span) {
         self(request, span)
     }
 }
@@ -50,6 +50,7 @@ impl Default for DefaultOnRequest {
 
 impl DefaultOnRequest {
     /// Create a new `DefaultOnRequest`.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -65,14 +66,15 @@ impl DefaultOnRequest {
     ///
     /// [tracing events]: https://docs.rs/tracing/latest/tracing/#events
     /// [`DefaultMakeSpan::level`]: crate::layers::tracing::DefaultMakeSpan::level
+    #[must_use]
     pub fn level(mut self, level: Level) -> Self {
         self.level = level;
         self
     }
 }
 
-impl<Args, Conn, Id> OnRequest<Args, Conn, Id> for DefaultOnRequest {
-    fn on_request(&mut self, _: &Task<Args, Conn, Id>, _: &Span) {
+impl<Args> OnRequest<Args> for DefaultOnRequest {
+    fn on_request(&mut self, _: &Task<Args>, _: &Span) {
         match self.level {
             Level::ERROR => {
                 tracing::event!(Level::ERROR, "task.start",);

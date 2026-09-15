@@ -85,12 +85,13 @@ async fn main() -> Result<()> {
     );
     monitor
         // Collect all the events from all workers
-        .on_event(|ctx, ev| {
-            info!("Received {} event from {} Worker", ev, ctx.name());
+        .on_event(|worker, ev| {
+            info!("Received {} event from {} Worker", ev, worker.name());
         })
         // Define when a worker should restart
-        .should_restart(|ctx, err, runs| {
-            if ctx.name() == "tasty-pear"
+        .should_restart(|wrk, err| {
+            let runs = wrk.restarts();
+            if wrk.name() == "tasty-pear"
                 && err.to_string().contains("Recoverable Error")
                 && runs < 5
             {

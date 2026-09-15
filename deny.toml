@@ -71,6 +71,11 @@ feature-depth = 1
 # output a note when they are encountered.
 ignore = [
     { id = "RUSTSEC-2025-0141", reason = "Bincode is unmaintained" },
+    { id = "RUSTSEC-2024-0436", reason = "(lru): Only used in ratatui example" },
+    { id = "RUSTSEC-2026-0002", reason = "(lru): Only used in ratatui example" },
+    { id = "RUSTSEC-2026-0253", reason = "(lru): Only used in ratatui example" },
+
+
     #"a-crate-that-is-yanked@0.1.1", # you can also ignore yanked crate versions if you wish
     #{ crate = "a-crate-that-is-yanked@0.1.1", reason = "you can specify why you are ignoring the yanked crate" },
 ]
@@ -95,7 +100,6 @@ allow = [
     "ISC",
     "BSD-3-Clause",
     "Zlib",
-    "OpenSSL",
 ]
 # The confidence threshold for detecting a license from license text.
 # The higher the value, the more closely the license text must be to the

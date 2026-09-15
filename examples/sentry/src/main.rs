@@ -93,9 +93,9 @@ async fn email_service(email: Email) -> Result<(), InvalidEmailError> {
 async fn produce_jobs(storage: &mut MemoryStorage<Email>) -> Result<()> {
     storage
         .push(Email {
-            to: "apalis@example".to_string(),
-            text: "Test background job from apalis".to_string(),
-            subject: "Welcome Sentry Email".to_string(),
+            to: "apalis@example".to_owned(),
+            text: "Test background job from apalis".to_owned(),
+            subject: "Welcome Sentry Email".to_owned(),
         })
         .await?;
     Ok(())

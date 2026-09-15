@@ -4,23 +4,23 @@ use std::num::ParseIntError;
 use std::str::FromStr;
 use std::task::Context;
 
-use apalis_core::backend::TaskSinkError;
 use apalis_core::backend::codec::Codec;
+use apalis_core::backend::{BackendConfig, TaskSinkError, WireFormatBackend};
 use apalis_core::error::BoxDynError;
 use apalis_core::task::builder::TaskBuilder;
 use apalis_core::task::metadata::{Metadata, MetadataError, MetadataStore};
-use apalis_core::task::task_id::TaskId;
-use apalis_core::task_fn::{TaskFn, task_fn};
+use apalis_core::task::task_fn::{TaskFn, task_fn};
+use apalis_core::task::task_id::{GenerateId, TaskId};
 use apalis_core::{backend::Backend, task::Task};
-use futures::future::BoxFuture;
-use futures::{FutureExt, Sink, SinkExt};
+use futures_util::future::BoxFuture;
+use futures_util::{FutureExt, Sink, SinkExt};
 use serde::{Deserialize, Serialize};
+use serde_json::to_value;
 use tower::Service;
 
-use crate::id_generator::GenerateId;
 use crate::sequential::router::WorkflowRouter;
-use crate::sequential::{GoTo, Layer, Stack, Step, StepContext, StepResult, WorkflowContext};
-use crate::{SteppedService, Workflow};
+use crate::sequential::{GoTo, Layer, Stack, Step, StepContext, StepResponse, WorkflowContext};
+use crate::{SteppedFlow, SteppedService};
 
 /// A layer that represents a `repeat_until` step in the workflow.
 #[derive(Clone, Debug)]
@@ -43,20 +43,15 @@ where
         }
     }
 }
-impl<Start, L, Input, B: Backend> Workflow<Start, Input, B, L> {
+impl<Start, L, Input, B: Backend> SteppedFlow<Start, Input, B, L> {
     /// Folds over a collection of items in the workflow.
+    #[allow(clippy::type_complexity)]
     pub fn repeat_until<F, Output, FnArgs>(
         self,
         repeater: F,
-    ) -> Workflow<
-        Start,
-        Output,
-        B,
-        Stack<RepeatUntil<TaskFn<F, Input, B::Connection, FnArgs>, Input, Output>, L>,
-    >
+    ) -> SteppedFlow<Start, Output, B, Stack<RepeatUntil<TaskFn<F, Input, FnArgs>, Input, Output>, L>>
     where
-        TaskFn<F, Input, B::Connection, FnArgs>:
-            Service<Task<Input, B::Connection, B::Id>, Response = Option<Output>>,
+        TaskFn<F, Input, FnArgs>: Service<Task<Input>, Response = Option<Output>>,
     {
         self.add_step(RepeatUntil {
             repeater: task_fn(repeater),
@@ -92,22 +87,24 @@ where
     }
 }
 
-impl<F, Res, B, Input, CodecError, Err> Service<Task<B::Compact, B::Connection, B::Id>>
+impl<F, Res, B, Input, CodecError, Err> Service<Task<B::Compact>>
     for RepeatUntilService<F, B, Input, Res>
 where
-    F: Service<Task<Input, B::Connection, B::Id>, Response = Option<Res>> + Send + 'static + Clone,
+    F: Service<Task<Input>, Response = Option<Res>> + Send + 'static + Clone,
     B: Backend<Error = Err>
+        + WireFormatBackend
+        + BackendConfig
         + Send
         + Sync
         + Clone
-        + Sink<Task<B::Compact, B::Connection, B::Id>, Error = Err>
+        + Sink<Task<B::Compact>, Error = Err>
         + Unpin
         + 'static,
-    B::Connection: Send + Sync + 'static,
     B::Codec: Codec<Input, Error = CodecError, Compact = B::Compact>
         + Codec<Res, Error = CodecError, Compact = B::Compact>
         + Codec<Option<Res>, Error = CodecError, Compact = B::Compact>
         + Send
+        + Sync
         + Clone
         + 'static,
     B::Id: GenerateId + Send + Sync + Display + FromStr + 'static,
@@ -117,9 +114,9 @@ where
     F::Future: Send + 'static,
     B::Compact: Send + 'static,
     Input: Send + 'static, // We don't need Clone because decoding just needs a reference
-    Res: Send + 'static,
+    Res: Send + Serialize + 'static,
 {
-    type Response = GoTo<StepResult<B::Compact, B::Id>>;
+    type Response = GoTo<StepResponse>;
     type Error = BoxDynError;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
@@ -127,10 +124,10 @@ where
         self.repeater.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, task: Task<B::Compact, B::Connection, B::Id>) -> Self::Future {
-        let state: RepeaterState<B::Id> = Metadata::extract(&task.ctx.metadata).unwrap_or_default();
+    fn call(&mut self, task: Task<B::Compact>) -> Self::Future {
+        let state: RepeaterState = Metadata::extract(task.metadata()).unwrap_or_default();
         let mut ctx =
-            task.ctx.data.get::<StepContext<B>>().cloned().expect(
+            task.data().get::<StepContext<B>>().cloned().expect(
                 "StepContext missing, Did you call the repeater outside of a workflow step?",
             );
         let mut repeater = self.repeater.clone();
@@ -139,7 +136,7 @@ where
         (async move {
             let mut compact = None;
             let decoded: Input = B::Codec::decode(&codec, &task.args)?;
-            let prev_task_id = task.ctx.task_id.clone();
+            let prev_task_id = task.task_id().cloned();
             let repeat_task = task.map_args(|c| {
                 compact = Some(c);
                 decoded
@@ -147,7 +144,7 @@ where
             let response = repeater.call(repeat_task).await.map_err(|e| e.into())?;
             Ok(match response {
                 Some(res) if ctx.has_next => {
-                    let task_id = TaskId::new(B::Id::generate());
+                    let task_id = B::Id::generate();
                     let next_step = TaskBuilder::new(B::Codec::encode(&codec, &res)?)
                         .task_id(task_id.clone())
                         .metadata(&WorkflowContext {
@@ -157,18 +154,18 @@ where
                     ctx.backend
                         .send(next_step)
                         .await
-                        .map_err(|e| TaskSinkError::PushError(e))?;
-                    GoTo::Next(StepResult {
-                        result: B::Codec::encode(&codec, &res)?,
+                        .map_err(TaskSinkError::PushError)?;
+                    GoTo::Next(StepResponse {
+                        result: to_value(&res)?,
                         next_task_id: Some(task_id),
                     })
                 }
-                Some(res) => GoTo::Break(StepResult {
-                    result: B::Codec::encode(&codec, &res)?,
+                Some(res) => GoTo::Break(StepResponse {
+                    result: to_value(&res)?,
                     next_task_id: None,
                 }),
                 None => {
-                    let task_id = TaskId::new(B::Id::generate());
+                    let task_id = B::Id::generate();
                     let next_step =
                         TaskBuilder::new(compact.take().expect("Compact args should be set"))
                             .task_id(task_id.clone())
@@ -183,9 +180,9 @@ where
                     ctx.backend
                         .send(next_step)
                         .await
-                        .map_err(|e| TaskSinkError::PushError(e))?;
-                    GoTo::Break(StepResult {
-                        result: B::Codec::encode(&codec, &None::<Res>)?,
+                        .map_err(TaskSinkError::PushError)?;
+                    GoTo::Break(StepResponse {
+                        result: to_value(&None::<Res>)?,
                         next_task_id: Some(task_id),
                     })
                 }
@@ -196,35 +193,29 @@ where
 }
 
 /// The state of the repeat operation
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct RepeaterState<Id> {
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct RepeaterState {
     iterations: usize,
-    prev_task_id: Option<TaskId<Id>>,
+    prev_task_id: Option<TaskId>,
 }
 
-impl<Id> Default for RepeaterState<Id> {
-    fn default() -> Self {
-        Self {
-            iterations: 0,
-            prev_task_id: None,
-        }
-    }
-}
-
-impl<Id> RepeaterState<Id> {
+impl RepeaterState {
     /// Get the number of iterations completed so far.
+    #[must_use]
     pub fn iterations(&self) -> usize {
         self.iterations
     }
 
     /// Get the previous task id.
-    pub fn previous_task_id(&self) -> Option<&TaskId<Id>> {
+    #[must_use]
+    pub fn previous_task_id(&self) -> Option<&TaskId> {
         self.prev_task_id.as_ref()
     }
 }
 
 /// An error representing an invalid [`RepeaterState`]
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum RepeaterStateError {
     /// Missing iterations key
     #[error("the data for key {REPEATER_ITERATIONS_KEY} is missing")]
@@ -246,26 +237,19 @@ pub enum RepeaterStateError {
 const REPEATER_ITERATIONS_KEY: &str = "apalis_workflow.repeater.iterations";
 const REPEATER_PREV_TASK_ID_KEY: &str = "apalis_workflow.repeater.prev_task_id";
 
-impl<Id: Display> Metadata for RepeaterState<Id>
-where
-    Id: std::str::FromStr + ToString,
-{
+impl Metadata for RepeaterState {
     type Error = RepeaterStateError;
 
     fn extract(map: &MetadataStore) -> Result<Self, Self::Error> {
         let iterations = map
             .get(REPEATER_ITERATIONS_KEY)
-            .ok_or(RepeaterStateError::MissingIterations)?
-            .parse::<usize>()?;
+            .map(|s| s.parse::<usize>())
+            .transpose()?
+            .unwrap_or(0);
 
         let prev_task_id = map
             .get(REPEATER_PREV_TASK_ID_KEY)
-            .map(|value| {
-                value
-                    .parse::<Id>()
-                    .map(TaskId::new)
-                    .map_err(|_| RepeaterStateError::ParseTaskId)
-            })
+            .map(|value| TaskId::from_str(value).map_err(|_| RepeaterStateError::ParseTaskId))
             .transpose()?;
 
         Ok(Self {
@@ -286,23 +270,21 @@ where
 
 impl<B, F, Input, Res, S, Err, CodecError> Step<Input, B> for RepeatUntilStep<S, F, Input, Res>
 where
-    F: Service<Task<Input, B::Connection, B::Id>, Response = Option<Res>>
-        + Send
-        + Sync
-        + 'static
-        + Clone,
+    F: Service<Task<Input>, Response = Option<Res>> + Send + Sync + 'static + Clone,
     B: Backend<Error = Err>
         + Send
         + Sync
         + Clone
-        + Sink<Task<B::Compact, B::Connection, B::Id>, Error = Err>
+        + Sink<Task<B::Compact>, Error = Err>
         + Unpin
+        + WireFormatBackend
+        + BackendConfig
         + 'static,
-    B::Connection: Send + Sync + 'static,
     B::Codec: Codec<Input, Error = CodecError, Compact = B::Compact>
         + Codec<Res, Error = CodecError, Compact = B::Compact>
         + Codec<Option<Res>, Error = CodecError, Compact = B::Compact>
         + Send
+        + Sync
         + Clone
         + 'static,
     B::Id: GenerateId + Send + 'static,
@@ -312,7 +294,7 @@ where
     F::Future: Send + 'static,
     B::Compact: Send + 'static,
     Input: Send + Sync + 'static, // We don't need Clone because decoding just needs a reference
-    Res: Send + Sync + 'static,
+    Res: Serialize + Send + Sync + 'static,
     S: Step<Input, B> + Send + 'static,
     B::Id: FromStr + Display + Sync,
 {

@@ -6,7 +6,6 @@ description = "Simple, extensible and multithreaded background task processing f
 edition.workspace = true
 repository.workspace = true
 documentation = "https://docs.rs/apalis"
-readme = "README.md"
 license = "MIT OR Apache-2.0"
 keywords = ["job", "task", "scheduler", "worker", "cron"]
 categories = ["database"]
@@ -23,17 +22,23 @@ default = [
   "timeout",
   "retry",
   "apalis-core/default",
+  "config",
 ]
 
 ## Support Tracing 👀
 tracing = ["dep:tracing", "apalis-core/tracing"]
 
 ## Support for Sentry exception and performance monitoring
-sentry = ["dep:sentry-core", "dep:ulid", "ulid?/uuid", "dep:uuid"]
+sentry = ["dep:sentry-core", "dep:ulid", "dep:uuid", "apalis-core/uuid"]
 ## Support Prometheus metrics
 prometheus = ["dep:metrics", "dep:metrics-exporter-prometheus"]
 ## Support OpenTelemetry metrics
-opentelemetry = ["dep:opentelemetry", "dep:tracing-opentelemetry", "opentelemetry/metrics", "opentelemetry/trace"]
+opentelemetry = [
+  "dep:opentelemetry",
+  "dep:tracing-opentelemetry",
+  "opentelemetry/metrics",
+  "opentelemetry/trace",
+]
 ## Support direct retrying tasks
 retry = ["tower/retry"]
 ## Support timeouts on tasks
@@ -44,6 +49,9 @@ limit = ["tower/limit"]
 filter = ["tower/filter"]
 ## Captures panics in executions and convert them to errors
 catch-panic = ["dep:futures-util"]
+
+## Allow running workers using configuration
+config = ["dep:serde"]
 
 ## All available features
 full = [
@@ -57,6 +65,7 @@ full = [
   "limit",
   "filter",
   "catch-panic",
+  "config",
 ]
 
 docsrs = ["document-features"]
@@ -71,32 +80,41 @@ version = "0.2"
 optional = true
 
 [dependencies]
-tower = { version = "0.5.2", features = ["util"], default-features = false }
-sentry-core = { version = "0.48.4", optional = true, default-features = false }
-metrics = { version = "0.24.5", optional = true, default-features = false }
-metrics-exporter-prometheus = { version = "0.18.1", optional = true, default-features = false }
-opentelemetry = { version = "0.32.0", optional = true, default-features = false, features = ["metrics"] }
+tower = { version = "0.5.3", features = ["util"], default-features = false }
+sentry-core = { version = "0.48.5", optional = true, default-features = false }
+metrics = { version = "0.24.6", optional = true, default-features = false }
+metrics-exporter-prometheus = { version = "0.18.3", optional = true, default-features = false }
+opentelemetry = { version = "0.32.0", optional = true, default-features = false, features = [
+  "metrics",
+] }
 tracing-opentelemetry = { version = "0.33.0", optional = true, default-features = false }
-futures-util = { version = "0.3.31", optional = true, default-features = false }
-thiserror = "2.0.0"
+futures-util = { version = "0.3.34", optional = true, default-features = false }
+thiserror = "2.0.20"
+serde = { version = "1", optional = true, features = ["derive"] }
 
 pin-project = "1"
 # Needed only for sentry reporting
-uuid = { version = "1.23.5", optional = true }
-ulid = { version = "2.0.1", optional = true }
+uuid = { version = "1.26.1", optional = true }
+ulid = { version = "3.0.0", optional = true }
 
 [dependencies.tracing]
 default-features = false
-version = "0.1.40"
+version = "0.1.44"
 optional = true
 
 [dev-dependencies]
 apalis-core = { path = "../apalis-core", version = "1.0.0-rc.9" }
 serde = "1"
 tokio = { version = "1", features = ["full"] }
-tracing-subscriber = { version = "0.3.20", default-features = false, features = ["std"] }
-opentelemetry = { version = "0.32.0", default-features = false, features = ["trace"] }
-opentelemetry_sdk = { version = "0.32.1", default-features = false, features = ["trace"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = [
+  "std",
+] }
+opentelemetry = { version = "0.32.0", default-features = false, features = [
+  "trace",
+] }
+opentelemetry_sdk = { version = "0.32.1", default-features = false, features = [
+  "trace",
+] }
 tracing-opentelemetry = { version = "0.33.0", default-features = false }
 futures = "0.3"
 apalis-workflow = { path = "../apalis-workflow", version = "0.1.0-alpha.6" } # For README

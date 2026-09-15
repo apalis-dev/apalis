@@ -8,7 +8,6 @@ use tower::Layer;
 use tower::Service;
 
 use apalis_core::task::Task;
-use apalis_core::task::task_id::RandomId;
 
 /// Sentry integration Layer.
 ///
@@ -24,6 +23,7 @@ pub struct SentryLayer;
 
 impl SentryLayer {
     /// Creates a new Layer that only logs task details.
+    #[must_use]
     pub fn new() -> Self {
         Self
     }
@@ -66,6 +66,7 @@ pub struct SentryHttpFuture<F> {
 
 /// Error type for Sentry task processing.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum SentryTaskError {
     /// Error occurred in the inner service.
     #[error("Inner service error: {0}")]
@@ -102,15 +103,15 @@ where
     type Output = Result<Res, BoxDynError>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let slf = self.project();
-        if let Some((task_details, trx_ctx)) = slf.on_first_poll.take() {
+        let this = self.project();
+        if let Some((task_details, trx_ctx)) = this.on_first_poll.take() {
             let tid = task_details.id;
             sentry_core::configure_scope(|scope| {
                 scope.add_event_processor(move |mut event| {
                     event.event_id = tid;
                     Some(event)
                 });
-                scope.set_tag("queue", task_details.queue.to_string());
+                scope.set_tag("queue", task_details.queue.clone());
                 let mut details = std::collections::BTreeMap::new();
                 details.insert(String::from("task_id"), task_details.id.to_string().into());
                 details.insert(
@@ -123,16 +124,16 @@ where
                     sentry_core::start_transaction(trx_ctx).into();
                 let parent_span = scope.get_span();
                 scope.set_span(Some(transaction.clone()));
-                *slf.transaction = Some((transaction, parent_span));
+                *this.transaction = Some((transaction, parent_span));
             });
         }
-        match slf
+        match this
             .future
             .poll(cx)
             .map_err(|e| SentryTaskError::Inner(e.into()))
         {
             Poll::Ready(res) => {
-                if let Some((transaction, parent_span)) = slf.transaction.take() {
+                if let Some((transaction, parent_span)) = this.transaction.take() {
                     if transaction.get_status().is_none() {
                         let status = match &res {
                             Ok(_) => protocol::SpanStatus::Ok,
@@ -153,11 +154,10 @@ where
     }
 }
 
-impl<Svc, Args, Conn, Fut, Res, Id, Err> Service<Task<Args, Conn, Id>> for SentryTaskService<Svc>
+impl<Svc, Args, Fut, Res, Err> Service<Task<Args>> for SentryTaskService<Svc>
 where
-    Svc: Service<Task<Args, Conn, Id>, Response = Res, Error = Err, Future = Fut>,
+    Svc: Service<Task<Args>, Response = Res, Error = Err, Future = Fut>,
     Fut: Future<Output = Result<Res, BoxDynError>> + 'static,
-    Id: ToUuid,
     Err: Into<BoxDynError> + 'static,
 {
     type Response = Svc::Response;
@@ -168,22 +168,16 @@ where
         self.service.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, task: Task<Args, Conn, Id>) -> Self::Future {
-        let task_type = std::any::type_name::<Args>().to_string();
-        let attempt = &task.ctx.attempt;
-        let task_id = task
-            .ctx
-            .task_id
-            .as_ref()
-            .expect("Task ID is missing")
-            .inner()
-            .to_uuid();
+    fn call(&mut self, task: Task<Args>) -> Self::Future {
+        let task_type = std::any::type_name::<Args>().to_owned();
+        let attempt = task.attempt() as i32;
+        let task_id = task.task_id().expect("Task ID is missing").to_uuid();
         let trx_ctx =
             sentry_core::TransactionContext::new(std::any::type_name::<Args>(), "apalis.task");
 
         let task_details = Request {
             id: task_id,
-            current_attempt: attempt.current().try_into().unwrap_or_default(),
+            current_attempt: attempt,
             queue: task_type,
         };
 
@@ -192,59 +186,5 @@ where
             transaction: None,
             future: self.service.call(task),
         }
-    }
-}
-/// Trait for converting types to UUIDs.
-pub trait ToUuid {
-    /// Converts the implementing type to a UUID.
-    fn to_uuid(&self) -> uuid::Uuid;
-}
-
-impl ToUuid for uuid::Uuid {
-    fn to_uuid(&self) -> uuid::Uuid {
-        *self
-    }
-}
-
-impl ToUuid for String {
-    fn to_uuid(&self) -> uuid::Uuid {
-        uuid::Uuid::parse_str(self).expect("Not a valid UUID")
-    }
-}
-
-impl ToUuid for &str {
-    fn to_uuid(&self) -> uuid::Uuid {
-        uuid::Uuid::parse_str(self).expect("Not a valid UUID")
-    }
-}
-impl ToUuid for ulid::Ulid {
-    fn to_uuid(&self) -> uuid::Uuid {
-        uuid::Uuid::from_u128(self.0)
-    }
-}
-
-impl ToUuid for RandomId {
-    fn to_uuid(&self) -> uuid::Uuid {
-        use std::hash::DefaultHasher;
-        use std::hash::Hash;
-        use std::hash::Hasher;
-        let mut hasher = DefaultHasher::new();
-        self.hash(&mut hasher);
-        let hash = hasher.finish();
-
-        // Expand to 128 bits by hashing again with a different salt
-        let mut hasher2 = DefaultHasher::new();
-        (hash, 0xDEADBEEFu32 as i32).hash(&mut hasher2);
-        let hash2 = hasher2.finish();
-
-        let mut bytes = [0u8; 16];
-        bytes[..8].copy_from_slice(&hash.to_be_bytes());
-        bytes[8..].copy_from_slice(&hash2.to_be_bytes());
-
-        // Set version (v4 style) and variant bits to make it a valid UUID
-        bytes[6] = (bytes[6] & 0x0F) | 0x40; // Version 4
-        bytes[8] = (bytes[8] & 0x3F) | 0x80; // Variant RFC 4122
-
-        uuid::Uuid::from_bytes(bytes)
     }
 }

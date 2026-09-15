@@ -14,8 +14,6 @@
 //!
 //! The [`Task`] struct is generic over:
 //! - `Args`: The type of arguments or payload for the task.
-//! - `Conn`: Backend-specific marker for a task.
-//! - `Id`: The type used for uniquely identifying the task (defaults to [`RandomId`]).
 //!
 //! ## [`ExecutionContext`]
 //!
@@ -33,7 +31,7 @@
 //! - `max_attempts`: The maximum number of attempts allowed before the task is considered failed.
 //! - `priority`: An optional priority value used to influence scheduling order.
 //! - `queue`: The queue the task belongs to, if applicable.
-//! - `runs`: A history of all runs recorded for the task.
+//! - `runs`: A history of all runs recorded for the task. (*experimental*)
 //!
 //! The execution context is essential for tracking the state and metadata of a task as it moves through
 //! the system. It enables features such as retries, scheduling, locking, prioritization, and extensibility
@@ -56,8 +54,7 @@
 //! ```rust
 //! # use apalis_core::task::{Task, ExecutionContext};
 //! # use apalis_core::task::builder::TaskBuilder;
-//! # use apalis_core::task::task_id::RandomId;
-//! let task: Task<String, (), RandomId> = TaskBuilder::new("my work".to_string()).build();
+//! let task: Task<String> = TaskBuilder::new("my work".to_string()).build();
 //! ```
 //!
 //! ## Creating a task with custom metadata
@@ -65,10 +62,8 @@
 //! ```rust
 //! # use apalis_core::task::{Task, ExecutionContext};
 //! # use apalis_core::task::builder::TaskBuilder;
-//! # use apalis_core::task::task_id::RandomId;
 //! # use apalis_core::task::metadata::Metadata;
 //! # use apalis_core::task::metadata::MetadataStore;
-//! # use apalis_core::backend::memory::MemoryContext;
 //! #
 //! #[derive(Debug, PartialEq)]
 //! struct RequestId(String);
@@ -91,7 +86,7 @@
 //!     }
 //! }
 //!
-//! let task: Task<String, MemoryContext, RandomId> = TaskBuilder::new("important work".to_string())
+//! let task: Task<String> = TaskBuilder::new("important work".to_string())
 //!     .metadata(&RequestId("user_id".to_string()))
 //!     .build();
 //! ```
@@ -100,26 +95,22 @@
 //!
 //! ```rust
 //! # use apalis_core::task::builder::TaskBuilder;
-//! # use apalis_core::task::task_id::RandomId;
-//! # use apalis_core::backend::memory::MemoryContext;
 //! use apalis_core::task::{Task, ExecutionContext, status::Status};
-//! let mut task: TaskBuilder<_, MemoryContext, RandomId> = TaskBuilder::new("work".to_string());
-//! task.ctx.status = Status::Running.into();
-//! task.ctx.attempt.increment();
+//! let mut task: TaskBuilder<_> = TaskBuilder::new("work".to_string());
+//! task = task.status(Status::Running);
 //! ```
 //!
 //! ## Using Extensions for per-task data
 //!
 //! ```rust
 //! # use apalis_core::task::builder::TaskBuilder;
-//! # use apalis_core::task::task_id::RandomId;
 //! use apalis_core::task::{Task, extensions::Extensions};
 //! #[derive(Debug, Clone, PartialEq)]
 //! pub struct TracingId(String);
 //! let mut extensions = Extensions::default();
 //! extensions.insert(TracingId("abc123".to_owned()));
-//! let task: Task<String, (), RandomId> = TaskBuilder::new("work".to_string()).with_data(extensions).build();
-//! assert_eq!(task.ctx.data.get::<TracingId>(), Some(&TracingId("abc123".to_owned())));
+//! let task: Task<String> = TaskBuilder::new("work".to_string()).with_data(extensions).build();
+//! assert_eq!(task.data().get::<TracingId>(), Some(&TracingId("abc123".to_owned())));
 //! ```
 //!
 //! # See Also
@@ -133,17 +124,12 @@
 //! - [`FromRequest`]: Trait for extracting data from task contexts.
 //! - [`IntoResponse`]: Trait for converting tasks into response types.
 //! - [`TaskBuilder`]: Fluent builder for constructing tasks with optional configuration.
-//! - [`RandomId`]: Default unique identifier type for tasks.
 //!
 //! [`TaskBuilder`]: crate::task::builder::TaskBuilder
-//! [`IntoResponse`]: crate::task_fn::into_response::IntoResponse
-//! [`FromRequest`]: crate::task_fn::from_request::FromRequest
+//! [`IntoResponse`]: crate::task::into_response::IntoResponse
+//! [`FromRequest`]: crate::task::from_request::FromRequest
 
-use std::{
-    fmt::{Debug, Display},
-    marker::PhantomData,
-    sync::Arc,
-};
+use std::{fmt::Debug, ops::Deref, sync::Arc};
 
 use crate::{
     backend::queue::Queue,
@@ -151,85 +137,219 @@ use crate::{
         attempt::Attempt,
         builder::TaskBuilder,
         extensions::Extensions,
-        metadata::MetadataStore,
+        from_request::FromRequest,
+        metadata::{Metadata, MetadataStore},
         runs::Run,
         status::{AtomicStatus, Status},
         task_id::TaskId,
     },
-    task_fn::FromRequest,
 };
 
 pub mod attempt;
 pub mod builder;
+pub mod context;
 pub mod data;
 pub mod extensions;
+pub mod from_request;
+pub mod into_response;
 pub mod metadata;
 pub mod runs;
 pub mod status;
+pub mod task_fn;
 pub mod task_id;
 
 /// Represents a task which will be executed
 /// Should be considered a single unit of work
 #[derive(Debug, Clone, Default)]
-pub struct Task<Args, Connection, Id> {
+pub struct Task<Args> {
     /// The argument task part
     pub args: Args,
     /// ExecutionContext of the task eg id, attempts and context
-    pub ctx: Arc<ExecutionContext<Connection, Id>>,
+    ctx: Arc<ExecutionContext>,
 }
 
 /// Execution context of a `Task`
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct ExecutionContext<Connection, Id> {
+pub struct ExecutionContext {
     /// The task's id if allocated
-    pub task_id: Option<TaskId<Id>>,
+    task_id: Option<TaskId>,
 
     /// The tasks's extensions
     #[cfg_attr(feature = "serde", serde(skip))]
-    pub data: Extensions,
+    data: Extensions,
 
     /// The tasks's attempts
     /// Keeps track of the number of attempts a task has been worked on
-    pub attempt: Attempt,
+    attempt: Attempt,
 
     /// The task status that is wrapped in an atomic status
-    pub status: AtomicStatus,
+    status: AtomicStatus,
 
     /// The time a task should be run
-    pub run_at: Option<u64>,
+    run_at: Option<u64>,
 
     /// The time the task was completed, if applicable
-    pub done_at: Option<u64>,
+    done_at: Option<u64>,
 
     /// The time the task was locked, if applicable
-    pub lock_at: Option<u64>,
+    lock_at: Option<u64>,
 
     /// Identifier of the worker/process that currently holds the lock on this task
-    pub lock_by: Option<String>,
+    lock_by: Option<String>,
 
     /// Adds a unique key to enforce job uniqueness when used
-    pub idempotency_key: Option<String>,
+    idempotency_key: Option<String>,
 
     /// Metadata associated with the task
-    pub metadata: MetadataStore,
+    metadata: MetadataStore,
 
     /// The maximum number of attempts allowed for the task
-    pub max_attempts: Option<usize>,
+    max_attempts: Option<usize>,
 
     /// The priority of the task, which can be used for scheduling
-    pub priority: Option<usize>,
+    priority: Option<usize>,
 
     /// The queue to which the task belongs, if applicable
-    pub queue: Option<Queue>,
+    queue: Option<Queue>,
 
     /// A list of all runs for this task
-    pub runs: Vec<Run>,
-
-    /// A marker to indicate the type of connection used by the backend.
-    pub connection: PhantomData<fn() -> Connection>,
+    runs: Vec<Run>,
 }
 
-impl<Conn, Id> Default for ExecutionContext<Conn, Id> {
+impl ExecutionContext {
+    /// Returns the task's ID, if one has been allocated.
+    #[must_use]
+    pub fn task_id(&self) -> Option<&TaskId> {
+        self.task_id.as_ref()
+    }
+
+    /// Returns the extensions associated with the task.
+    #[must_use]
+    pub fn data(&self) -> &Extensions {
+        &self.data
+    }
+
+    /// Returns the number of attempts made to execute the task.
+    #[must_use]
+    pub fn attempt(&self) -> usize {
+        self.attempt.current()
+    }
+
+    /// Get the atomic attempt
+    #[must_use]
+    pub fn raw_attempt(&self) -> &Attempt {
+        &self.attempt
+    }
+
+    /// Returns the current status of the task.
+    #[must_use]
+    pub fn status(&self) -> Status {
+        self.status.load()
+    }
+
+    /// Get the atomic status
+    #[must_use]
+    pub fn raw_status(&self) -> &AtomicStatus {
+        &self.status
+    }
+
+    /// Returns the time at which the task is scheduled to run.
+    ///
+    /// Returns `None` if no run time has been specified.
+    #[must_use]
+    pub fn run_at(&self) -> Option<u64> {
+        self.run_at
+    }
+
+    /// Returns the time at which the task was completed.
+    ///
+    /// Returns `None` if the task has not been completed.
+    #[must_use]
+    pub fn done_at(&self) -> Option<u64> {
+        self.done_at
+    }
+
+    /// Returns the time at which the task was locked.
+    ///
+    /// Returns `None` if the task is not locked.
+    #[must_use]
+    pub fn lock_at(&self) -> Option<u64> {
+        self.lock_at
+    }
+
+    /// Returns the identifier of the worker or process currently holding
+    /// the lock on this task.
+    ///
+    /// Returns `None` if the task is not currently locked.
+    #[must_use]
+    pub fn lock_by(&self) -> Option<&str> {
+        self.lock_by.as_deref()
+    }
+
+    /// Returns the idempotency key associated with the task.
+    ///
+    /// Returns `None` if no idempotency key has been specified.
+    #[must_use]
+    pub fn idempotency_key(&self) -> Option<&str> {
+        self.idempotency_key.as_deref()
+    }
+
+    /// Returns the metadata associated with the task.
+    #[must_use]
+    pub fn metadata(&self) -> &MetadataStore {
+        &self.metadata
+    }
+
+    /// Returns the maximum number of attempts allowed for the task.
+    ///
+    /// Returns `None` if no maximum has been specified.
+    #[must_use]
+    pub fn max_attempts(&self) -> Option<usize> {
+        self.max_attempts
+    }
+
+    /// Returns the priority of the task.
+    ///
+    /// Returns `None` if no priority has been specified.
+    #[must_use]
+    pub fn priority(&self) -> Option<usize> {
+        self.priority
+    }
+
+    /// Returns the queue to which the task belongs.
+    ///
+    /// Returns `None` if the task is not associated with a queue.
+    #[must_use]
+    pub fn queue(&self) -> Option<&Queue> {
+        self.queue.as_ref()
+    }
+
+    /// Returns the runs recorded for this task.
+    #[must_use]
+    pub fn runs(&self) -> &[Run] {
+        &self.runs
+    }
+}
+
+impl<Args> Task<Args> {
+    /// Creates a new task given some args
+    ///
+    /// Used to easily create a ready task.
+    /// Please prefer to use [`TaskBuilder`] if you need to modify [`ExecutionContext`]
+    pub fn new(args: Args) -> Self {
+        Self {
+            args,
+            ctx: Default::default(),
+        }
+    }
+    /// Returns the execution context associated with the task.
+    #[must_use]
+    pub fn ctx(&self) -> &Arc<ExecutionContext> {
+        &self.ctx
+    }
+}
+
+impl Default for ExecutionContext {
     fn default() -> Self {
         Self {
             task_id: None,
@@ -246,18 +366,16 @@ impl<Conn, Id> Default for ExecutionContext<Conn, Id> {
             priority: None,
             queue: None,
             runs: Vec::new(),
-            connection: PhantomData,
         }
     }
 }
 
-impl<Conn: Debug, Id: Debug> Debug for ExecutionContext<Conn, Id> {
+impl Debug for ExecutionContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ExecutionContext")
             .field("task_id", &self.task_id)
             .field("data", &"<Extensions>")
             .field("attempt", &self.attempt)
-            .field("connection", &self.connection)
             .field("status", &self.status.load())
             .field("run_at", &self.run_at)
             .field("done_at", &self.done_at)
@@ -273,13 +391,12 @@ impl<Conn: Debug, Id: Debug> Debug for ExecutionContext<Conn, Id> {
     }
 }
 
-impl<Conn, Id: Clone> Clone for ExecutionContext<Conn, Id> {
+impl Clone for ExecutionContext {
     fn clone(&self) -> Self {
         Self {
             task_id: self.task_id.clone(),
             data: self.data.clone(),
             attempt: self.attempt.clone(),
-            connection: self.connection,
             status: self.status.clone(),
             run_at: self.run_at,
             done_at: self.done_at,
@@ -295,10 +412,10 @@ impl<Conn, Id: Clone> Clone for ExecutionContext<Conn, Id> {
     }
 }
 
-impl<Args, Conn, Id> Task<Args, Conn, Id> {
+impl<Args> Task<Args> {
     /// Take the task into its parts
     #[must_use]
-    pub fn take(self) -> (Args, Arc<ExecutionContext<Conn, Id>>) {
+    pub fn take(self) -> (Args, Arc<ExecutionContext>) {
         (self.args, self.ctx)
     }
 
@@ -311,7 +428,7 @@ impl<Args, Conn, Id> Task<Args, Conn, Id> {
     }
 
     /// Maps the `args` field using the provided function, consuming the task.
-    pub fn map_args<F, NewArgs>(self, f: F) -> Task<NewArgs, Conn, Id>
+    pub fn map_args<F, NewArgs>(self, f: F) -> Task<NewArgs>
     where
         F: FnOnce(Args) -> NewArgs,
     {
@@ -323,7 +440,7 @@ impl<Args, Conn, Id> Task<Args, Conn, Id> {
 
     /// Maps the `args` field using the provided function, consuming the task.
     #[must_use = "A mapped task should be used or handled to avoid unused value warnings."]
-    pub fn try_map_args<F, NewArgs, Err>(self, f: F) -> Result<Task<NewArgs, Conn, Id>, Err>
+    pub fn try_map_args<F, NewArgs, Err>(self, f: F) -> Result<Task<NewArgs>, Err>
     where
         F: FnOnce(Args) -> Result<NewArgs, Err>,
     {
@@ -337,7 +454,7 @@ impl<Args, Conn, Id> Task<Args, Conn, Id> {
     #[must_use]
     pub fn map_context<F>(self, f: F) -> Self
     where
-        F: FnOnce(Arc<ExecutionContext<Conn, Id>>) -> Arc<ExecutionContext<Conn, Id>>,
+        F: FnOnce(Arc<ExecutionContext>) -> Arc<ExecutionContext>,
     {
         Self {
             args: self.args,
@@ -345,19 +462,18 @@ impl<Args, Conn, Id> Task<Args, Conn, Id> {
         }
     }
 
-    /// Modifies the relevant backend types, consuming the task
+    /// Modifies the id type of the task, consuming the task
+    ///
+    /// See [`crate::backend::ext::pipe`]
     #[must_use]
-    pub fn map_backend<NewConn, NewId>(self) -> Task<Args, NewConn, NewId>
-    where
-        Id: Clone,
-        Id: Display,
-    {
+    #[doc(hidden)]
+    pub fn map_id_type(self) -> Self {
         let mut ctx = Arc::unwrap_or_clone(self.ctx);
         let _ = ctx.metadata.insert(
             "apalis_core.transform.old_id",
             ctx.task_id.map(|id| id.to_string()).unwrap_or_default(),
         );
-        Task {
+        Self {
             args: self.args,
             ctx: Arc::new(ExecutionContext {
                 task_id: None,
@@ -374,20 +490,63 @@ impl<Args, Conn, Id> Task<Args, Conn, Id> {
                 priority: ctx.priority,
                 queue: ctx.queue,
                 runs: ctx.runs,
-                connection: Default::default(),
             }),
         }
     }
 
     /// Converts the task into a [`TaskBuilder`]
     #[must_use = "Converting a task into a builder allows for further modifications before rebuilding the task."]
-    pub fn into_builder(self) -> TaskBuilder<Args, Conn, Id>
-    where
-        Id: Clone,
-    {
+    pub fn into_builder(self) -> TaskBuilder<Args> {
         TaskBuilder {
             args: self.args,
             ctx: Arc::unwrap_or_clone(self.ctx),
+        }
+    }
+
+    /// Inject data into the execution context via [`Arc::make_mut`]
+    ///
+    /// If an extension of this type already existed, it will
+    /// be returned.
+    pub fn inject_data<D>(&mut self, data: D) -> Option<D>
+    where
+        D: Send + Clone + Sync + 'static,
+    {
+        let ctx = Arc::make_mut(&mut self.ctx);
+        ctx.data.insert(data)
+    }
+
+    /// Inject metadata into the execution context via [`Arc::make_mut`]
+    pub fn inject_metadata<M>(&mut self, value: &M) -> Result<(), M::Error>
+    where
+        M: Metadata,
+    {
+        let ctx = Arc::make_mut(&mut self.ctx);
+        value.inject(&mut ctx.metadata)?;
+        Ok(())
+    }
+
+    /// Build a new task with ready parts
+    ///
+    /// Usually you wanna use [TaskBuilder] so this is considered an internal api
+    #[doc(hidden)]
+    pub fn new_with_ctx(args: Args, ctx: Arc<ExecutionContext>) -> Self {
+        Self { args, ctx }
+    }
+}
+
+impl<Args> Deref for Task<Args> {
+    type Target = ExecutionContext;
+
+    fn deref(&self) -> &Self::Target {
+        &self.ctx
+    }
+}
+
+impl<A: Send + 'static> From<A> for Task<A> {
+    fn from(value: A) -> Self {
+        Self {
+            args: value,
+            ctx: Default::default(),
         }
     }
 }

@@ -1,32 +1,31 @@
 use std::marker::PhantomData;
 
 use apalis_core::{
-    backend::{
-        Backend,
-        ext::{BackendExt, raw::RawDataBackend},
-    },
+    backend::{Backend, BackendConfig, WireFormatBackend},
     error::BoxDynError,
-    task::Task,
-    worker::builder::{IntoWorkerService, WorkerService},
+    task::{Task, task_id::GenerateId},
+    worker::service::{IntoWorkerService, WorkerService},
 };
-use futures::Sink;
+use futures_sink::Sink;
 
 use crate::{
-    id_generator::GenerateId,
-    sequential::router::WorkflowRouter,
-    sequential::service::WorkflowService,
-    sequential::step::{Identity, Layer, Stack, Step},
+    sequential::backend::WorkflowBackend,
+    sequential::{
+        router::WorkflowRouter,
+        service::WorkflowService,
+        step::{Identity, Layer, Stack, Step},
+    },
 };
 
 /// A workflow represents a sequence of steps to be executed in order.
 #[derive(Debug)]
-pub struct Workflow<Start, Current, Backend, T = Identity> {
+pub struct SteppedFlow<Start, Current, Backend, T = Identity> {
     pub(crate) inner: T,
     pub(crate) name: String,
     _marker: PhantomData<(Start, Current, Backend)>,
 }
 
-impl<Start, Backend> Workflow<Start, Start, Backend> {
+impl<Start, Backend> SteppedFlow<Start, Start, Backend> {
     #[allow(missing_docs)]
     #[must_use]
     pub fn new(name: &str) -> Self {
@@ -38,15 +37,15 @@ impl<Start, Backend> Workflow<Start, Start, Backend> {
     }
 }
 
-impl<Start, Cur, B, L> Workflow<Start, Cur, B, L> {
+impl<Start, Cur, B, L> SteppedFlow<Start, Cur, B, L> {
     /// Adds a new step to the workflow pipeline.
     ///
     /// This method should be used with caution, as it allows adding arbitrary steps
     /// and manipulating types. It is recommended to use higher-level abstractions for
     /// common workflow patterns.
     #[must_use]
-    pub fn add_step<S, Output>(self, step: S) -> Workflow<Start, Output, B, Stack<S, L>> {
-        Workflow {
+    pub fn add_step<S, Output>(self, step: S) -> SteppedFlow<Start, Output, B, Stack<S, L>> {
+        SteppedFlow {
             inner: Stack::new(step, self.inner),
             name: self.name,
             _marker: PhantomData,
@@ -54,13 +53,13 @@ impl<Start, Cur, B, L> Workflow<Start, Cur, B, L> {
     }
 
     /// Finalizes the workflow by attaching a root step.
-    pub fn finalize<S>(self, root: S) -> Workflow<Start, Cur, B, L::Step>
+    pub fn finalize<S>(self, root: S) -> SteppedFlow<Start, Cur, B, L::Step>
     where
         S: Step<Cur, B>,
         L: Layer<S>,
-        B: Backend,
+        B: Backend + WireFormatBackend,
     {
-        Workflow {
+        SteppedFlow {
             inner: self.inner.layer(root),
             name: self.name,
             _marker: PhantomData,
@@ -68,7 +67,7 @@ impl<Start, Cur, B, L> Workflow<Start, Cur, B, L> {
     }
 }
 
-impl<Start, Cur, B, L> Workflow<Start, Cur, B, L>
+impl<Start, Cur, B, L> SteppedFlow<Start, Cur, B, L>
 where
     B: Backend,
 {
@@ -92,36 +91,39 @@ impl<Res> Default for RootStep<Res> {
     }
 }
 
-impl<Input, Current, B: Backend> Step<Input, B> for RootStep<Current> {
+impl<Input, Current, B: Backend + WireFormatBackend> Step<Input, B> for RootStep<Current> {
     type Response = Current;
     type Error = BoxDynError;
     fn register(&mut self, _ctx: &mut WorkflowRouter<B>) -> Result<(), BoxDynError> {
-        // TODO: Implement runtime checks to ensure Inputs and Outputs are compatible
         Ok(())
     }
 }
 
-impl<Input, Output, Current, B, Compact, Err, L>
-    IntoWorkerService<B, WorkflowService<B, Output>, Compact, B::Connection>
-    for Workflow<Input, Current, B, L>
+impl<Input, Output, Current, B, Compact, L, Err>
+    IntoWorkerService<B, WorkflowService<B, Input, Output>> for SteppedFlow<Input, Current, B, L>
 where
-    B: Backend<Compact = Compact>
+    B: Backend<Task = Task<Compact>, Error = Err>
+        + WireFormatBackend<Compact = Compact>
+        + BackendConfig<Args = Input>
         + Send
         + Sync
         + 'static
-        + Sink<Task<Compact, B::Connection, B::Id>, Error = Err>
-        + Unpin
-        + Clone,
-    Err: std::error::Error + Send + Sync + 'static,
-    B::Connection: Send + Sync + 'static,
+        + Sink<Task<Compact>, Error = Err>
+        + Clone
+        + Unpin,
     B::Id: Send + 'static + Default + GenerateId,
-    B: Sync + Backend<Args = Compact, Error = Err>,
-    B::Compact: Send + Sync + 'static,
     L: Layer<RootStep<Current>>,
     L::Step: Step<Output, B>,
+    B::Codec: Clone,
+    Err: std::error::Error + Send + Sync + 'static,
+    Compact: Send + 'static,
 {
-    type Backend = RawDataBackend<B>;
-    fn into_service(self, b: B) -> WorkerService<RawDataBackend<B>, WorkflowService<B, Output>> {
+    type Task = Task<Compact>;
+    type Backend = WorkflowBackend<B>;
+    fn into_service(
+        self,
+        backend: B,
+    ) -> WorkerService<Self::Backend, WorkflowService<B, Input, Output>> {
         let mut ctx = WorkflowRouter::<B>::new();
 
         let mut root = self.finalize(RootStep(std::marker::PhantomData));
@@ -129,9 +131,10 @@ where
         root.inner
             .register(&mut ctx)
             .expect("Failed to register workflow steps");
+
         WorkerService {
-            service: WorkflowService::new(ctx.steps, b.clone()),
-            backend: b.raw(),
+            service: WorkflowService::new(ctx.steps, backend.clone()),
+            backend: WorkflowBackend::new(backend),
         }
     }
 }

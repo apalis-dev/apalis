@@ -20,13 +20,13 @@ The framework leverages the `tower` service abstraction to provide a rich middle
 ecosystem like error handling, timeouts, rate limiting,
 and observability.
 
-
 ### Tasks
 
 The task struct provides type-safe components for task data and metadata:
-- [`Args`](crate::task_fn::guide) - The primary structure for the task
-- [`ExecutionContext`](crate::task::ExecutionContext) - Wrapper type for information for task execution includes context, status, attempts, task_id and metadata
-- [`Context`](crate::backend::Backend#required-associated-types) - contextual information with the task provided by the backend
+
+- [`Args`](crate::task::task_fn) - The primary structure for the task
+- [`ExecutionContext`](crate::task::ExecutionContext) - Backend provided context for task execution
+- [`TaskContext`](crate::task::context::TaskContext) - Worker provided context about the current task execution
 - [`Status`](crate::task::status::Status) - Represents the current state of a task
 - [`TaskId`](crate::task::task_id::TaskId) - Unique identifier for task tracking
 - [`Attempt`](crate::task::attempt::Attempt) - Retry tracking and attempt information
@@ -36,16 +36,18 @@ The task struct provides type-safe components for task data and metadata:
 #### Example: Using `TaskBuilder`
 
 ```rust
-let task: Task<String, ()> = TaskBuilder::new("my-task".to_string())
+let task: Task<String> = TaskBuilder::new("my-task".to_string())
     .id("task-123".into())
-    .attempts(3)
+    .max_attempts(3)
     .timeout(Duration::from_secs(30))
     .run_in_minutes(10)
     .build();
 ```
+
 Specific documentation for tasks can be found in the [`task`] and [`task::builder`] modules.
 
 ##### Relevant Guides:
+
 - [**Defining Task arguments**](https://docs.rs/apalis-core/1.0.0-rc.9/apalis_core/task_fn/guide/index.html) - Creating effective task arguments that are scalable and type-safe
 
 ### Backends
@@ -56,17 +58,16 @@ It defines task polling mechanisms, streaming interfaces, and middleware integra
 <details>
 <summary>Associated Types:</summary>
 
-- `Stream` - Defines the task stream type for polling operations
 - `Layer` - Specifies the middleware layer stack for the backend
 - `Codec` - Determines serialization format for task data persistence
-- `Beat` - Heartbeat stream for worker liveness checks
 - `Id` - Type used for unique task identifiers
-- `Conn` -   Context associated with tasks
+- `Config` - Config for the backend
 - `Error` - Error type for backend operations
 
 </details>
 
 #### Inbuilt Implementations
+
 - [`MemoryStorage`](https://docs.rs/apalis-core/1.0.0-rc.9/apalis_core/backend/memory/struct.MemoryStorage.html) : In-memory storage based on channels
 - [`Pipe`](https://docs.rs/apalis-core/1.0.0-rc.9/apalis_core/backend/pipe/index.html) : Pipe-based backend for a stream-to-backend pipeline
 - [`CustomBackend`](https://docs.rs/apalis-core/1.0.0-rc.9/apalis_core/backend/custom/index.html) : Flexible backend composition allowing custom functions for task management
@@ -96,6 +97,7 @@ The following are the main components the worker module:
 - [`Ext`](https://docs.rs/apalis-core/1.0.0-rc.9/apalis_core/worker/ext/index.html) - Extension traits and middleware for adding functionality to workers
 
 #### Example: Building and Running a Worker
+
 ```rust
 #[tokio::main]
 async fn main() {
@@ -103,7 +105,7 @@ async fn main() {
     in_memory.push(1u32).await.unwrap();
 
     async fn task(
-        task: u32,
+        args: u32,
         worker: WorkerContext,
     ) -> Result<(), BoxDynError> {
          /// Do some work
@@ -114,8 +116,8 @@ async fn main() {
 
     let worker = WorkerBuilder::new("rango-tango")
         .backend(in_memory)
-        .on_event(|ctx, ev| {
-            println!("On Event = {:?}, {:?}", ev, ctx.name());
+        .on_event(|worker, event| {
+            println!("On Event = {:?} from {:?}", event, worker.name());
         })
         .build(task);
     worker.run().await.unwrap();
@@ -125,7 +127,8 @@ async fn main() {
 Learn more about workers in the [`worker`](crate::worker) and [`worker::builder`](crate::worker::builder) modules.
 
 ##### Relevant Tutorials:
-- [**Creating task handlers**](crate::task_fn::guide) - Defining task processing functions using the [`TaskFn`] trait
+
+- [**Creating task handlers**](crate::task::task_fn) - Defining task processing functions using the [`TaskFn`] trait
 - [**Testing task handlers with `TestWorker`**](https://docs.rs/apalis-core/1.0.0-rc.9/apalis_core/worker/test_worker/index.html) - Specialized worker implementation for unit and integration testing
 
 ### Monitor
@@ -133,10 +136,12 @@ Learn more about workers in the [`worker`](crate::worker) and [`worker::builder`
 The [`Monitor`](https://docs.rs/apalis-core/1.0.0-rc.9/apalis_core/monitor/struct.Monitor.html) helps manage and coordinate multiple workers:
 
 **Main Features:**
+
 - **Worker Registry** - Keeps track of active workers
 - **Event Handling** - Handles and processes worker events
 - **Graceful Shutdown** - Stops all workers together safely
 - **Health Monitoring** - Restarts and manages worker health
+
 #### Example: Using `Monitor` with a Worker
 
 ```rust
@@ -146,11 +151,11 @@ async fn main() {
     storage.push(1u32).await.unwrap();
 
     let monitor = Monitor::new()
-        .on_event(|ctx, event| println!("{}: {:?}", ctx.name(), event))
+        .on_event(|worker, event| println!("{}: {:?}", worker.name(), event))
         .register(move |_| {
             WorkerBuilder::new("demo-worker")
                 .backend(storage.clone())
-                .build(|req: u32, ctx: WorkerContext| async move {
+                .build(|req: u32, worker: WorkerContext| async move {
                     println!("Processing task: {:?}", req);
                     Ok::<_, std::io::Error>(req)
                 })
@@ -170,6 +175,7 @@ Built on the `tower` ecosystem, `apalis-core` provides extensive middleware supp
 #### Core Middleware
 
 The following middleware layers are included with their worker extensions:
+
 - [`AcknowledgmentLayer`] - Task acknowledgment after processing
 - [`EventListenerLayer`] - Worker event emission and handling
 - [`CircuitBreakerLayer`] - Circuit breaker pattern for failure handling
@@ -194,10 +200,10 @@ pub struct LoggingService<S> {
     inner: S,
 }
 
-impl<S, Req, Res, Err, Id> Service<Task<Req, (), Id>> for LoggingService<S>
+impl<S, Args, Res, Err> Service<Task<Args>> for LoggingService<S>
 where
-    S: Service<Task<Req, (), Id>, Response = Res, Error = Err>,
-    Req: std::fmt::Debug,
+    S: Service<Task<Args>, Response = Res, Error = Err>,
+    Args: std::fmt::Debug,
 {
     type Response = Res;
     type Error = Err;
@@ -207,7 +213,7 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, req: Task<Req, (), Id>) -> Self::Future {
+    fn call(&mut self, req: Task<Args>) -> Self::Future {
         println!("Processing task: {:?}", req.args);
         self.inner.call(req)
     }
@@ -224,6 +230,7 @@ impl<S> Layer<S> for LoggingLayer {
     }
 }
 ```
+
 </details>
 
 If you want your middleware to do more than just intercept requests and responses, you can use extension traits. See the [`worker::ext`](crate::worker::ext) module for examples.
@@ -245,6 +252,7 @@ appropriate retry behavior for different failure scenarios.
 workers stop safely and all tasks finish before shutting down:
 
 **Key Features:**
+
 - Task tracking: Workers keep track of how many tasks are running.
 - Shutdown control: The system waits until all tasks are finished before shutting down.
 - Monitor coordination: A shared [`Shutdown`] token helps all workers stop together.

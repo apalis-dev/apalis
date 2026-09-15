@@ -1,35 +1,48 @@
 use std::{fmt::Display, marker::PhantomData, str::FromStr};
 
 use apalis_core::{
-    backend::{Backend, TaskSinkError, WaitForCompletion, codec::Codec},
+    backend::{
+        Backend, BackendConfig, TaskSinkError, WaitForCompletion, WireFormatBackend, codec::Codec,
+    },
     error::BoxDynError,
+    task::task_fn::{TaskFn, task_fn},
     task::{
         Task,
         builder::TaskBuilder,
         metadata::{Metadata, MetadataError, MetadataStore},
-        task_id::TaskId,
+        task_id::{GenerateId, TaskId},
     },
-    task_fn::{TaskFn, task_fn},
 };
-use futures::{FutureExt, Sink, StreamExt, future::BoxFuture};
-use serde::{Deserialize, Serialize};
+use futures_util::{FutureExt, Sink, SinkExt, StreamExt, future::BoxFuture};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde_json::{from_value, to_value};
 use tower::Service;
 
 use crate::{
     SteppedService,
-    id_generator::GenerateId,
-    sequential::context::{StepContext, WorkflowContext},
-    sequential::router::{GoTo, StepResult, WorkflowRouter},
-    sequential::service::handle_step_result,
-    sequential::step::{Layer, Stack, Step},
-    sequential::workflow::Workflow,
+    sequential::{
+        context::{StepContext, WorkflowContext},
+        router::{GoTo, StepResponse, WorkflowRouter},
+        service::handle_step_result,
+        step::{Layer, Stack, Step},
+        workflow::SteppedFlow,
+    },
 };
 
 /// A layer that filters and maps task inputs to outputs.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct FilterMap<F, I> {
     filter_map: F,
     _marker: PhantomData<I>,
+}
+
+impl<F: Clone, I> Clone for FilterMap<F, I> {
+    fn clone(&self) -> Self {
+        Self {
+            filter_map: self.filter_map.clone(),
+            _marker: PhantomData,
+        }
+    }
 }
 
 impl<F, I> FilterMap<F, I> {
@@ -43,11 +56,21 @@ impl<F, I> FilterMap<F, I> {
 }
 
 /// The filter map step that applies filtering and mapping to task inputs.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct FilterMapStep<F, S, I> {
     filter_map: F,
     step: S,
     _marker: PhantomData<I>,
+}
+
+impl<F: Clone, S: Clone, I> Clone for FilterMapStep<F, S, I> {
+    fn clone(&self) -> Self {
+        Self {
+            filter_map: self.filter_map.clone(),
+            step: self.step.clone(),
+            _marker: PhantomData,
+        }
+    }
 }
 
 impl<S, F, I> Layer<S> for FilterMap<F, I>
@@ -83,7 +106,7 @@ impl<F: Clone, Backend, Input, Iter> Clone for FilterService<F, Backend, Input, 
 
 /// The state of the filter operation
 #[derive(Debug, Clone, Deserialize, Serialize)]
-
+#[non_exhaustive]
 pub enum FilterState {
     /// Initializing state
     Init,
@@ -107,6 +130,7 @@ impl std::fmt::Display for FilterState {
 
 /// Represents an invalid FilterState
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum FilterStateParseError {
     /// Invalid filter state
     #[error("invalid filter state: {0}")]
@@ -128,6 +152,7 @@ impl std::str::FromStr for FilterState {
 
 /// Represents an invalid [`FilterState`]
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum FilterStateError {
     /// The filter state is missing
     #[error("the data for key {FILTER_STATE_KEY} is missing")]
@@ -161,14 +186,15 @@ impl Metadata for FilterState {
 
 /// The context for the filter operation
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct FilterContext<Id> {
-    task_ids: Vec<TaskId<Id>>,
+pub struct FilterContext {
+    task_ids: Vec<TaskId>,
 }
 
 const FILTER_CONTEXT_TASK_IDS_KEY: &str = "apalis_workflow.filter.task_ids";
 
 /// Error representing an invalid [`FilterContext`] state
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum FilterContextError {
     /// The entry for key {FILTER_CONTEXT_TASK_IDS_KEY} is missing"
     #[error("the entry for key {FILTER_CONTEXT_TASK_IDS_KEY} is missing")]
@@ -183,10 +209,7 @@ pub enum FilterContextError {
     DuplicateEntry(#[from] MetadataError),
 }
 
-impl<Id> Metadata for FilterContext<Id>
-where
-    Id: std::str::FromStr + Display,
-{
+impl Metadata for FilterContext {
     type Error = FilterContextError;
 
     fn extract(map: &MetadataStore) -> Result<Self, Self::Error> {
@@ -200,8 +223,7 @@ where
             value
                 .split(',')
                 .map(|id| {
-                    id.parse::<Id>()
-                        .map(TaskId::new)
+                    id.parse::<TaskId>()
                         .map_err(|_| FilterContextError::ParseTaskId)
                 })
                 .collect::<Result<Vec<_>, _>>()?
@@ -224,29 +246,29 @@ where
     }
 }
 
-impl<F, B, Input, CodecError, Err, Output, Id, Iter, Compact>
-    Service<Task<Compact, B::Connection, Id>> for FilterService<F, B, Input, Iter>
+impl<F, B, Input, CodecError, Err, Output, Iter, Compact> Service<Task<Compact>>
+    for FilterService<F, B, Input, Iter>
 where
-    F: Service<Task<Input, B::Connection, Id>, Response = Option<Output>>,
-    B: Backend<Error = Err, Id = Id, Compact = Compact>
+    F: Service<Task<Input>, Response = Option<Output>>,
+    B: Backend<Error = Err>
+        + WireFormatBackend<Compact = Compact>
+        + BackendConfig
         + Send
         + Sync
         + 'static
         + Clone
-        + Sink<Task<B::Compact, B::Connection, Id>, Error = Err>
-        + WaitForCompletion
+        + Sink<Task<B::Compact>, Error = Err>
+        + WaitForCompletion<GoTo<StepResponse>>
         + Unpin,
     B::Codec: Codec<Vec<Input>, Error = CodecError, Compact = B::Compact>
         + Codec<Iter, Error = CodecError, Compact = B::Compact>
         + Codec<F::Response, Error = CodecError, Compact = B::Compact>
         + Codec<Input, Error = CodecError, Compact = B::Compact>
         + Codec<Vec<Output>, Error = CodecError, Compact = B::Compact>
-        + Codec<GoTo<StepResult<Compact, Id>>, Error = CodecError, Compact = B::Compact>
         + Send
         + Clone
         + 'static,
-    Id: GenerateId + FromStr + Display + Send + 'static + Clone + Sync,
-    B::Connection: Send + Sync + 'static,
+    B::Id: GenerateId + Send + 'static,
     Err: std::error::Error + Send + Sync + 'static,
     CodecError: std::error::Error + Send + Sync + 'static,
     F::Error: Into<BoxDynError> + Send + 'static,
@@ -255,8 +277,9 @@ where
     Input: Send + 'static,
     Output: Send + 'static,
     Iter: IntoIterator<Item = Input> + Send + 'static,
+    Output: Serialize + DeserializeOwned,
 {
-    type Response = GoTo<StepResult<B::Compact, B::Id>>;
+    type Response = GoTo<StepResponse>;
     type Error = BoxDynError;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
@@ -267,25 +290,24 @@ where
         self.service.poll_ready(cx).map_err(|e| e.into())
     }
 
-    fn call(&mut self, request: Task<B::Compact, B::Connection, B::Id>) -> Self::Future {
+    fn call(&mut self, request: Task<B::Compact>) -> Self::Future {
         let filter_state: FilterState =
-            Metadata::extract(&request.ctx.metadata).unwrap_or(FilterState::Init);
-        let mut ctx = request.ctx.data.get::<StepContext<B>>().cloned().unwrap();
+            Metadata::extract(request.metadata()).unwrap_or(FilterState::Init);
+        let mut ctx = request.data().get::<StepContext<B>>().cloned().unwrap();
         let codec = ctx.backend.codec().clone();
-        use futures::SinkExt;
         match filter_state {
             FilterState::Init => {
                 // Handle unknown state
                 async move {
                     let main_args: Vec<Input> = vec![];
-                    let steps: Task<Iter, _, _> =
+                    let steps: Task<Iter> =
                         request.try_map_args(|arg| B::Codec::decode(&codec, &arg))?;
                     let steps = steps.args.into_iter().collect::<Vec<_>>();
                     #[cfg(feature = "tracing")]
                     tracing::debug!(step_count = ?steps.len(), "Enqueuing FilterMap steps");
                     let mut task_ids = Vec::new();
                     for step in steps {
-                        let task_id = TaskId::new(B::Id::generate());
+                        let task_id = B::Id::generate();
 
                         let task = TaskBuilder::new(B::Codec::encode(&codec, &step)?)
                             .metadata(&WorkflowContext {
@@ -294,14 +316,11 @@ where
                             .task_id(task_id.clone())
                             .metadata(&FilterState::SingleStep)
                             .build();
-                        ctx.backend
-                            .send(task)
-                            .await
-                            .map_err(|e| TaskSinkError::PushError(e))?;
+                        ctx.backend.send(task).await?;
 
                         task_ids.push(task_id);
                     }
-                    let task_id = TaskId::new(B::Id::generate());
+                    let task_id = B::Id::generate();
                     let task = TaskBuilder::new(B::Codec::encode(&codec, &main_args)?)
                         .task_id(task_id.clone())
                         .metadata(&WorkflowContext {
@@ -311,24 +330,21 @@ where
                         .metadata(&FilterState::Collector)
                         .build();
 
-                    ctx.backend
-                        .send(task)
-                        .await
-                        .map_err(|e| TaskSinkError::PushError(e))?;
+                    ctx.backend.send(task).await?;
 
                     Ok(GoTo::Done)
                 }
                 .boxed()
             }
             FilterState::SingleStep => {
-                let step: Task<Input, _, _> = request
+                let step: Task<Input> = request
                     .try_map_args(|arg| B::Codec::decode(&codec, &arg))
                     .unwrap();
                 let fut = self.service.call(step);
                 async move {
                     let res = fut.await.map_err(|e| e.into())?;
-                    Ok(GoTo::Break(StepResult {
-                        result: B::Codec::encode(&codec, &res)
+                    Ok(GoTo::Break(StepResponse {
+                        result: to_value(&res)
                             .map_err(|e| TaskSinkError::CodecError::<Err>(e.into()))?,
                         next_task_id: None,
                     }))
@@ -338,8 +354,7 @@ where
             FilterState::Collector => {
                 // Handle collector state
                 async move {
-                    let filter_ctx: FilterContext<B::Id> =
-                        Metadata::extract(&request.ctx.metadata)?;
+                    let filter_ctx: FilterContext = Metadata::extract(request.metadata())?;
                     let res: Vec<Output> = ctx
                         .backend
                         .wait_for(filter_ctx.task_ids)
@@ -351,24 +366,17 @@ where
                         .filter_map(|res| {
                             let res = res.take().ok();
                             match res {
-                                Some(val) => {
-                                    let decoded = codec.decode(&val).ok();
-                                    match decoded {
-                                        Some(GoTo::Break(val)) => {
-                                            let opt: Result<Option<Output>, _> =
-                                                B::Codec::decode(&codec, &val.result);
-                                            opt.ok().flatten()
-                                        }
-                                        _ => None,
-                                    }
+                                Some(GoTo::Break(val)) => {
+                                    let opt: Result<Option<Output>, _> = from_value(val.result);
+                                    opt.ok().flatten()
                                 }
                                 _ => None,
                             }
                         })
                         .collect();
                     if res.is_empty() {
-                        return Ok(GoTo::Break(StepResult {
-                            result: B::Codec::encode(&codec, &res)
+                        return Ok(GoTo::Break(StepResponse {
+                            result: to_value(&res)
                                 .map_err(|e| TaskSinkError::CodecError::<Err>(e.into()))?,
                             next_task_id: None,
                         }));
@@ -383,19 +391,21 @@ where
     }
 }
 
-impl<F, Input, S, B, CodecError, SinkError, I, Output, Id, Compact> Step<I, B>
+impl<F, Input, S, B, CodecError, SinkError, I, Output, Compact> Step<I, B>
     for FilterMapStep<F, S, I>
 where
     I: IntoIterator<Item = Input> + Send + Sync + 'static,
-    B: Backend<Error = SinkError, Id = Id, Compact = Compact>
+    B: Backend<Error = SinkError>
+        + WireFormatBackend<Compact = Compact>
+        + BackendConfig
         + Send
         + Sync
         + 'static
-        + Clone
-        + Sink<Task<Compact, B::Connection, Id>, Error = SinkError>
-        + WaitForCompletion
-        + Unpin,
-    F: Service<Task<Input, B::Connection, Id>, Error = BoxDynError, Response = Option<Output>>
+        + Sink<Task<Compact>, Error = SinkError>
+        + WaitForCompletion<GoTo<StepResponse>>
+        + Unpin
+        + Clone,
+    F: Service<Task<Input>, Error = BoxDynError, Response = Option<Output>>
         + Send
         + Sync
         + 'static
@@ -414,22 +424,21 @@ where
     S::Response: Send + 'static,
     B::Compact: Send + 'static,
     SinkError: std::error::Error + Send + Sync + 'static,
-    F::Response: Send + 'static,
+    F::Response: Send + Serialize + 'static,
     B::Codec: Codec<Vec<Input>, Error = CodecError, Compact = B::Compact>
         + Codec<I, Error = CodecError, Compact = B::Compact>
         + Codec<F::Response, Error = CodecError, Compact = B::Compact>
         + Codec<Input, Error = CodecError, Compact = B::Compact>
         + Codec<Vec<Output>, Error = CodecError, Compact = B::Compact>
-        + Codec<GoTo<StepResult<Compact, Id>>, Error = CodecError, Compact = B::Compact>
+        + Sync
         + 'static,
     B::Id: GenerateId + Send + Sync + 'static,
-    B::Connection: Send + Sync + 'static,
     CodecError: std::error::Error + Send + Sync + 'static,
     F::Future: Send + 'static,
     B::Compact: Send + 'static,
-    Output: Send + 'static,
-    Id: FromStr + Display,
-    Output: 'static,
+    Output: Send + Serialize + 'static,
+    B::Id: FromStr + Display,
+    Output: Serialize + DeserializeOwned + 'static,
 {
     type Response = Vec<F::Response>;
     type Error = F::Error;
@@ -444,15 +453,15 @@ where
     }
 }
 
-impl<Start, C, L, I: IntoIterator<Item = C>, B: Backend> Workflow<Start, I, B, L> {
+impl<Start, C, L, I: IntoIterator<Item = C>, B: Backend> SteppedFlow<Start, I, B, L> {
     /// Adds a filter and map step to the workflow.
+    #[allow(clippy::type_complexity)]
     pub fn filter_map<F, Output, FnArgs>(
         self,
         filter_map: F,
-    ) -> Workflow<Start, Vec<Output>, B, Stack<FilterMap<TaskFn<F, C, B::Connection, FnArgs>, I>, L>>
+    ) -> SteppedFlow<Start, Vec<Output>, B, Stack<FilterMap<TaskFn<F, C, FnArgs>, I>, L>>
     where
-        TaskFn<F, C, B::Connection, FnArgs>:
-            Service<Task<C, B::Connection, B::Id>, Response = Option<Output>>,
+        TaskFn<F, C, FnArgs>: Service<Task<C>, Response = Option<Output>>,
     {
         self.add_step(FilterMap {
             filter_map: task_fn(filter_map),

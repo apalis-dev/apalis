@@ -3,6 +3,7 @@ use std::fmt;
 
 /// Error type for [`FileStorage`].
 #[derive(thiserror::Error)]
+#[non_exhaustive]
 pub enum FileStorageError<A: Adapter> {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),

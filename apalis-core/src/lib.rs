@@ -8,7 +8,6 @@
     dead_code,
     improper_ctypes,
     non_shorthand_field_patterns,
-    no_mangle_generic_items,
     overflowing_literals,
     path_statements,
     patterns_in_fns_without_body,
@@ -44,9 +43,9 @@
 //! ## Tasks
 //!
 //! The task struct provides type-safe components for task data and metadata:
-//! - [`Args`](crate::task_fn::guide) - The primary structure for the task
-//! - [`ExecutionContext`](crate::task::ExecutionContext) - Wrapper type for information for task execution includes context, status, attempts, task_id and metadata
-//! - [`Context`](crate::backend::Backend#required-associated-types) - contextual information with the task provided by the backend
+//! - [`Args`](crate::task::task_fn) - The primary structure for the task
+//! - [`ExecutionContext`](crate::task::ExecutionContext) - Backend persisted info on task execution.
+//! - [`TaskContext`](crate::task::context::TaskContext) - Worker provided context for a currently task in execution.
 //! - [`Status`](crate::task::status::Status) - Represents the current state of a task
 //! - [`TaskId`](crate::task::task_id::TaskId) - Unique identifier for task tracking
 //! - [`Attempt`](crate::task::attempt::Attempt) - Retry tracking and attempt information
@@ -56,9 +55,9 @@
 //! ### Example: Using `TaskBuilder`
 //!
 //! ```ignore
-//! let task: Task<String, ()> = TaskBuilder::new("my-task".to_string())
+//! let task: Task<String> = TaskBuilder::new("my-task".to_string())
 //!     .id("task-123".into())
-//!     .attempts(3)
+//!     .max_attempts(3)
 //!     .timeout(Duration::from_secs(30))
 //!     .run_in_minutes(10)
 //!     .build();
@@ -66,29 +65,15 @@
 //! Specific documentation for tasks can be found in the [`task`] and [`task::builder`] modules.
 //!
 //! #### Relevant Guides:
-//! - [**Defining Task arguments**](crate::task_fn::guide) - Creating effective task arguments that are scalable and type-safe
+//! - [**Defining Task arguments**](crate::task::task_fn) - Creating effective task arguments that are scalable and type-safe
 //!
 //! ## Backends
 //!
 //! The [`Backend`](crate::backend::Backend) trait serves as the core abstraction for all task sources.
 //! It defines task polling mechanisms, streaming interfaces, and middleware integration points.
 //!
-//! <details>
-//! <summary>Associated Types:</summary>
-//!
-//! - `Stream` - Defines the task stream type for polling operations
-//! - `Layer` - Specifies the middleware layer stack for the backend
-//! - `Codec` - Determines serialization format for task data persistence
-//! - `Beat` - Heartbeat stream for worker liveness checks
-//! - `Id` - Type used for unique task identifiers
-//! - `Conn` -   Context associated with tasks
-//! - `Error` - Error type for backend operations
-//!
-//! </details>
-//!
 //! ### Inbuilt Implementations
 //! - [`MemoryStorage`](crate::backend::memory::MemoryStorage) : In-memory storage based on channels
-//! - [`Pipe`](crate::backend::pipe) : Pipe-based backend for a stream-to-backend pipeline
 //! - [`CustomBackend`](crate::backend::custom) : Flexible backend composition allowing custom functions for task management
 //!
 //! Backends handle task persistence, distribution, and reliability concerns while providing
@@ -140,8 +125,8 @@
 //!
 //!     let worker = WorkerBuilder::new("rango-tango")
 //!         .backend(in_memory)
-//!         .on_event(|ctx, ev| {
-//!             println!("On Event = {:?}, {:?}", ev, ctx.name());
+//!         .on_event(|worker, ev| {
+//!             println!("On Event = {:?}, {:?}", ev, worker.name());
 //!         })
 //!         .build(task);
 //!     worker.run().await.unwrap();
@@ -151,8 +136,7 @@
 //! Learn more about workers in the [`worker`](crate::worker) and [`worker::builder`](crate::worker::builder) modules.
 //!
 //! #### Relevant Tutorials:
-//! - [**Creating task handlers**](crate::task_fn::guide) - Defining task processing functions using the [`TaskFn`] trait
-//! - [**Testing task handlers with `TestWorker`**](crate::worker::test_worker) - Specialized worker implementation for unit and integration testing
+//! - [**Creating task handlers**](crate::task::task_fn) - Defining task processing functions using the [`TaskFn`] trait
 //!
 //! ## Monitor
 //!
@@ -179,13 +163,13 @@
 //!     storage.push(1u32).await.unwrap();
 //!
 //!     let monitor = Monitor::new()
-//!         .on_event(|ctx, event| println!("{}: {:?}", ctx.name(), event))
+//!         .on_event(|worker, event| println!("{}: {:?}", worker.name(), event))
 //!         .register(move |_| {
 //!             WorkerBuilder::new("demo-worker")
 //!                 .backend(storage.clone())
-//!                 .build(|req: u32, ctx: WorkerContext| async move {
+//!                 .build(|req: u32, worker: WorkerContext| async move {
 //!                     println!("Processing task: {:?}", req);
-//! #                   ctx.stop().unwrap();
+//! #                   worker.stop().unwrap();
 //!                     Ok::<_, std::io::Error>(req)
 //!                 })
 //!         });
@@ -228,10 +212,10 @@
 //!     inner: S,
 //! }
 //!
-//! impl<S, Req, Res, Err, Id> Service<Task<Req, (), Id>> for LoggingService<S>
+//! impl<S, Args, Res, Err> Service<Task<Args>> for LoggingService<S>
 //! where
-//!     S: Service<Task<Req, (), Id>, Response = Res, Error = Err>,
-//!     Req: std::fmt::Debug,
+//!     S: Service<Task<Args>, Response = Res, Error = Err>,
+//!     Args: std::fmt::Debug,
 //! {
 //!     type Response = Res;
 //!     type Error = Err;
@@ -241,7 +225,7 @@
 //!         self.inner.poll_ready(cx)
 //!     }
 //!
-//!     fn call(&mut self, req: Task<Req, (), Id>) -> Self::Future {
+//!     fn call(&mut self, req: Task<Args>) -> Self::Future {
 //!         println!("Processing task: {:?}", req.args);
 //!         self.inner.call(req)
 //!     }
@@ -297,7 +281,6 @@
 //!  Beyond there one may want to dive deeper into the following topics:
 //!
 //! - [**Using CustomBackend**](crate::backend::custom) - using custom backend to integrate with already existing systems
-//! - [**Implementing Backends**](crate::backend::guide) - implementing the [`Backend`] trait from scratch
 //! - [**Extending Workers using extension traits**](crate::worker::ext#creating-a-custom-worker-extension-trait) - implementing custom worker functionality via extension traits
 //!
 //! # Observability
@@ -305,7 +288,7 @@
 //! ![Task](https://github.com/apalis-dev/apalis-board/raw/main/screenshots/task.png)
 //!
 //! [`Backend`]: crate::backend::Backend
-//! [`TaskFn`]: crate::task_fn::TaskFn
+//! [`TaskFn`]: crate::task::task_fn::TaskFn
 //! [`Service`]: tower_service::Service
 //! [`Task`]: crate::task
 //! [`WorkerBuilder`]: crate::worker::builder
@@ -324,19 +307,19 @@
 //! [`Status`]: crate::task::status::Status
 //! [`TaskId`]: crate::task::task_id::TaskId
 //! [`Attempt`]: crate::task::attempt::Attempt
-//! [`FromRequest`]: crate::task_fn::FromRequest
-//! [`TestWorker`]: crate::worker::test_worker::TestWorker
+//! [`FromRequest`]: crate::task::from_request::FromRequest
 //! [`Shutdown`]: crate::monitor::shutdown::Shutdown
+
+#[macro_use]
+pub(crate) mod macros;
 
 pub mod backend;
 /// Includes internal error types.
 pub mod error;
-#[macro_use]
-pub(crate) mod macros;
+
 /// Actively manage and observe workers
 pub mod monitor;
 pub mod task;
-pub mod task_fn;
 pub mod worker;
 
 /// Layers for building middleware stacks

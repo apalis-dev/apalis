@@ -7,6 +7,7 @@ pub struct MsgPackCodec;
 
 /// Errors that can occur during MsgPack encoding/decoding
 #[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
 pub enum MsgPackCodecError {
     /// Error during encoding
     #[error("Encoding error: {0}")]

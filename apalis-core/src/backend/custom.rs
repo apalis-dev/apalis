@@ -22,6 +22,7 @@
 //! # use futures_util::{lock::Mutex, sink, stream, sink::SinkExt};
 //! # use apalis_core::backend::custom::{BackendBuilder, CustomBackend};
 //! # use apalis_core::task::Task;
+//! # use apalis_core::task::task_id::{RandomId,TaskId};
 //! # use apalis_core::task::builder::TaskBuilder;
 //! # use apalis_core::worker::builder::WorkerBuilder;
 //! # use apalis_core::worker::context::WorkerContext;
@@ -30,11 +31,10 @@
 //! # use futures_util::StreamExt;
 //! # use futures_util::FutureExt;
 //! # use apalis_core::backend::TaskSink;
-//! # use apalis_core::task::task_id::RandomId;
 //! #[tokio::main]
 //! async fn main() {
 //!     // Create a memory-backed VecDeque
-//!     let memory = Arc::new(Mutex::new(VecDeque::<Task<u32, (), RandomId>>::new()));
+//!     let memory = Arc::new(Mutex::new(VecDeque::<Task<u32>>::new()));
 //!
 //!     // Build the custom backend
 //!     let mut backend = BackendBuilder::new()
@@ -52,9 +52,13 @@
 //!             .boxed()
 //!         })
 //!         .sink(|memory, _| {
-//!             sink::unfold(memory.clone(), move |p, item| {
+//!             sink::unfold(memory.clone(), move |p, item: Task<_>| {
 //!                 async move {
 //!                     let mut memory = p.lock().await;
+//!                     let item = item
+//!                            .into_builder()
+//!                            .task_id(TaskId::String(RandomId::default().to_string()))
+//!                            .build();
 //!                     memory.push_back(item);
 //!                     drop(memory);
 //!                     Ok::<_, BoxDynError>(p)
@@ -65,13 +69,13 @@
 //!         .build()
 //!         .unwrap();
 //!
-//!     // Add a task to the backend
-//!     backend.send(TaskBuilder::new(42).build()).await.unwrap();
+//!     // Add a task to the backend;
+//!     backend.push(42).await.unwrap();
 //!
 //!     // Define the task handler
-//!     async fn task(task: u32, ctx: WorkerContext) -> Result<(), BoxDynError> {
+//!     async fn task(task: u32, worker: WorkerContext) -> Result<(), BoxDynError> {
 //!         tokio::time::sleep(Duration::from_secs(1)).await;
-//! #       ctx.stop().unwrap();
+//! #       worker.stop().unwrap();
 //!         Ok(())
 //!     }
 //!
@@ -99,10 +103,10 @@ use std::{fmt, marker::PhantomData};
 use thiserror::Error;
 use tower_layer::Identity;
 
-use crate::backend::codec::IdentityCodec;
-use crate::backend::queue::Queue;
+use crate::backend::BackendConfig;
+use crate::backend::finalize::Ephemeral;
 use crate::error::BoxDynError;
-use crate::features_table;
+use crate::task::task_id::RandomId;
 use crate::{backend::Backend, task::Task, worker::context::WorkerContext};
 
 type Fetcher<DB, Config, Fetch> =
@@ -131,7 +135,7 @@ type Sinker<DB, Config, Sink> = Arc<Box<dyn Fn(&mut DB, &Config) -> Sink + Send 
     FetchById => not_supported("Allow fetching a task by its ID"),
     RegisterWorker => not_implemented("Allow registering a worker with the backend"),
     PipeExt => limited("Allow other backends to pipe to this backend", false), // Would require Clone,
-    MakeShared => not_implemented("Share the same [`CustomBackend`] across multiple workers", false),
+    BackendFactory => not_implemented("Share the same [`CustomBackend`] across multiple workers", false),
     Workflow => not_implemented("Flexible enough to support workflows"),
     WaitForCompletion => not_implemented("Wait for tasks to complete without blocking"), // Would require Clone
     ResumeById => not_supported("Resume a task by its ID"),
@@ -141,8 +145,8 @@ type Sinker<DB, Config, Sink> = Arc<Box<dyn Fn(&mut DB, &Config) -> Sink + Send 
 }]
 #[pin_project::pin_project]
 #[must_use = "Custom backends must be polled or used as a sink"]
-pub struct CustomBackend<Args, DB, Fetch, Sink, Id, Config = ()> {
-    _marker: PhantomData<(Args, Id)>,
+pub struct CustomBackend<Args, DB, Fetch, Sink, Config = ()> {
+    _marker: PhantomData<Args>,
     db: DB,
     fetcher: Fetcher<DB, Config, Fetch>,
     sinker: Sinker<DB, Config, Sink>,
@@ -153,7 +157,7 @@ pub struct CustomBackend<Args, DB, Fetch, Sink, Id, Config = ()> {
     stream: Option<Fetch>,
 }
 
-impl<Args, DB, Fetch, Sink, Id, Config> Clone for CustomBackend<Args, DB, Fetch, Sink, Id, Config>
+impl<Args, DB, Fetch, Sink, Config> Clone for CustomBackend<Args, DB, Fetch, Sink, Config>
 where
     DB: Clone,
     Config: Clone,
@@ -174,8 +178,7 @@ where
     }
 }
 
-impl<Args, DB, Fetch, Sink, Id, Config> fmt::Debug
-    for CustomBackend<Args, DB, Fetch, Sink, Id, Config>
+impl<Args, DB, Fetch, Sink, Config> fmt::Debug for CustomBackend<Args, DB, Fetch, Sink, Config>
 where
     DB: fmt::Debug,
     Config: fmt::Debug,
@@ -184,11 +187,7 @@ where
         f.debug_struct("CustomBackend")
             .field(
                 "_marker",
-                &format_args!(
-                    "PhantomData<({}, {})>",
-                    std::any::type_name::<Args>(),
-                    std::any::type_name::<Id>()
-                ),
+                &format_args!("PhantomData<({})>", std::any::type_name::<Args>()),
             )
             .field("db", &self.db)
             .field("fetcher", &"Fn(&mut DB, &Config, &WorkerContext) -> Fetch")
@@ -207,16 +206,15 @@ type SinkerBuilder<DB, Config, Sink> =
 /// Builder for [`CustomBackend`]
 ///
 /// Lets you set the database, fetcher, sink, codec, and config
-pub struct BackendBuilder<Args, DB, Fetch, Sink, Id, Config = ()> {
-    _marker: PhantomData<(Args, Id)>,
+pub struct BackendBuilder<Args, DB, Fetch, Sink, Config = ()> {
+    _marker: PhantomData<Args>,
     database: Option<DB>,
     fetcher: Option<FetcherBuilder<DB, Config, Fetch>>,
     sink: Option<SinkerBuilder<DB, Config, Sink>>,
     config: Option<Config>,
 }
 
-impl<Args, DB, Fetch, Sink, Id, Config> fmt::Debug
-    for BackendBuilder<Args, DB, Fetch, Sink, Id, Config>
+impl<Args, DB, Fetch, Sink, Config> fmt::Debug for BackendBuilder<Args, DB, Fetch, Sink, Config>
 where
     DB: fmt::Debug,
     Config: fmt::Debug,
@@ -225,11 +223,7 @@ where
         f.debug_struct("BackendBuilder")
             .field(
                 "_marker",
-                &format_args!(
-                    "PhantomData<({}, {})>",
-                    std::any::type_name::<Args>(),
-                    std::any::type_name::<Id>()
-                ),
+                &format_args!("PhantomData<({})>", std::any::type_name::<Args>(),),
             )
             .field("database", &self.database)
             .field("fetcher", &self.fetcher.as_ref().map(|_| "Some(fn)"))
@@ -239,9 +233,7 @@ where
     }
 }
 
-impl<Args, DB, Fetch, Sink, Id, Config> Default
-    for BackendBuilder<Args, DB, Fetch, Sink, Id, Config>
-{
+impl<Args, DB, Fetch, Sink, Config> Default for BackendBuilder<Args, DB, Fetch, Sink, Config> {
     fn default() -> Self {
         Self {
             _marker: PhantomData,
@@ -253,7 +245,7 @@ impl<Args, DB, Fetch, Sink, Id, Config> Default
     }
 }
 
-impl<Args, DB, Fetch, Sink, Id> BackendBuilder<Args, DB, Fetch, Sink, Id, ()> {
+impl<Args, DB, Fetch, Sink> BackendBuilder<Args, DB, Fetch, Sink, ()> {
     /// Create a new `BackendBuilder` instance
     #[must_use]
     pub fn new() -> Self {
@@ -261,9 +253,7 @@ impl<Args, DB, Fetch, Sink, Id> BackendBuilder<Args, DB, Fetch, Sink, Id, ()> {
     }
 
     /// Create a new `BackendBuilder` instance with custom configuration
-    pub fn new_with_cfg<Config>(
-        config: Config,
-    ) -> BackendBuilder<Args, DB, Fetch, Sink, Id, Config> {
+    pub fn new_with_cfg<Config>(config: Config) -> BackendBuilder<Args, DB, Fetch, Sink, Config> {
         BackendBuilder {
             config: Some(config),
             ..Default::default()
@@ -271,7 +261,7 @@ impl<Args, DB, Fetch, Sink, Id> BackendBuilder<Args, DB, Fetch, Sink, Id, ()> {
     }
 }
 
-impl<Args, DB, Fetch, Sink, Id, Config> BackendBuilder<Args, DB, Fetch, Sink, Id, Config> {
+impl<Args, DB, Fetch, Sink, Config> BackendBuilder<Args, DB, Fetch, Sink, Config> {
     /// The custom backend persistence engine
     #[must_use]
     pub fn database(mut self, db: DB) -> Self {
@@ -301,7 +291,7 @@ impl<Args, DB, Fetch, Sink, Id, Config> BackendBuilder<Args, DB, Fetch, Sink, Id
 
     #[allow(clippy::type_complexity)]
     /// Build the `CustomBackend` instance
-    pub fn build(self) -> Result<CustomBackend<Args, DB, Fetch, Sink, Id, Config>, BuildError> {
+    pub fn build(self) -> Result<CustomBackend<Args, DB, Fetch, Sink, Config>, BuildError> {
         let mut db = self.database.ok_or(BuildError::MissingDb)?;
         let config = self.config.ok_or(BuildError::MissingConfig)?;
         let sink_fn = self.sink.ok_or(BuildError::MissingSink)?;
@@ -324,6 +314,7 @@ impl<Args, DB, Fetch, Sink, Id, Config> BackendBuilder<Args, DB, Fetch, Sink, Id
 
 /// Errors encountered building a `CustomBackend`
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum BuildError {
     /// Missing database db
     #[error("Database db is required")]
@@ -341,45 +332,22 @@ pub enum BuildError {
 
 /// Errors encountered while using the `CustomBackend`
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum CustomBackendError {
     /// Inner error
     #[error("Inner error: {0}")]
     Inner(#[from] BoxDynError),
 }
 
-impl<Args: 'static, DB, Fetch, S, Id, E, Conn: 'static, Config> Backend
-    for CustomBackend<Args, DB, Fetch, S, Id, Config>
+impl<Args: 'static, DB, Fetch, S, E, Config> Backend for CustomBackend<Args, DB, Fetch, S, Config>
 where
-    Fetch: Stream<Item = Result<Option<Task<Args, Conn, Id>>, E>> + Unpin + Send + 'static,
-    S: Sink<Task<Args, Conn, Id>, Error = E> + Unpin + Send + 'static,
+    Fetch: Stream<Item = Result<Option<Task<Args>>, E>> + Unpin + Send + 'static,
+    S: Sink<Task<Args>, Error = E> + Unpin + Send + 'static,
     E: Into<BoxDynError>,
-    Id: Clone + Send + Sync + 'static,
-    Args: Clone,
 {
-    type Args = Args;
-    type Id = Id;
-
-    type Connection = Conn;
+    type Task = Task<Args>;
 
     type Error = CustomBackendError;
-
-    type Layer = Identity;
-
-    type Codec = IdentityCodec;
-
-    type Compact = Args;
-
-    fn codec(&self) -> &Self::Codec {
-        &IdentityCodec
-    }
-
-    fn queue(&self) -> Queue {
-        Queue::from(std::any::type_name::<Args>())
-    }
-
-    fn middleware(&self) -> Self::Layer {
-        Identity::new()
-    }
 
     fn poll_ready(
         &mut self,
@@ -393,7 +361,7 @@ where
         &mut self,
         cx: &mut Context<'_>,
         worker: &WorkerContext,
-    ) -> Poll<Option<Result<Task<Self::Compact, Self::Connection, Self::Id>, Self::Error>>> {
+    ) -> Poll<Option<Result<Self::Task, Self::Error>>> {
         if self.stream.is_none() {
             self.stream = Some((self.fetcher)(&mut self.db, &self.config, worker));
         }
@@ -417,10 +385,33 @@ where
     }
 }
 
-impl<Args, Conn, Id, DB, Fetch, S, Config> Sink<Task<Args, Conn, Id>>
-    for CustomBackend<Args, DB, Fetch, S, Id, Config>
+impl<Args, DB, Fetch, S, Config, E> BackendConfig for CustomBackend<Args, DB, Fetch, S, Config>
 where
-    S: Sink<Task<Args, Conn, Id>>,
+    Fetch: Stream<Item = Result<Option<Task<Args>>, E>> + Unpin + Send + 'static,
+    S: Sink<Task<Args>, Error = E> + Unpin + Send + 'static,
+    E: Into<BoxDynError>,
+    Args: 'static,
+{
+    type Id = RandomId;
+    type Args = Args;
+    type Kind = Ephemeral;
+
+    type Layer = Identity;
+
+    type Config = Config;
+
+    fn config(&self) -> &Self::Config {
+        &self.config
+    }
+
+    fn middleware(&mut self, _: &mut WorkerContext) -> Self::Layer {
+        Identity::new()
+    }
+}
+
+impl<Args, DB, Fetch, S, Config> Sink<Task<Args>> for CustomBackend<Args, DB, Fetch, S, Config>
+where
+    S: Sink<Task<Args>>,
     S::Error: Into<BoxDynError>,
 {
     type Error = CustomBackendError;
@@ -432,7 +423,7 @@ where
             .map_err(|e| CustomBackendError::Inner(e.into()))
     }
 
-    fn start_send(self: Pin<&mut Self>, item: Task<Args, Conn, Id>) -> Result<(), Self::Error> {
+    fn start_send(self: Pin<&mut Self>, item: Task<Args>) -> Result<(), Self::Error> {
         self.project()
             .current_sink
             .start_send_unpin(item)
@@ -461,8 +452,9 @@ mod tests {
     use futures_util::{FutureExt, lock::Mutex, sink, stream};
 
     use crate::{
+        backend::TaskSink,
         error::BoxDynError,
-        task::{builder::TaskBuilder, task_id::RandomId},
+        task::task_id::{RandomId, TaskId},
         worker::{builder::WorkerBuilder, ext::event_listener::EventListenerExt},
     };
 
@@ -472,15 +464,14 @@ mod tests {
 
     #[tokio::test]
     async fn basic_custom_backend() {
-        let memory: Arc<Mutex<VecDeque<Task<u32, (), RandomId>>>> =
-            Arc::new(Mutex::new(VecDeque::new()));
+        let memory: Arc<Mutex<VecDeque<Task<u32>>>> = Arc::new(Mutex::new(VecDeque::new()));
 
         let mut backend = BackendBuilder::new()
             .database(memory)
             .fetcher(|db, _, _| {
                 stream::unfold(db.clone(), |p| async move {
                     tokio::time::sleep(Duration::from_millis(100)).await; // Debounce
-                    let mut db = p.lock().await;
+                    let mut db = p.try_lock().unwrap();
                     let item = db.pop_front();
                     drop(db);
                     match item {
@@ -491,9 +482,13 @@ mod tests {
                 .boxed()
             })
             .sink(|db, _| {
-                sink::unfold(db.clone(), move |p, item| {
+                sink::unfold(db.clone(), move |p, item: Task<u32>| {
                     async move {
-                        let mut db = p.lock().await;
+                        let mut db = p.try_lock().unwrap();
+                        let item = item
+                            .into_builder()
+                            .task_id(TaskId::String(RandomId::default().to_string()))
+                            .build();
                         db.push_back(item);
                         drop(db);
                         Ok::<_, CustomBackendError>(p)
@@ -505,13 +500,13 @@ mod tests {
             .unwrap();
 
         for i in 0..ITEMS {
-            backend.send(TaskBuilder::new(i).build()).await.unwrap();
+            backend.push(i).await.unwrap();
         }
 
-        async fn task(task: u32, ctx: WorkerContext) -> Result<(), BoxDynError> {
+        async fn task(task: u32, worker: WorkerContext) -> Result<(), BoxDynError> {
             tokio::time::sleep(Duration::from_secs(1)).await;
             if task == ITEMS - 1 {
-                ctx.stop().unwrap();
+                worker.stop().unwrap();
                 return Err("Worker stopped!")?;
             }
             Ok(())
@@ -519,8 +514,8 @@ mod tests {
 
         let worker = WorkerBuilder::new("rango-tango")
             .backend(backend)
-            .on_event(|ctx, ev| {
-                println!("On Event = {ev:?} from {}", ctx.name());
+            .on_event(|worker, ev| {
+                println!("On Event = {ev:?} from {}", worker.name());
             })
             .build(task);
         worker.run().await.unwrap();

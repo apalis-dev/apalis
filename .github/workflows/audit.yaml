@@ -7,6 +7,7 @@ on:
     paths: 
       - '**/Cargo.toml'
       - '**/Cargo.lock'
+      - '**/deny.toml'
 
   pull_request:
   workflow_call:
@@ -23,7 +24,7 @@ jobs:
           path: ~/.cargo/bin/cargo-audit
           key: cargo-audit-${{ runner.os }}
       - run: cargo install cargo-audit --locked --force
-      - run: cargo audit
+      - run: cargo audit --ignore RUSTSEC-2024-0436 #(used in ratatui)
           
   cargo-vet:
     runs-on: ubuntu-latest

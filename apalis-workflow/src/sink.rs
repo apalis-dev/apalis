@@ -1,21 +1,20 @@
 use std::{fmt::Display, str::FromStr};
 
 use apalis_core::{
-    backend::{Backend, TaskSinkError, codec::Codec},
+    backend::{Backend, BackendConfig, TaskSinkError, WireFormatBackend, codec::Codec},
     error::BoxDynError,
-    task::{Task, builder::TaskBuilder, task_id::TaskId},
+    task::{Task, builder::TaskBuilder, task_id::GenerateId},
 };
-use futures::Sink;
+use futures_sink::Sink;
 use petgraph::graph::NodeIndex;
 
 use crate::{
-    dag::{DagFlowContext, decode::DagCodec},
-    id_generator::GenerateId,
+    graph::{GraphFlowContext, decode::GraphCodec},
     sequential::WorkflowContext,
 };
 
 /// Extension trait for pushing tasks into a workflow
-pub trait WorkflowSink<Args>: Backend + Sized
+pub trait WorkflowSink<Args>: WireFormatBackend + Backend + Sized
 where
     Self::Codec: Codec<Args, Compact = Self::Compact>,
 {
@@ -31,7 +30,7 @@ where
         args: Args,
     ) -> impl Future<Output = Result<(), TaskSinkError<Self::Error>>> + Send
     where
-        Args: DagCodec<Self>,
+        Args: GraphCodec<Self>,
         Args::Error: std::error::Error + Send + Sync + 'static;
 
     /// Push a step into the workflow sink at the specified index
@@ -42,15 +41,15 @@ where
     /// rather than being called directly.
     fn push_step(
         &mut self,
-        step: Args,
+        args: Args,
         index: usize,
     ) -> impl Future<Output = Result<(), TaskSinkError<Self::Error>>> + Send;
 
     /// Push a node into the workflow sink at the specified index
     ///
     /// This is a helper method for pushing tasks into the workflow sink
-    /// with the appropriate DAG flow context metadata.
-    /// Ideally, this should be used internally by the DAG executor
+    /// with the appropriate Graph flow context metadata.
+    /// Ideally, this should be used internally by the Graph executor
     /// rather than being called directly.
     fn push_node(
         &mut self,
@@ -61,21 +60,23 @@ where
 
 impl<S: Send, Args: Send, Compact, Err> WorkflowSink<Args> for S
 where
-    S: Sink<Task<Compact, S::Connection, S::Id>, Error = Err>
-        + Backend<Error = Err, Compact = Compact>
+    S: Sink<Task<Compact>, Error = Err>
+        + Backend<Error = Err>
+        + WireFormatBackend<Compact = Compact>
+        + BackendConfig
         + Unpin,
     S::Id: GenerateId + Send + Sync + FromStr + Display,
     S::Codec: Codec<Args, Compact = Compact>,
-    S::Connection: Send + Sync,
     Err: std::error::Error + Send + Sync + 'static,
     <S::Codec as Codec<Args>>::Error: Into<BoxDynError> + Send + Sync + 'static,
     Compact: Send + 'static,
     <S::Id as FromStr>::Err: std::error::Error + Send + Sync + 'static,
 {
     async fn push_start(&mut self, args: Args) -> Result<(), TaskSinkError<Self::Error>> {
-        use futures::SinkExt;
+        use futures_util::SinkExt;
+
         let codec = self.codec();
-        let task_id = TaskId::new(S::Id::generate());
+        let task_id = S::Id::generate();
         let compact =
             S::Codec::encode(codec, &args).map_err(|e| TaskSinkError::CodecError(e.into()))?;
         let task = TaskBuilder::new(compact).task_id(task_id.clone()).build();
@@ -86,11 +87,11 @@ where
 
     async fn start_fan_out(&mut self, args: Args) -> Result<(), TaskSinkError<Self::Error>>
     where
-        Args: DagCodec<Self>,
+        Args: GraphCodec<Self>,
         Args::Error: std::error::Error + Send + Sync + 'static,
     {
-        use futures::SinkExt;
-        let task_id = TaskId::new(S::Id::generate());
+        use futures_util::SinkExt;
+        let task_id = S::Id::generate();
         let codec = self.codec();
         let compact = Args::encode(args, codec).map_err(|e| TaskSinkError::CodecError(e.into()))?;
         let task = TaskBuilder::new(compact).task_id(task_id.clone()).build();
@@ -104,8 +105,8 @@ where
         step: Args,
         index: usize,
     ) -> Result<(), TaskSinkError<Self::Error>> {
-        use futures::SinkExt;
-        let task_id = TaskId::new(S::Id::generate());
+        use futures_util::SinkExt;
+        let task_id = S::Id::generate();
         let codec = self.codec();
         let compact =
             S::Codec::encode(codec, &step).map_err(|e| TaskSinkError::CodecError(e.into()))?;
@@ -123,13 +124,13 @@ where
         node: Args,
         index: NodeIndex,
     ) -> Result<(), TaskSinkError<Self::Error>> {
-        use futures::SinkExt;
-        let task_id = TaskId::new(S::Id::generate());
+        use futures_util::SinkExt;
+        let task_id = S::Id::generate();
         let codec = self.codec();
         let compact =
             S::Codec::encode(codec, &node).map_err(|e| TaskSinkError::CodecError(e.into()))?;
         let task = TaskBuilder::new(compact)
-            .metadata(&DagFlowContext {
+            .metadata(&GraphFlowContext {
                 current_node: index,
                 completed_nodes: Default::default(),
                 current_position: index.index(),

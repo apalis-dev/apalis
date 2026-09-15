@@ -11,13 +11,12 @@ anyhow = "1"
 apalis = { path = "../../apalis" }
 serde = "1"
 tokio = { version = "1", features = ["full"] }
-env_logger = "0.11"
-tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json"] }
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 email-service = { path = "../email-service" }
 futures = "0.3"
 apalis-file-storage = { path = "../../utils/apalis-file-storage" }
 enum_dispatch = "0.3.13"
+serde_json = "1"
 
 [dependencies.tracing]
 default-features = false
@@ -29,8 +28,15 @@ path = "src/macros.rs"
 
 [[bin]]
 name = "generics"
-path ="src/generics.rs"
+path = "src/generics.rs"
 
 [[bin]]
-name = "enum_dispatch"
+name = "enum-dispatch"
 path = "src/enum_dispatch.rs"
+
+[[bin]]
+name = "from-config"
+path = "src/from_config.rs"
+
+[lints]
+rust.missing_docs = "allow"

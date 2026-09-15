@@ -1,17 +1,16 @@
-use anyhow::Result;
-use apalis::layers::WorkerBuilderExt;
-use apalis::layers::tracing::{ContextualTaskSpan, OtelTraceContext, TraceLayer, TracingContext};
-use apalis::prelude::*;
-use apalis_file_storage::JsonStorage;
 use std::error::Error;
 use std::fmt;
 use std::time::Duration;
-use tracing::info;
-use tracing_subscriber::prelude::*;
 
-use tokio::time::sleep;
-
+use anyhow::Result;
+use apalis::layers::tracing::*;
+use apalis::prelude::*;
+use apalis_file_storage::JsonStorage;
 use email_service::Email;
+use tokio::time::sleep;
+use tracing::info;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 #[derive(Debug)]
 struct InvalidEmailError {
@@ -26,9 +25,10 @@ impl fmt::Display for InvalidEmailError {
 
 impl Error for InvalidEmailError {}
 
-async fn email_service(email: Email) -> Result<(), InvalidEmailError> {
+async fn email_service(email: Email, worker: WorkerContext) -> Result<(), InvalidEmailError> {
     tracing::info!("Checking if dns configured");
-    sleep(Duration::from_millis(1008)).await;
+    sleep(Duration::from_millis(1000)).await;
+    worker.stop().unwrap();
     tracing::info!("Failed in 1 sec");
     Err(InvalidEmailError { email: email.to })
 }
@@ -36,23 +36,24 @@ async fn email_service(email: Email) -> Result<(), InvalidEmailError> {
 async fn produce_task(storage: &mut JsonStorage<Email>) -> Result<()> {
     storage
         .push(Email {
-            to: "test@example".to_string(),
-            text: "Test background job from apalis".to_string(),
-            subject: "Welcome Sentry Email".to_string(),
+            to: "test@example".to_owned(),
+            text: "Test background job from apalis".to_owned(),
+            subject: "Welcome Sentry Email".to_owned(),
         })
-        .await?;
+        .await
+        .unwrap();
     Ok(())
 }
 
 async fn produce_task_with_ctx(storage: &mut JsonStorage<Email>) -> Result<()> {
     let email = Email {
-        to: "test@example".to_string(),
-        text: "Test background job from apalis".to_string(),
-        subject: "Welcome Sentry Email".to_string(),
+        to: "test@example".to_owned(),
+        text: "Test background job from apalis".to_owned(),
+        subject: "Welcome Sentry Email".to_owned(),
     };
     let context = TracingContext::from(OtelTraceContext::current());
     let task = TaskBuilder::new(email).metadata(&context).build();
-    storage.push_task(task).await?;
+    storage.push_task(task).await.unwrap();
     Ok(())
 }
 
@@ -68,41 +69,51 @@ async fn main() -> Result<()> {
         .with(fmt_layer)
         .init();
 
-    let mut avocado_backend = JsonStorage::new_temp()?;
-    produce_task(&mut avocado_backend).await?;
+    let avocado_backend = JsonStorage::new_temp()?;
+    let mut av = avocado_backend.clone();
+    tokio::spawn(async move {
+        produce_task(&mut av).await.unwrap();
+    });
 
-    let mut pear_backend = JsonStorage::new_temp()?;
-    produce_task_with_ctx(&mut pear_backend).await?;
+    let pear_backend = JsonStorage::new_temp()?;
+    let mut pb = pear_backend.clone();
 
-    Monitor::new()
-        .register(move |_run_id| {
+    tokio::spawn(async move {
+        produce_task_with_ctx(&mut pb).await.unwrap();
+    });
+
+    let monitor = Monitor::new()
+        .register(move |_restarts| {
             WorkerBuilder::new("tasty-avocado")
                 .backend(avocado_backend.clone())
                 .enable_tracing()
                 .build(email_service)
         })
-        .register(move |_run_id| {
+        .register(move |_restarts| {
             WorkerBuilder::new("tasty-pear")
                 .backend(pear_backend.clone())
                 .layer(TraceLayer::new().make_span_with(ContextualTaskSpan::new()))
                 .build(email_service)
         })
         // Collect all the events from all workers
-        .on_event(|ctx, ev| {
-            info!("Received {} event from {} Worker", ev, ctx.name());
+        .on_event(|wrk, ev| {
+            info!("Received {} event from {} Worker", ev, wrk.name());
         })
         // Define when a worker should restart
-        .should_restart(|ctx, err, runs| {
-            if ctx.name() == "tasty-pear"
+        .should_restart(|wrk, err| {
+            let runs = wrk.restarts();
+            if wrk.name() == "tasty-pear"
                 && err.to_string().contains("Recoverable Error")
                 && runs < 5
             {
-                return true;
+                return false;
             }
-            false
+            true
         })
         // Graceful shutdown will wait 5s before forcing an exit if workers have not stopped
-        .shutdown_timeout(Duration::from_secs(5))
+        .shutdown_timeout(Duration::from_secs(5));
+
+    monitor
         // Shutdown will be triggered by CTRL + C
         .run_with_signal(tokio::signal::ctrl_c())
         .await?;

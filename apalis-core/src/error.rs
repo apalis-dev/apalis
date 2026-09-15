@@ -59,6 +59,15 @@ pub struct DeferredError {
     source: BoxDynError,
 }
 
+impl DeferredError {
+    /// Compose a new Deferred error
+    pub fn new<E: Into<BoxDynError>>(source: E) -> Self {
+        Self {
+            source: source.into(),
+        }
+    }
+}
+
 /// Possible errors that can occur when running a worker.
 #[non_exhaustive]
 #[derive(Error, Debug)]
@@ -66,22 +75,15 @@ pub enum WorkerError {
     /// An error occurred while polling for new tasks.
     #[error("Failed to poll for new tasks: {0}")]
     PollError(BoxDynError),
-    /// An error occurred while driving the backend.
-    #[error("The backend is cannot handle new polls: {0}")]
-    PollReadyError(BoxDynError),
     /// An error occurred while trying to change the state of the worker.
     #[error("Failed to handle the new state: {0}")]
     StateError(#[from] WorkerStateError),
-    /// A worker that terminates when .stop was called
-    #[error("Worker stopped and gracefully exited")]
-    GracefulExit,
     /// A worker panicked and the panic was caught.
     #[error("Worker panicked: {0}")]
     PanicError(String),
     /// An error occurred while handling io
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
-
     /// Error originating from the decoding of the task
     #[error("Task decoding error: {0}")]
     CodecError(BoxDynError),
@@ -89,6 +91,7 @@ pub enum WorkerError {
 
 /// Errors related to worker state transitions
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum WorkerStateError {
     /// Worker not started
     #[error("Worker not started, did you forget to call worker.start()")]

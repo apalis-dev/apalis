@@ -1,22 +1,22 @@
 use std::str::FromStr;
 
 use crate::{
-    backend::{Backend, TaskSink},
+    backend::{Backend, TaskSink, WireFormatBackend},
     task::{Task, status::Status},
 };
 
 const DEFAULT_PAGE_SIZE: u32 = 10;
 /// Allows exposing additional functionality from the backend
-pub trait Expose<Args> {}
+pub trait Expose<Args, Kind> {}
 
-impl<B, Args> Expose<Args> for B where
-    B: Backend<Args = Args>
+impl<B, Args, Kind> Expose<Args, Kind> for B where
+    B: Backend
         + Metrics
         + ListWorkers
         + ListQueues
         + ListAllTasks
-        + ListTasks<Args>
-        + TaskSink<Args>
+        + ListTasks
+        + TaskSink<Args, Kind>
 {
 }
 
@@ -37,25 +37,23 @@ pub trait ListWorkers: Backend {
     ) -> impl Future<Output = Result<Vec<RunningWorker>, Self::Error>> + Send;
 }
 /// Allows listing tasks with optional filtering
-pub trait ListTasks<Args>: Backend {
+pub trait ListTasks: WireFormatBackend + Backend {
     /// List tasks matching the given filter in the current queue
     #[allow(clippy::type_complexity)]
     fn list_tasks(
         &self,
         filter: &Filter,
-    ) -> impl Future<Output = Result<Vec<Task<Args, Self::Connection, Self::Id>>, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<Vec<Task<Self::Compact>>, Self::Error>> + Send;
 }
 
 /// Allows listing tasks across all queues with optional filtering
-pub trait ListAllTasks: Backend {
+pub trait ListAllTasks: WireFormatBackend + Backend {
     /// List tasks matching the given filter in all queues
     #[allow(clippy::type_complexity)]
     fn list_all_tasks(
         &self,
         filter: &Filter,
-    ) -> impl Future<
-        Output = Result<Vec<Task<Self::Compact, Self::Connection, Self::Id>>, Self::Error>,
-    > + Send;
+    ) -> impl Future<Output = Result<Vec<Task<Self::Compact>>, Self::Error>> + Send;
 }
 
 /// Allows collecting metrics from the backend
@@ -147,11 +145,13 @@ pub struct Statistic {
 }
 /// Statistics type
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum StatType {
     /// Timestamp statistic
     Timestamp,
     /// Numeric statistic
+    #[default]
     Number,
     /// Decimal statistic
     Decimal,
@@ -161,6 +161,7 @@ pub enum StatType {
 
 /// Error type for parsing StatType from a string
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum ParseStatTypeError {
     /// Error for invalid statistic type string
     #[error("invalid stat type: `{0}`")]

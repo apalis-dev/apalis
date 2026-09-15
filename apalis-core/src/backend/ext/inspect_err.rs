@@ -7,11 +7,7 @@ use futures_sink::Sink;
 use futures_util::SinkExt;
 use futures_util::TryStreamExt;
 
-use crate::{
-    backend::{queue::Queue, *},
-    task::Task,
-    worker::context::WorkerContext,
-};
+use crate::{backend::*, worker::context::WorkerContext};
 
 /// A `Backend` wrapper that runs a callback `F` on each error yielded by the poll stream.
 #[derive(Debug, Clone)]
@@ -25,25 +21,8 @@ where
     B: Backend,
     F: FnMut(&B::Error),
 {
-    type Args = B::Args;
-    type Id = B::Id;
-    type Connection = B::Connection;
+    type Task = B::Task;
     type Error = B::Error;
-    type Codec = B::Codec;
-    type Compact = B::Compact;
-    type Layer = B::Layer;
-
-    fn codec(&self) -> &Self::Codec {
-        self.backend.codec()
-    }
-
-    fn queue(&self) -> Queue {
-        self.backend.queue()
-    }
-
-    fn middleware(&self) -> Self::Layer {
-        self.backend.middleware()
-    }
 
     fn poll_ready(
         &mut self,
@@ -60,7 +39,7 @@ where
         &mut self,
         cx: &mut Context<'_>,
         worker: &WorkerContext,
-    ) -> Poll<Option<Result<Task<Self::Compact, Self::Connection, Self::Id>, Self::Error>>> {
+    ) -> Poll<Option<Result<Self::Task, Self::Error>>> {
         self.backend.poll_next(cx, worker).map(|opt| {
             opt.map(|res| {
                 res.inspect_err(|err| {
@@ -82,7 +61,46 @@ where
     }
 }
 
-delegate_sink!(InspectErr<B, F>, backend);
+impl<B, F, T, Err> Sink<T> for InspectErr<B, F>
+where
+    B: Sink<T, Error = Err> + Unpin,
+    F: FnMut(&Err) + Unpin,
+{
+    type Error = Err;
+    fn start_send(self: Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
+        let this = self.get_mut();
+        this.backend.start_send_unpin(item).inspect_err(|err| {
+            (this.f)(err);
+        })
+    }
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        let this = self.get_mut();
+        this.backend.poll_ready_unpin(cx).map_err(|err| {
+            (this.f)(&err);
+            err
+        })
+    }
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        let this = self.get_mut();
+        this.backend.poll_flush_unpin(cx).map_err(|err| {
+            (this.f)(&err);
+            err
+        })
+    }
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        let this = self.get_mut();
+        this.backend.poll_close_unpin(cx).map_err(|err| {
+            (this.f)(&err);
+            err
+        })
+    }
+}
+
+delegate_config!(InspectErr<B, F>, backend);
+
+delegate_codec!(InspectErr<B, F>, backend);
+
+delegate_deref!(InspectErr<B, F>, backend);
 
 delegate_expose!(
     impl<B, F> for InspectErr<B, F>

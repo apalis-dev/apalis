@@ -52,10 +52,9 @@ pub struct OpenTelemetryMetricsService<S> {
     duration_histogram: Histogram<f64>,
 }
 
-impl<Svc, Fut, Args, Conn, Res, Err, Id> Service<Task<Args, Conn, Id>>
-    for OpenTelemetryMetricsService<Svc>
+impl<Svc, Fut, Args, Res, Err> Service<Task<Args>> for OpenTelemetryMetricsService<Svc>
 where
-    Svc: Service<Task<Args, Conn, Id>, Response = Res, Error = Err, Future = Fut>,
+    Svc: Service<Task<Args>, Response = Res, Error = Err, Future = Fut>,
     Fut: Future<Output = Result<Res, Err>> + 'static,
 {
     type Response = Svc::Response;
@@ -66,18 +65,16 @@ where
         self.service.poll_ready(cx)
     }
 
-    fn call(&mut self, request: Task<Args, Conn, Id>) -> Self::Future {
+    fn call(&mut self, request: Task<Args>) -> Self::Future {
         let start = Instant::now();
         let worker = request
-            .ctx
-            .data
+            .data()
             .get::<WorkerContext>()
-            .map(|ns| ns.name())
-            .cloned()
+            .map(|ns| ns.name().to_owned())
             .expect("worker context not found in task data");
 
         let req = self.service.call(request);
-        let task_type = std::any::type_name::<Args>().to_string();
+        let task_type = std::any::type_name::<Args>().to_owned();
 
         ResponseFuture {
             inner: req,
@@ -135,17 +132,14 @@ where
         let status = response
             .as_ref()
             .ok()
-            .map(|_res| "Ok".to_string())
-            .unwrap_or_else(|| "Err".to_string());
+            .map(|_res| "Ok".to_owned())
+            .unwrap_or_else(|| "Err".to_owned());
 
         let attributes = [
             KeyValue::new("messaging.system", "apalis"),
             KeyValue::new("messaging.operation.name", "process"),
-            KeyValue::new(
-                "messaging.destination.partition.id",
-                this.worker.to_string(),
-            ),
-            KeyValue::new("messaging.destination.name", this.task_type.to_string()),
+            KeyValue::new("messaging.destination.partition.id", this.worker.clone()),
+            KeyValue::new("messaging.destination.name", this.task_type.clone()),
             KeyValue::new("apalis.status", status),
         ];
 

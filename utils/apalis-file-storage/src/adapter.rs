@@ -1,6 +1,6 @@
 use crate::util::RawTask;
 
-/// Pluggable serialization strategy for [`FileStorage`].
+/// Pluggable serialization strategy for FileStorage.
 pub trait Adapter: Send + 'static {
     /// The format-native representation of one record.
     type Line: Send + Clone;
@@ -17,7 +17,7 @@ pub trait Adapter: Send + 'static {
     /// Convert a format-native `Line` into the common [`TaskWithMeta`].
     fn to_entry(&self, line: Self::Line) -> Result<RawTask, Self::Error>;
 
-    /// Convert a [`TaskWithMeta`] into a format-native `Line` ready for
+    /// Convert a raw task into a format-native `Line` ready for
     /// serialization.
     fn from_entry(entry: &RawTask) -> Result<Self::Line, Self::Error>;
 

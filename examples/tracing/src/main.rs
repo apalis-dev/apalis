@@ -9,7 +9,7 @@ use opentelemetry_sdk::{propagation::TraceContextPropagator, trace::SdkTracerPro
 use std::error::Error;
 use std::fmt;
 use std::time::Duration;
-use tracing::{instrument, Span};
+use tracing::{instrument, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 use tracing_subscriber::prelude::*;
 
@@ -57,9 +57,9 @@ async fn produce_task(storage: &mut MemoryStorage<Email>) -> Result<()> {
     print_otel_context("produce_task");
     storage
         .push(Email {
-            to: "test@example".to_string(),
-            text: "Test background job from apalis".to_string(),
-            subject: "Welcome Sentry Email".to_string(),
+            to: "test@example".to_owned(),
+            text: "Test background job from apalis".to_owned(),
+            subject: "Welcome Sentry Email".to_owned(),
         })
         .await?;
     Ok(())
@@ -69,9 +69,9 @@ async fn produce_task(storage: &mut MemoryStorage<Email>) -> Result<()> {
 async fn produce_task_with_ctx(storage: &mut MemoryStorage<Email>) -> Result<()> {
     print_otel_context("produce_task_with_ctx");
     let email = Email {
-        to: "test@example".to_string(),
-        text: "Test background job from apalis".to_string(),
-        subject: "Welcome Sentry Email".to_string(),
+        to: "test@example".to_owned(),
+        text: "Test background job from apalis".to_owned(),
+        subject: "Welcome Sentry Email".to_owned(),
     };
     let task = TaskBuilder::new(email)
         .metadata(&TracingContext::from(OtelTraceContext::current()))
@@ -100,23 +100,27 @@ async fn main() -> Result<()> {
         .with(otel_layer)
         .init();
 
-    let mut backend = MemoryStorage::new();
+    let mut backend =
+        MemoryStorage::new().instrumented(tracing::span!(tracing::Level::INFO, "avocado"));
     produce_task(&mut backend).await?;
 
     let avocado_worker = WorkerBuilder::new("tasty-avocado")
         .backend(backend)
         .enable_tracing()
         .build(email_service)
-        .run();
+        .run()
+        .instrument(tracing::span!(tracing::Level::INFO, "tasty-avocado"));
 
-    let mut backend = MemoryStorage::new();
+    let mut backend =
+        MemoryStorage::new().instrumented(tracing::span!(tracing::Level::INFO, "pear"));
     produce_task_with_ctx(&mut backend).await?;
 
     let pear_worker = WorkerBuilder::new("tasty-pear")
         .backend(backend)
         .layer(TraceLayer::new().make_span_with(ContextualTaskSpan::new()))
         .build(email_service)
-        .run();
+        .run()
+        .instrument(tracing::span!(tracing::Level::INFO, "tasty-pear"));
 
     tokio::try_join!(avocado_worker, pear_worker)?;
 

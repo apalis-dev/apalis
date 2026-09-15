@@ -1,19 +1,41 @@
 use std::num::ParseIntError;
 
-use apalis_core::task::metadata::{Metadata, MetadataError, MetadataStore};
+use apalis_core::{
+    backend::WireFormatBackend,
+    task::metadata::{Metadata, MetadataError, MetadataStore},
+};
 use serde::{Deserialize, Serialize};
 
 /// Context information for the current step in the workflow
-#[derive(Debug, Clone)]
-pub struct StepContext<Backend> {
+#[derive(Debug)]
+pub struct StepContext<B>
+where
+    B: WireFormatBackend,
+{
     /// Index of the current step
     pub current_step: usize,
     /// Backend associated with the current step
-    pub backend: Backend,
+    pub backend: B,
     /// Indicates if there is a next step
     pub has_next: bool,
 }
-impl<B> StepContext<B> {
+
+impl<B> Clone for StepContext<B>
+where
+    B: WireFormatBackend + Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            current_step: self.current_step,
+            backend: self.backend.clone(),
+            has_next: self.has_next,
+        }
+    }
+}
+impl<B> StepContext<B>
+where
+    B: WireFormatBackend,
+{
     /// Creates a new StepContext
     pub fn new(backend: B, idx: usize, has_next: bool) -> Self {
         Self {
@@ -31,6 +53,7 @@ pub struct WorkflowContext {
     pub step_index: usize,
 }
 
+#[non_exhaustive]
 /// Represents an invalid [`WorkflowContext`] state
 #[derive(Debug, thiserror::Error)]
 pub enum WorkflowContextError {

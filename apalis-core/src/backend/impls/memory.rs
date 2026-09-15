@@ -16,7 +16,11 @@
 //! # use apalis_core::worker::context::WorkerContext;
 //! # use apalis_core::worker::builder::WorkerBuilder;
 //! # use apalis_core::backend::TaskSink;
-//! # async fn task(_: u32, ctx: WorkerContext) { ctx.stop().unwrap();}
+//!
+//! async fn handler(_: u32, worker: WorkerContext) {
+//!     worker.stop().unwrap();
+//! }
+//!
 //! #[tokio::main]
 //! async fn main() {
 //!     let mut store = MemoryStorage::new();
@@ -24,7 +28,7 @@
 //!
 //!     let worker = WorkerBuilder::new("int-worker")
 //!         .backend(store)
-//!         .build(task);
+//!         .build(handler);
 //!
 //!     worker.run().await.unwrap();
 //! }
@@ -37,10 +41,9 @@
 //! ## See Also
 //! - [`Backend`]
 //! - [`WorkerContext`]
-use crate::backend::Backend;
-use crate::backend::codec::IdentityCodec;
+use crate::backend::finalize::Ephemeral;
+use crate::backend::{Backend, BackendConfig, TryNewBackend};
 use crate::error::BoxDynError;
-use crate::features_table;
 use crate::{
     task::{
         Task,
@@ -62,7 +65,7 @@ use std::{
 use tower_layer::Identity;
 
 /// A boxed in-memory task receiver stream
-pub type BoxedReceiver<Args, Conn> = Pin<Box<dyn Stream<Item = Task<Args, Conn, RandomId>> + Send>>;
+pub type BoxedReceiver<Args> = Pin<Box<dyn Stream<Item = Task<Args>> + Send>>;
 
 /// In-memory queue that is based on channels
 ///
@@ -88,7 +91,7 @@ pub type BoxedReceiver<Args, Conn> = Pin<Box<dyn Stream<Item = Task<Args, Conn, 
     Serialization => not_supported("Serialization support for arguments"),
 
     PipeExt => not_implemented("Allow other backends to pipe to this backend"),
-    MakeShared => not_supported("Share the same storage across multiple workers"),
+    BackendFactory => not_supported("Share the same storage across multiple workers"),
 
     Update => not_supported("Allow updating a task"),
     FetchById => not_supported("Allow fetching a task by its ID"),
@@ -105,23 +108,20 @@ pub type BoxedReceiver<Args, Conn> = Pin<Box<dyn Stream<Item = Task<Args, Conn, 
     ListWorkers => not_supported("List all workers registered with the backend"),
     ListTasks => not_supported("List all tasks in the backend"),
 }]
-pub struct MemoryStorage<Args, Conn = MemoryContext> {
-    pub(super) sender: MemorySink<Args, Conn>,
-    pub(super) receiver: BoxedReceiver<Args, Conn>,
+pub struct MemoryStorage<Args> {
+    pub(super) sender: MemorySink<Args>,
+    pub(super) receiver: std::sync::Mutex<BoxedReceiver<Args>>,
 }
 
-impl<Args: Send + 'static> Default for MemoryStorage<Args, MemoryContext> {
+impl<Args: Send + 'static> Default for MemoryStorage<Args> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// A context for the in-memory backend, which is a placeholder and does not hold any state.
-#[derive(Debug, Clone, Default)]
-pub struct MemoryContext;
-
 /// Error type for MemoryStorage operations
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum MemoryStorageError {
     /// Error occurred while sending a task to the in-memory channel
     #[error("Failed to send task: {0}")]
@@ -131,47 +131,39 @@ pub enum MemoryStorageError {
     Other(BoxDynError),
 }
 
-impl<Args: Send + 'static> MemoryStorage<Args, MemoryContext> {
+impl<Args: Send + 'static> MemoryStorage<Args> {
     /// Create a new in-memory storage
     #[must_use]
     pub fn new() -> Self {
         let (sender, receiver) = unbounded();
         let sender = Box::new(sender.sink_map_err(|e| e.into()))
-            as Box<
-                dyn Sink<Task<Args, MemoryContext, RandomId>, Error = MemoryStorageError>
-                    + Send
-                    + Sync
-                    + Unpin,
-            >;
+            as Box<dyn Sink<Task<Args>, Error = MemoryStorageError> + Send + Sync + Unpin>;
         Self {
             sender: MemorySink {
                 inner: Arc::new(futures_util::lock::Mutex::new(sender)),
                 idempotency_keys: Default::default(),
             },
-            receiver: receiver.boxed(),
+            receiver: receiver.boxed().into(),
+        }
+    }
+    /// Create a storage given a sender and receiver
+    #[must_use]
+    pub fn new_with(sender: MemorySink<Args>, receiver: BoxedReceiver<Args>) -> Self {
+        Self {
+            sender,
+            receiver: receiver.into(),
         }
     }
 }
 
-impl<Args: Send + 'static, Conn> MemoryStorage<Args, Conn> {
-    /// Create a storage given a sender and receiver
-    #[must_use]
-    pub fn new_with(sender: MemorySink<Args, Conn>, receiver: BoxedReceiver<Args, Conn>) -> Self {
-        Self { sender, receiver }
-    }
-}
-
-impl<Args, Conn> Sink<Task<Args, Conn, RandomId>> for MemoryStorage<Args, Conn> {
+impl<Args> Sink<Task<Args>> for MemoryStorage<Args> {
     type Error = MemoryStorageError;
 
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.as_mut().sender.poll_ready_unpin(cx)
     }
 
-    fn start_send(
-        mut self: Pin<&mut Self>,
-        item: Task<Args, Conn, RandomId>,
-    ) -> Result<(), Self::Error> {
+    fn start_send(mut self: Pin<&mut Self>, item: Task<Args>) -> Result<(), Self::Error> {
         self.as_mut().sender.start_send_unpin(item)
     }
 
@@ -184,29 +176,21 @@ impl<Args, Conn> Sink<Task<Args, Conn, RandomId>> for MemoryStorage<Args, Conn> 
     }
 }
 
-type ArcMemorySink<Args, Conn = MemoryContext> = Arc<
-    Mutex<
-        Box<
-            dyn Sink<Task<Args, Conn, RandomId>, Error = MemoryStorageError>
-                + Send
-                + Sync
-                + Unpin
-                + 'static,
-        >,
-    >,
+type ArcMemorySink<Args> = Arc<
+    Mutex<Box<dyn Sink<Task<Args>, Error = MemoryStorageError> + Send + Sync + Unpin + 'static>>,
 >;
 
 type ArcIdempotencySet = Arc<Mutex<HashSet<String>>>;
 
 /// Memory sink for sending tasks to the in-memory backend
-pub struct MemorySink<Args, Conn = MemoryContext> {
-    pub(super) inner: ArcMemorySink<Args, Conn>,
+pub struct MemorySink<Args> {
+    pub(super) inner: ArcMemorySink<Args>,
     pub(super) idempotency_keys: ArcIdempotencySet,
 }
 
-impl<Args, Conn> MemorySink<Args, Conn> {
+impl<Args> MemorySink<Args> {
     /// Build a new memory sink given a sink
-    pub fn new(sink: ArcMemorySink<Args, Conn>) -> Self {
+    pub fn new(sink: ArcMemorySink<Args>) -> Self {
         Self {
             inner: sink,
             idempotency_keys: Arc::new(Mutex::new(HashSet::new())),
@@ -214,7 +198,7 @@ impl<Args, Conn> MemorySink<Args, Conn> {
     }
 }
 
-impl<Args, Conn> std::fmt::Debug for MemorySink<Args, Conn> {
+impl<Args> std::fmt::Debug for MemorySink<Args> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MemorySink")
             .field("inner", &"<Sink>")
@@ -223,7 +207,7 @@ impl<Args, Conn> std::fmt::Debug for MemorySink<Args, Conn> {
     }
 }
 
-impl<Args, Conn> Clone for MemorySink<Args, Conn> {
+impl<Args> Clone for MemorySink<Args> {
     fn clone(&self) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
@@ -232,7 +216,7 @@ impl<Args, Conn> Clone for MemorySink<Args, Conn> {
     }
 }
 
-impl<Args, Conn> Sink<Task<Args, Conn, RandomId>> for MemorySink<Args, Conn> {
+impl<Args> Sink<Task<Args>> for MemorySink<Args> {
     type Error = MemoryStorageError;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -240,28 +224,27 @@ impl<Args, Conn> Sink<Task<Args, Conn, RandomId>> for MemorySink<Args, Conn> {
         Pin::new(&mut *lock).poll_ready_unpin(cx)
     }
 
-    fn start_send(
-        self: Pin<&mut Self>,
-        item: Task<Args, Conn, RandomId>,
-    ) -> Result<(), Self::Error> {
+    fn start_send(self: Pin<&mut Self>, mut item: Task<Args>) -> Result<(), Self::Error> {
         let this = self.get_mut();
-        if let Some(key) = item.ctx.idempotency_key.as_ref() {
+        if let Some(key) = item.idempotency_key() {
             let mut keys = this.idempotency_keys.try_lock().unwrap();
 
             if keys.contains(key) {
                 return Ok(());
             }
 
-            keys.insert(key.clone());
+            keys.insert(key.to_owned());
         }
 
-        let mut item = item.into_builder();
-        // Ensure task id exists
-        item.ctx
-            .task_id
-            .get_or_insert_with(|| TaskId::new(RandomId::default()));
+        if item.task_id().is_none() {
+            let task = item
+                .into_builder()
+                .task_id(TaskId::from_string(RandomId::default()));
+            item = task.build();
+        }
+
         let mut sink = this.inner.try_lock().unwrap();
-        Pin::new(&mut *sink).start_send_unpin(item.build())
+        Pin::new(&mut *sink).start_send_unpin(item)
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -275,7 +258,7 @@ impl<Args, Conn> Sink<Task<Args, Conn, RandomId>> for MemorySink<Args, Conn> {
     }
 }
 
-impl<Args, Conn> std::fmt::Debug for MemoryStorage<Args, Conn> {
+impl<Args> std::fmt::Debug for MemoryStorage<Args> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MemoryStorage")
             .field("sender", &self.sender)
@@ -284,57 +267,38 @@ impl<Args, Conn> std::fmt::Debug for MemoryStorage<Args, Conn> {
     }
 }
 
-impl<Args, Conn> Stream for MemoryStorage<Args, Conn> {
-    type Item = Task<Args, Conn, RandomId>;
+impl<Args> Stream for MemoryStorage<Args> {
+    type Item = Task<Args>;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.receiver.poll_next_unpin(cx)
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.receiver.lock().unwrap().poll_next_unpin(cx)
     }
 }
 
 // MemoryStorage as a Backend
-impl<Args, Conn> Backend for MemoryStorage<Args, Conn>
-where
-    Args: 'static + Clone + Send,
-    Conn: 'static,
-{
-    type Args = Args;
-    type Id = RandomId;
-
-    type Connection = Conn;
+impl<Args> Backend for MemoryStorage<Args> {
+    type Task = Task<Args>;
 
     type Error = MemoryStorageError;
-    type Layer = Identity;
-
-    type Codec = IdentityCodec;
-    type Compact = Args;
-
-    fn codec(&self) -> &Self::Codec {
-        &IdentityCodec
-    }
-
-    fn queue(&self) -> crate::backend::queue::Queue {
-        std::any::type_name::<Args>().into()
-    }
 
     fn poll_ready(
         &mut self,
-        _: &mut Context<'_>,
+        cx: &mut Context<'_>,
         _: &WorkerContext,
     ) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn middleware(&self) -> Self::Layer {
-        Identity::new()
+        self.sender.poll_ready_unpin(cx)
     }
 
     fn poll_next(
         &mut self,
         cx: &mut Context<'_>,
         _: &WorkerContext,
-    ) -> Poll<Option<Result<Task<Self::Compact, Self::Connection, Self::Id>, Self::Error>>> {
-        self.receiver.poll_next_unpin(cx).map(|item| item.map(Ok))
+    ) -> Poll<Option<Result<Self::Task, Self::Error>>> {
+        self.receiver
+            .lock()
+            .unwrap()
+            .poll_next_unpin(cx)
+            .map(|item| item.map(Ok))
     }
 
     fn poll_close(
@@ -343,5 +307,32 @@ where
         _: &WorkerContext,
     ) -> Poll<Result<(), Self::Error>> {
         self.sender.poll_close_unpin(cx)
+    }
+}
+
+impl<Args> BackendConfig for MemoryStorage<Args> {
+    type Id = RandomId;
+
+    type Args = Args;
+
+    type Kind = Ephemeral;
+
+    type Config = ();
+
+    type Layer = Identity;
+
+    fn config(&self) -> &Self::Config {
+        &()
+    }
+
+    fn middleware(&mut self, _: &mut WorkerContext) -> Self::Layer {
+        Identity::new()
+    }
+}
+
+impl<T: Send + 'static> TryNewBackend for MemoryStorage<T> {
+    type Backend = Self;
+    fn try_new(_: Self::Config) -> Result<Self::Backend, Self::Error> {
+        Ok(Self::new())
     }
 }

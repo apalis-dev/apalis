@@ -13,7 +13,11 @@
 //! workers that need to know which queue they are processing tasks from.
 use std::{str::FromStr, sync::Arc};
 
-use crate::{task::Task, task_fn::FromRequest};
+use crate::task::{
+    Task,
+    from_request::FromRequest,
+    metadata::{Metadata, MetadataStore},
+};
 
 /// Represents a queue in the backend
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -71,24 +75,39 @@ impl<'de> serde::Deserialize<'de> for Queue {
     }
 }
 
-impl<Args, Conn, Id> FromRequest<Task<Args, Conn, Id>> for Queue
+impl<Args> FromRequest<Task<Args>> for Queue
 where
     Args: Sync,
-    Conn: Send + Sync,
-    Id: Sync + Send,
 {
     type Error = QueueError;
 
-    async fn from_request(req: &Task<Args, Conn, Id>) -> Result<Self, Self::Error> {
-        let queue = req.ctx.queue.clone().ok_or(QueueError::NotFound)?;
+    async fn from_request(req: &Task<Args>) -> Result<Self, Self::Error> {
+        let queue = req.queue().cloned().ok_or(QueueError::NotFound)?;
         Ok(queue)
     }
 }
 
 /// Errors that can occur when extracting queue information from a task context
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum QueueError {
     /// Queue data not found in task context
     #[error("Queue data not found in task context. This is likely a bug. Please report it.")]
     NotFound,
+}
+
+impl Metadata for Queue {
+    type Error = QueueError;
+
+    fn extract(store: &MetadataStore) -> Result<Self, Self::Error> {
+        store
+            .get("queue")
+            .map(|s| Self::from(s.as_str()))
+            .ok_or(QueueError::NotFound)
+    }
+
+    fn inject(&self, map: &mut MetadataStore) -> Result<(), Self::Error> {
+        map.insert("queue", self.0.to_string())
+            .map_err(|_| QueueError::NotFound)
+    }
 }

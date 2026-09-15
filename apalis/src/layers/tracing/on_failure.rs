@@ -58,6 +58,7 @@ impl Default for DefaultOnFailure {
 
 impl DefaultOnFailure {
     /// Create a new `DefaultOnFailure`.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -67,6 +68,7 @@ impl DefaultOnFailure {
     /// Defaults to [`Level::ERROR`].
     ///
     /// [tracing events]: https://docs.rs/tracing/latest/tracing/#events
+    #[must_use]
     pub fn level(mut self, level: Level) -> Self {
         self.level = level;
         self
@@ -75,6 +77,7 @@ impl DefaultOnFailure {
     /// Set the [`LatencyUnit`] latencies will be reported in.
     ///
     /// Defaults to [`LatencyUnit::Millis`].
+    #[must_use]
     pub fn latency_unit(mut self, latency_unit: LatencyUnit) -> Self {
         self.latency_unit = latency_unit;
         self

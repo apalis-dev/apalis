@@ -22,31 +22,34 @@ pub async fn send_email(job: Email) -> Result<(), BoxDynError> {
             log::error!("Killed send email job. Invalid character {}", job.to);
             Err(AbortError::new("Killed send email job").into())
         }
-        Err(e) => Err(format!("Failed to send email to {}: {}", job.to, e).into()),
+        Err(e) => Err(format!("Failed to send email to {}: {e}", job.to).into()),
     }
 }
 
+#[must_use]
 pub fn example_good_email() -> Email {
     Email {
-        subject: "Test Subject".to_string(),
-        to: "example@gmail.com".to_string(),
-        text: "Some Text".to_string(),
+        subject: "Test Subject".to_owned(),
+        to: "example@gmail.com".to_owned(),
+        text: "Some Text".to_owned(),
     }
 }
 
+#[must_use]
 pub fn example_killed_email() -> Email {
     Email {
-        subject: "Test Subject".to_string(),
-        to: "example@©.com".to_string(), // killed because it has © which is invalid
-        text: "Some Text".to_string(),
+        subject: "Test Subject".to_owned(),
+        to: "example@©.com".to_owned(), // killed because it has © which is invalid
+        text: "Some Text".to_owned(),
     }
 }
 
+#[must_use]
 pub fn example_retry_able_email() -> Email {
     Email {
-        subject: "Test Subject".to_string(),
-        to: "example".to_string(),
-        text: "Some Text".to_string(),
+        subject: "Test Subject".to_owned(),
+        to: "example".to_owned(),
+        text: "Some Text".to_owned(),
     }
 }
 
@@ -100,6 +103,7 @@ pub const FORM_HTML: &str = r#"
         "#;
 
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum EmailError {
     NoStorage,
     SomeError(&'static str),

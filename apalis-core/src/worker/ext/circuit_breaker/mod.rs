@@ -29,10 +29,10 @@
 //!         in_memory.push(i).await.unwrap();
 //!     }
 //!
-//!     async fn task(task: u32, ctx: WorkerContext) -> Result<(), BoxDynError> {
+//!     async fn task(task: u32, worker: WorkerContext) -> Result<(), BoxDynError> {
 //!         tokio::time::sleep(Duration::from_secs(1)).await;
 //!         if task == ITEMS - 1 {
-//!             ctx.stop().unwrap();
+//!             worker.stop().unwrap();
 //!             return Err("Worker stopped!")?;
 //!         }
 //!         if task % 3 == 0 {
@@ -43,10 +43,10 @@
 //!     }
 //!
 //!     let config = CircuitBreakerConfig::default()
-//!         .with_failure_threshold(1)
-//!         .with_recovery_timeout(Duration::from_secs(1))
-//!         .with_success_threshold(0.5)
-//!         .with_half_open_max_calls(1);
+//!         .failure_threshold(1)
+//!         .recovery_timeout(Duration::from_secs(1))
+//!         .success_threshold(0.5)
+//!         .half_open_max_calls(1);
 //!
 //!     let worker = WorkerBuilder::new("rango-tango")
 //!         .backend(in_memory)
@@ -66,8 +66,8 @@ use tower_layer::{Layer, Stack};
 use crate::{
     backend::Backend,
     worker::{
-        builder::WorkerBuilder, ext::circuit_breaker::config::CircuitBreakerConfig,
-        ext::circuit_breaker::service::CircuitBreakerLayer,
+        builder::WorkerBuilder,
+        ext::circuit_breaker::{config::CircuitBreakerConfig, service::CircuitBreakerLayer},
     },
 };
 
@@ -77,12 +77,10 @@ mod service;
 /// Allows breaking the circuit if an error threshold is hit
 ///
 /// See [module level documentation](self) for more details.
-pub trait CircuitBreaker<Args, Conn, Source, Middleware>: Sized {
+pub trait CircuitBreaker<Args, Source, Middleware>: Sized {
     /// Allows the worker to break the circuit in case of failures
     /// Uses default configuration
-    fn break_circuit(
-        self,
-    ) -> WorkerBuilder<Args, Conn, Source, Stack<CircuitBreakerLayer, Middleware>> {
+    fn break_circuit(self) -> WorkerBuilder<Args, Source, Stack<CircuitBreakerLayer, Middleware>> {
         self.break_circuit_with(CircuitBreakerConfig::default())
     }
 
@@ -91,21 +89,21 @@ pub trait CircuitBreaker<Args, Conn, Source, Middleware>: Sized {
     fn break_circuit_with(
         self,
         cfg: CircuitBreakerConfig,
-    ) -> WorkerBuilder<Args, Conn, Source, Stack<CircuitBreakerLayer, Middleware>>;
+    ) -> WorkerBuilder<Args, Source, Stack<CircuitBreakerLayer, Middleware>>;
 }
 
-impl<Args, P, M, Conn> CircuitBreaker<Args, Conn, P, M> for WorkerBuilder<Args, Conn, P, M>
+impl<Args, P, M> CircuitBreaker<Args, P, M> for WorkerBuilder<Args, P, M>
 where
-    P: Backend<Args = Args, Connection = Conn>,
+    P: Backend,
     M: Layer<CircuitBreakerLayer>,
 {
     fn break_circuit_with(
         self,
         config: CircuitBreakerConfig,
-    ) -> WorkerBuilder<Args, Conn, P, Stack<CircuitBreakerLayer, M>> {
+    ) -> WorkerBuilder<Args, P, Stack<CircuitBreakerLayer, M>> {
         let this = self.layer(CircuitBreakerLayer::new(config));
         WorkerBuilder {
-            name: this.name,
+            context: this.context,
             request: this.request,
             layer: this.layer,
             source: this.source,
@@ -142,13 +140,13 @@ mod tests {
             in_memory.push(i).await.unwrap();
         }
 
-        async fn task(task: u32, ctx: WorkerContext) -> Result<(), BoxDynError> {
+        async fn task(task: u32, worker: WorkerContext) -> Result<(), BoxDynError> {
             tokio::time::sleep(Duration::from_secs(1)).await;
             if task == ITEMS - 1 {
                 return Err("Worker stopped!")?;
             }
             if task == 8 {
-                ctx.stop().unwrap();
+                worker.stop().unwrap();
             }
             if task % 3 == 0 {
                 Ok(())
@@ -158,16 +156,16 @@ mod tests {
         }
 
         let config = CircuitBreakerConfig::default()
-            .with_failure_threshold(1)
-            .with_recovery_timeout(Duration::from_secs(1))
-            .with_success_threshold(0.5)
-            .with_half_open_max_calls(1);
+            .failure_threshold(1)
+            .recovery_timeout(Duration::from_secs(1))
+            .success_threshold(0.5)
+            .half_open_max_calls(1);
 
         let worker = WorkerBuilder::new("rango-tango")
             .backend(in_memory)
             .break_circuit_with(config)
             .layer(ConcurrencyLimitLayer::new(3))
-            .on_event(|_ctx, ev| {
+            .on_event(|_worker, ev| {
                 println!("On Event = {ev:?}");
             })
             .build(task);

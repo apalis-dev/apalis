@@ -9,36 +9,39 @@ description = "A flexible and composable task workflow engine for rust"
 publish = true
 
 [features]
-default = ["tracing", "ulid"]
+default = ["tracing"]
 ## Enable tracing support
 tracing = ["dep:tracing", "apalis-core/tracing"]
-## Enable ulid support for task ids
-ulid = ["dep:ulid"]
-## Enable uuid support for task ids
-uuid = ["dep:uuid"]
-## Enable rand support for task ids using integers
-rand = ["dep:rand"]
 
 [dependencies]
-petgraph = { version = "0.8.2", features = ["serde-1"] }
+petgraph = { version = "0.8.3", features = ["serde-1"] }
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1"
 tower = { version = "0.5", features = ["util"], default-features = false }
 apalis-core = { path = "../apalis-core", version = "1.0.0-rc.9", default-features = false, features = [
     "sleep",
     "serde",
 ] }
-futures = "0.3.30"
-thiserror = "2.0.0"
-# TODO: move to workspace dependencies
-tracing = { version = "0.1.41", default-features = false, optional = true }
-ulid = { version = "2.0.1", optional = true }
-uuid = { version = "1.23.5", features = ["v4"], optional = true }
-rand = { version = "0.9", features = ["std"], optional = true }
+apalis-codec = { path = "../utils/apalis-codec" }
+futures-util = { version = "0.3.34", features = [
+    "sink",
+    "async-await",
+    "async-await-macro",
+    "std",
+], default-features = false }
+futures-core = { version = "0.3.34", default-features = false }
+futures-channel = { version = "0.3.34", features = [
+    "sink",
+    "std",
+], default-features = false }
+futures-sink = { version = "0.3.34", default-features = false }
+thiserror = "2.0.20"
+
+dashmap = "6.2.1"
+tracing = { version = "0.1.44", default-features = false, optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.37.0", features = ["macros", "rt-multi-thread", "sync"] }
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "sync"] }
 apalis-file-storage = { path = "../utils/apalis-file-storage" }
-serde_json = "1"
 
-[lints]
-workspace = true
+

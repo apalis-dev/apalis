@@ -1,6 +1,5 @@
-//! Utility codecs for apalis
-//!
-//! Supports different encoding and decoding strategies for task arguments and results.
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![doc = include_str!("../README.md")]
 
 /// Encoding for tasks using json
 #[cfg(feature = "json")]

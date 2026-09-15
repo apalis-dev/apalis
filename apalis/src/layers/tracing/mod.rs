@@ -28,6 +28,8 @@ pub use apalis_core::task::metadata::TracingContext;
 pub use otel_context::OtelTraceContext;
 use tower::Layer;
 
+pub use tracing::{debug, debug_span, error, error_span, info, info_span, trace, trace_span};
+
 const DEFAULT_MESSAGE_LEVEL: Level = Level::DEBUG;
 const DEFAULT_ERROR_LEVEL: Level = Level::ERROR;
 
@@ -53,7 +55,7 @@ pub enum LatencyUnit {
 ///
 /// [`Layer`]: tower::Layer
 /// [tracing]: https://crates.io/crates/tracing
-/// [`Service`]: apalis_core::service_fn
+/// [`Service`]: tower::Service
 #[derive(Debug, Copy, Clone)]
 pub struct TraceLayer<
     MakeSpan = DefaultMakeSpan,
@@ -69,6 +71,7 @@ pub struct TraceLayer<
 
 impl TraceLayer {
     /// Create a new [`TraceLayer`].
+    #[must_use]
     pub fn new() -> Self {
         Self {
             make_span: DefaultMakeSpan::new(),
@@ -205,6 +208,7 @@ impl<S> Trace<S> {
     /// Returns a new [`Layer`] that wraps services with a [`TraceLayer`] middleware.
     ///
     /// [`Layer`]: tower::Layer
+    #[must_use]
     pub fn layer() -> TraceLayer {
         TraceLayer::new()
     }
@@ -293,13 +297,13 @@ impl<S, MakeSpan, OnRequest, OnResponse, OnFailure>
     }
 }
 
-impl<Args, S, OnRequestT, OnResponseT, OnFailureT, MakeSpanT, F, Res, Conn, Id>
-    Service<Task<Args, Conn, Id>> for Trace<S, MakeSpanT, OnRequestT, OnResponseT, OnFailureT>
+impl<Args, S, OnRequestT, OnResponseT, OnFailureT, MakeSpanT, F, Res> Service<Task<Args>>
+    for Trace<S, MakeSpanT, OnRequestT, OnResponseT, OnFailureT>
 where
-    S: Service<Task<Args, Conn, Id>, Response = Res, Future = F> + Unpin + Send + 'static,
+    S: Service<Task<Args>, Response = Res, Future = F> + Send + 'static,
     S::Error: fmt::Display + 'static,
-    MakeSpanT: MakeSpan<Args, Conn, Id>,
-    OnRequestT: OnRequest<Args, Conn, Id>,
+    MakeSpanT: MakeSpan<Args>,
+    OnRequestT: OnRequest<Args>,
     OnResponseT: OnResponse<Res> + Clone + 'static,
     F: Future<Output = Result<Res, S::Error>> + 'static,
     OnFailureT: OnFailure<S::Error> + Clone + 'static,
@@ -312,7 +316,7 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, req: Task<Args, Conn, Id>) -> Self::Future {
+    fn call(&mut self, req: Task<Args>) -> Self::Future {
         let span = self.make_span.make_span(&req);
         let start = Instant::now();
         let job = {
@@ -382,16 +386,13 @@ mod tests {
     use super::*;
 
     use apalis_core::{
-        backend::{
-            TaskSink,
-            memory::{MemoryContext, MemoryStorage},
-        },
+        backend::{TaskSink, ext::BackendExt, memory::MemoryStorage},
         error::BoxDynError,
-        task::task_id::RandomId,
         worker::{
             builder::WorkerBuilder, context::WorkerContext, ext::event_listener::EventListenerExt,
         },
     };
+    use tracing::info;
 
     #[tokio::test]
     async fn basic_worker_tracing() {
@@ -409,21 +410,23 @@ mod tests {
         let worker = WorkerBuilder::new("rango-tango")
             .backend(in_memory)
             .enable_tracing()
-            .on_event(|ctx, ev| {
-                println!("CTX {:?}, On Event = {ev:?}", ctx.name());
+            .on_event(|wrk, ev| {
+                println!("CTX {:?}, On Event = {ev:?}", wrk.name());
             })
             .build(task);
         worker.run().await.unwrap();
+        tokio::time::sleep(Duration::from_secs(2)).await;
     }
 
     #[tokio::test]
     async fn custom_worker_tracing() {
-        let mut in_memory = MemoryStorage::new();
+        let mut in_memory =
+            MemoryStorage::new().instrumented(tracing::span!(tracing::Level::INFO, "in_memory"));
         in_memory.push(42).await.unwrap();
 
         async fn task(task: u32, worker: WorkerContext) -> Result<(), BoxDynError> {
             if task == 42 {
-                println!("Stopping worker from task");
+                info!("Stopping worker from task");
                 worker.stop().unwrap();
             }
             Ok(())
@@ -433,22 +436,22 @@ mod tests {
             .backend(in_memory)
             .layer(
                 TraceLayer::new()
-                    .make_span_with(|req: &Task<u32, MemoryContext, RandomId>| {
+                    .make_span_with(|req: &Task<u32>| {
                         tracing::span!(
                             tracing::Level::INFO,
                             "custom_span",
-                            task_id = req.ctx.task_id.as_ref().unwrap().to_string()
+                            task_id = req.task_id().unwrap().to_string()
                         )
                     })
-                    .on_request(|task: &Task<u32, MemoryContext, RandomId>, span: &tracing::Span| {
+                    .on_request(|task: &Task<u32>, span: &tracing::Span| {
                         tracing::info!(parent: span, "Custom OnRequest: Received task: {:?}", task);
                     })
                     .on_response(|_: &() , duration: Duration, span: &tracing::Span| {
                         tracing::info!(parent: span, "Custom OnResponse: Completed in {:?}", duration);
                     })
             )
-            .on_event(|ctx, ev| {
-                println!("CTX {:?}, On Event = {ev:?}", ctx.name());
+            .on_event(|wrk, ev| {
+                println!("CTX {:?}, On Event = {ev:?}", wrk.name());
             })
             .build(task);
         worker.run().await.unwrap();

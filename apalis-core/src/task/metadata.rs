@@ -3,7 +3,7 @@
 //! ## Overview
 //! - `Metadata`: A trait for extracting and injecting metadata.
 use crate::task::Task;
-use crate::task_fn::FromRequest;
+use crate::task::from_request::FromRequest;
 use std::collections::HashMap;
 use std::convert::Infallible;
 #[cfg(feature = "tracing")]
@@ -59,6 +59,7 @@ pub struct MetadataStore(HashMap<String, String>);
 
 /// Errors returned by [`MetadataStore`].
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum MetadataError {
     /// Returned when attempting to insert a key that already exists.
     #[error("The key already exists in the store")]
@@ -296,25 +297,21 @@ pub trait Metadata: Sized {
     fn inject(&self, map: &mut MetadataStore) -> Result<(), Self::Error>;
 }
 
-impl<T: Metadata, Args: Send + Sync, Conn: Send + Sync, Id: Send + Sync>
-    FromRequest<Task<Args, Conn, Id>> for Meta<T>
-{
+impl<T: Metadata, Args: Send + Sync> FromRequest<Task<Args>> for Meta<T> {
     type Error = T::Error;
 
-    async fn from_request(task: &Task<Args, Conn, Id>) -> Result<Self, Self::Error> {
-        let metadata = &task.ctx.metadata;
+    async fn from_request(task: &Task<Args>) -> Result<Self, Self::Error> {
+        let metadata = task.metadata();
         let value = T::extract(metadata)?;
         Ok(Self(value))
     }
 }
 
-impl<Args: Send + Sync, Conn: Send + Sync, Id: Send + Sync> FromRequest<Task<Args, Conn, Id>>
-    for MetadataStore
-{
+impl<Args: Send + Sync> FromRequest<Task<Args>> for MetadataStore {
     type Error = Infallible;
 
-    async fn from_request(task: &Task<Args, Conn, Id>) -> Result<Self, Self::Error> {
-        Ok(task.ctx.metadata.clone())
+    async fn from_request(task: &Task<Args>) -> Result<Self, Self::Error> {
+        Ok(task.metadata().clone())
     }
 }
 
@@ -393,6 +390,7 @@ impl TracingContext {
 #[cfg(feature = "tracing")]
 /// Error provided by parsing TracingContext
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum TracingContextParseError {
     /// Missing Field
     #[error("Missing Field: {0}")]
@@ -507,11 +505,11 @@ mod tests {
 
     use crate::{
         error::BoxDynError,
+        task::from_request::FromRequest,
         task::{
             Task,
             metadata::{Meta, Metadata, MetadataStore},
         },
-        task_fn::FromRequest,
     };
     use futures_core::future::BoxFuture;
     use tower::Service;
@@ -545,11 +543,9 @@ mod tests {
         }
     }
 
-    impl<S, Args: Send + Sync + 'static, Conn: Send + Sync + 'static, Id: Send + Sync + 'static>
-        Service<Task<Args, Conn, Id>> for ExampleService<S>
+    impl<S, Args: Send + Sync + 'static> Service<Task<Args>> for ExampleService<S>
     where
-        S: Service<Task<Args, Conn, Id>> + Clone + Send + 'static,
-        Conn: Send,
+        S: Service<Task<Args>> + Clone + Send + 'static,
         S::Future: Send + 'static,
     {
         type Response = S::Response;
@@ -560,7 +556,7 @@ mod tests {
             self.service.poll_ready(cx)
         }
 
-        fn call(&mut self, request: Task<Args, Conn, Id>) -> Self::Future {
+        fn call(&mut self, request: Task<Args>) -> Self::Future {
             let mut svc = self.service.clone();
 
             // Do something with config

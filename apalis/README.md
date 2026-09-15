@@ -32,16 +32,17 @@
 
 ## Features
 
-- **Simple and predictable task handling** - [Task handlers](https://docs.rs/apalis-core/1.0.0-rc.9/apalis_core/task_fn/guide/index.html) are just async functions with a macro-free API
-- **Robust task execution** - Built-in support for retries, rate limits, timeouts, idempotency and error handling
-- **Multiple storage backends** - Support for Redis, PostgreSQL, SQLite, and in-memory storage
-- **Advanced task management** - Task prioritization, scheduling, metadata, and result tracking
+- **Simple, predictable task handling** - [Task handlers](https://docs.rs/apalis-core/1.0.0-rc.9/apalis_core/task/task_fn/index.html) are just async functions, with a macro-free API
+- **Robust task execution** - Built-in retries, rate limiting, timeouts, idempotency, and error handling
+- **Multiple storage backends** - Redis, PostgreSQL, SQLite, and in-memory storage
+- **Advanced task management** - Prioritization, scheduling, metadata, and result tracking
 - **Scalable by design** - Distributed backends with configurable concurrency and multi-threaded execution
+- **Lightweight and lazy** - Like a `Future`, workers do nothing until polled or woken — no busy-waiting
 - **Familiar dependency injection** - Similar to popular frameworks like [`actix`] and [`axum`]
 - **Runtime agnostic** - Works with tokio, async-std, and other async runtimes
 - **Production ready** - Built-in monitoring, metrics, graceful shutdown, and comprehensive error reporting
-- **Extensible middleware system** - Take full advantage of the [`tower`] ecosystem of services and utilities
-- **Optional web interface** - Manage and monitor your tasks through a web UI
+- **Extensible middleware** - Take full advantage of the [`tower`] ecosystem of services and utilities
+- **Optional web interface** - Manage and monitor tasks through a web UI
 
 ## Crate ecosystem
 
@@ -118,7 +119,7 @@ use apalis_file_storage::JsonStorage;;
 
 #[tokio::main]
 async fn main() {
-   let workflow = Workflow::new("odd-numbers-workflow")
+   let workflow = SteppedFlow::new("odd-numbers-workflow")
        .delay_for(Duration::from_millis(1000))
        .and_then(|a: usize| async move { Ok::<_, BoxDynError>((0..a).collect::<Vec<_>>()) })
        .filter_map(|x| async move { if x % 2 != 0 { Some(x) } else { None } })
@@ -207,7 +208,7 @@ With the [web UI](https://github.com/apalis-dev/apalis-board), you can manage yo
 
 ## Contributing
 
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct, and the process for submitting pull requests to us.
+Please read [CONTRIBUTING.md](https://github.com/apalis-dev/apalis/CONTRIBUTING.md) for details on our code of conduct, and the process for submitting pull requests to us.
 
 ## Versioning
 

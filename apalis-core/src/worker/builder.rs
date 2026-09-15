@@ -14,7 +14,7 @@
 //! 5. Providing task processing logic using [`build`](WorkerBuilder::build) that implements [`IntoWorkerService`].
 //!
 //! The [`IntoWorkerService`] trait can be used to convert a function or a service into a worker service. The following implementations are provided:
-//! - For async functions via [`task_fn`](crate::task_fn::task_fn)
+//! - For async functions via [`task_fn`](crate::task::task_fn::task_fn)
 //! - For any type that implements the [`Service`] trait for `T: Task`
 //! - For workflows via [`apalis-workflow`](https://docs.rs/apalis-workflow)
 //!
@@ -32,15 +32,15 @@
 //! # async fn main() {
 //! # let mut in_memory = MemoryStorage::new();
 //! # in_memory.push(24).await.unwrap();
-//! async fn task(job: u32, count: Data<usize>, ctx: WorkerContext) {
+//! async fn task(job: u32, count: Data<usize>, worker: WorkerContext) {
 //!     println!("Received job: {job:?}");
-//!     ctx.stop().unwrap();
+//!     worker.stop().unwrap();
 //! }
 //!
 //! let worker = WorkerBuilder::new("rango-tango")
 //!     .backend(in_memory)
 //!     .data(0usize)
-//!     .on_event(|ctx, ev| {
+//!     .on_event(|worker, ev| {
 //!         println!("On Event = {:?}", ev);
 //!     })
 //!     .build(task);
@@ -75,98 +75,98 @@
 //!
 //! **Tip:** Add layers in the order you want them to wrap task processing.
 use std::marker::PhantomData;
-use tower_layer::{Identity, Layer, Stack};
+use tower_layer::{Identity, Stack};
 use tower_service::Service;
 
 use crate::{
-    backend::Backend,
+    backend::{Backend, BackendConfig},
     monitor::shutdown::Shutdown,
-    task::{Task, data::Data},
-    worker::{Worker, event::EventHandlerBuilder},
+    task::data::Data,
+    worker::{
+        Worker, context::WorkerContext, event::EventHandlerBuilder, service::IntoWorkerService,
+    },
 };
 
 /// Declaratively builds a [`Worker`]
-pub struct WorkerBuilder<Args, Conn, Source, Middleware> {
-    pub(crate) name: String,
-    pub(crate) request: PhantomData<(Args, Conn)>,
+pub struct WorkerBuilder<Args, Source, Middleware> {
+    pub(crate) context: WorkerContext,
+    pub(crate) request: PhantomData<Args>,
     pub(crate) layer: Middleware,
     pub(crate) source: Source,
     pub(crate) event_handler: EventHandlerBuilder,
     pub(crate) shutdown: Option<Shutdown>,
 }
 
-impl<Args, Conn, Source, Middleware> std::fmt::Debug
-    for WorkerBuilder<Args, Conn, Source, Middleware>
-{
+impl<Args, Source, Middleware> std::fmt::Debug for WorkerBuilder<Args, Source, Middleware> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WorkerBuilder")
-            .field("id", &self.name)
-            .field("job", &std::any::type_name::<(Args, Conn)>())
+            .field("id", &self.context.name())
+            .field("job", &std::any::type_name::<Args>())
             .field("layer", &std::any::type_name::<Middleware>())
             .field("source", &std::any::type_name::<Source>())
             .finish()
     }
 }
 
-impl WorkerBuilder<(), (), (), Identity> {
+impl WorkerBuilder<(), (), Identity> {
     /// Build a new [`WorkerBuilder`] instance with a name for the worker to build
-    pub fn new<T: AsRef<str>>(name: T) -> Self {
+    pub fn new<T: Into<WorkerContext>>(name: T) -> Self {
         Self {
             request: PhantomData,
             layer: Identity::new(),
             source: (),
-            name: name.as_ref().to_owned(),
+            context: name.into(),
             event_handler: EventHandlerBuilder::default(),
             shutdown: None,
         }
     }
 }
 
-impl WorkerBuilder<(), (), (), Identity> {
+impl WorkerBuilder<(), (), Identity> {
     /// Set the source to a backend that implements [Backend]
-    pub fn backend<NB, NJ, Conn>(self, backend: NB) -> WorkerBuilder<NJ, Conn, NB, Identity>
+    pub fn backend<NB, NJ>(self, backend: NB) -> WorkerBuilder<NJ, NB, Identity>
     where
-        NB: Backend<Args = NJ, Connection = Conn>,
+        NB: Backend + BackendConfig<Args = NJ>,
     {
         WorkerBuilder {
             request: PhantomData,
             layer: self.layer,
             source: backend,
-            name: self.name,
+            context: self.context,
             shutdown: self.shutdown,
             event_handler: self.event_handler,
         }
     }
 }
 
-impl<Args, Conn, M, B> WorkerBuilder<Args, Conn, B, M>
+impl<Args, M, B> WorkerBuilder<Args, B, M>
 where
-    B: Backend<Args = Args>,
+    B: Backend,
 {
     /// Allows of decorating the service that consumes jobs.
     /// Allows adding multiple middleware in one call
     pub fn chain<NewLayer>(
         self,
         f: impl FnOnce(M) -> NewLayer,
-    ) -> WorkerBuilder<Args, Conn, B, NewLayer> {
+    ) -> WorkerBuilder<Args, B, NewLayer> {
         let middleware = f(self.layer);
 
         WorkerBuilder {
             request: self.request,
             layer: middleware,
-            name: self.name,
+            context: self.context,
             source: self.source,
             shutdown: self.shutdown,
             event_handler: self.event_handler,
         }
     }
     /// Allows adding middleware to the layer stack
-    pub fn layer<U>(self, layer: U) -> WorkerBuilder<Args, Conn, B, Stack<U, M>> {
+    pub fn layer<U>(self, layer: U) -> WorkerBuilder<Args, B, Stack<U, M>> {
         WorkerBuilder {
             request: self.request,
             source: self.source,
             layer: Stack::new(layer, self.layer),
-            name: self.name,
+            context: self.context,
             shutdown: self.shutdown,
             event_handler: self.event_handler,
         }
@@ -175,15 +175,33 @@ where
     /// Adds data to the context
     ///
     /// This will be shared by all requests
-    pub fn data<D>(self, data: D) -> WorkerBuilder<Args, Conn, B, Stack<Data<D>, M>>
-    where
-        M: Layer<Data<D>>,
-    {
+    pub fn data<D>(self, data: D) -> WorkerBuilder<Args, B, Stack<Data<D>, M>> {
         WorkerBuilder {
             request: self.request,
             source: self.source,
             layer: Stack::new(Data::new(data), self.layer),
-            name: self.name,
+            context: self.context,
+            shutdown: self.shutdown,
+            event_handler: self.event_handler,
+        }
+    }
+
+    /// Map the backend decorating and composing a new backend
+    ///
+    /// **NOTE**
+    /// This method mutates the backend but not the sink
+    /// This means that you may need to confirm the sink changes in the decorations
+    #[doc(hidden)]
+    pub fn map_backend<F, NB>(self, map: F) -> WorkerBuilder<Args, NB, M>
+    where
+        NB: Backend<Task = B::Task>,
+        F: FnOnce(B) -> NB,
+    {
+        WorkerBuilder {
+            request: self.request,
+            source: map(self.source),
+            layer: self.layer,
+            context: self.context,
             shutdown: self.shutdown,
             event_handler: self.event_handler,
         }
@@ -191,131 +209,27 @@ where
 }
 
 /// Finalizes the builder and constructs a [`Worker`] with the provided service
-impl<Args, Conn, B, M> WorkerBuilder<Args, Conn, B, M>
-where
-    B: Backend<Args = Args, Connection = Conn>,
-{
+impl<Args, B, M> WorkerBuilder<Args, B, M> {
     /// Consumes the builder and a service to construct the final worker
-    pub fn build<W, Svc>(self, service: W) -> Worker<Args, Conn, W::Backend, Svc, M>
+    pub fn build<W, Svc, NB>(self, service: W) -> Worker<Args, W::Backend, Svc, M>
     where
-        Svc: Service<Task<Args, Conn, B::Id>>,
-        W: IntoWorkerServiceExt<Args, Conn, Svc, B, M>,
+        W: IntoWorkerService<B, Svc, Backend = NB>,
+        B: Backend + BackendConfig,
+        NB: Backend + BackendConfig + Send + Unpin + 'static,
+        Svc: Service<NB::Task>,
+        Args: Send + 'static,
     {
-        service.build_with(self)
-    }
-}
-
-/// A worker service composed of a backend and a service
-#[derive(Debug, Clone)]
-pub struct WorkerService<Backend, Svc> {
-    /// The backend for the worker
-    pub backend: Backend,
-    /// The service that processes tasks
-    pub service: Svc,
-}
-
-/// Trait for building a worker service provided a backend
-pub trait IntoWorkerService<B, Svc, Args, Conn>
-where
-    B: crate::backend::Backend<Args = Args, Connection = Conn>,
-    Svc: Service<Task<Args, Conn, B::Id>>,
-{
-    /// The backend type for the worker
-    type Backend;
-    /// Build the service from the backend
-    fn into_service(self, backend: B) -> WorkerService<Self::Backend, Svc>;
-}
-
-/// Extension trait for building a worker from a builder
-pub trait IntoWorkerServiceExt<Args, Conn, Svc, Backend, M>: Sized
-where
-    Backend: crate::backend::Backend<Args = Args, Connection = Conn>,
-    Svc: Service<Task<Args, Conn, Backend::Id>>,
-    Self: IntoWorkerService<Backend, Svc, Args, Conn>,
-{
-    /// Consumes the builder and returns a worker
-    fn build_with(
-        self,
-        builder: WorkerBuilder<Args, Conn, Backend, M>,
-    ) -> Worker<Args, Conn, Self::Backend, Svc, M>;
-}
-
-/// Implementation of the IntoWorkerServiceExt trait for any type
-///
-/// Rust doest offer specialization yet, the [`IntoWorkerServiceExt`] and [`IntoWorkerService`]
-/// traits are used to allow the [build](WorkerBuilder::build) method to be more flexible.
-impl<T, Args, Conn, Svc, B, M> IntoWorkerServiceExt<Args, Conn, Svc, B, M> for T
-where
-    T: IntoWorkerService<B, Svc, Args, Conn>,
-    B: Backend<Args = Args, Connection = Conn>,
-    Svc: Service<Task<Args, Conn, B::Id>>,
-{
-    fn build_with(
-        self,
-        builder: WorkerBuilder<Args, Conn, B, M>,
-    ) -> Worker<Args, Conn, T::Backend, Svc, M> {
-        let svc = self.into_service(builder.source);
-        let mut worker = Worker::new(builder.name, svc.backend, svc.service, builder.layer);
-        worker.event_handler = builder
+        let svc = service.into_service(self.source);
+        let mut worker = Worker::new(self.context, svc.backend, svc.service, self.layer);
+        worker.event_handler = self
             .event_handler
             .write()
             .map(|mut d| d.take())
             .unwrap()
-            .unwrap_or(Box::new(|_ctx, _e| {
-                debug!("Worker [{}] received event {_e}", _ctx.name());
+            .unwrap_or(Box::new(|_, _e| {
+                debug!("[>] {_e}");
             }));
-        worker.shutdown = builder.shutdown;
+        worker.shutdown = self.shutdown;
         worker
-    }
-}
-
-/// Module for validating task function implementations
-/// This module provides macros and utilities to ensure that task functions
-/// conform to the expected signatures and can be converted into worker services.
-#[cfg(feature = "test-utils")]
-pub mod task_fn_validator {
-    use crate::backend::Backend;
-    use crate::task::Task;
-    use tower_service::Service;
-
-    use crate::task_fn::{FromRequest, TaskFn};
-
-    /// Macro for implementing the check functions
-    macro_rules! impl_check_fn {
-        ($($num:tt => $($arg:ident),+);+ $(;)?) => {
-            $(
-                #[inline]
-                #[doc = concat!("A helper for checking that the builder can build a worker with the provided service (", stringify!($num), " arguments)")]
-                pub fn $num<
-                    F, B, Args, Conn,
-                    $($arg: FromRequest<Task<Args, Conn, B::Id>>),+
-                >(
-                    _: F,
-                ) where
-                    TaskFn<F, Args, Conn, ($($arg,)+)>: Service<Task<Args, Conn, B::Id>>,
-                    B: Backend<Args = Args>
-                {
-                }
-            )+
-        };
-    }
-
-    impl_check_fn! {
-        check_fn_1 => A1;
-        check_fn_2 => A1, A2;
-        check_fn_3 => A1, A2, A3;
-        check_fn_4 => A1, A2, A3, A4;
-        check_fn_5 => A1, A2, A3, A4, A5;
-        check_fn_6 => A1, A2, A3, A4, A5, A6;
-        check_fn_7 => A1, A2, A3, A4, A5, A6, A7;
-        check_fn_8 => A1, A2, A3, A4, A5, A6, A7, A8;
-        check_fn_9 => A1, A2, A3, A4, A5, A6, A7, A8, A9;
-        check_fn_10 => A1, A2, A3, A4, A5, A6, A7, A8, A9, A10;
-        check_fn_11 => A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11;
-        check_fn_12 => A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12;
-        check_fn_13 => A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13;
-        check_fn_14 => A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14;
-        check_fn_15 => A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14, A15;
-        check_fn_16 => A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14, A15, A16;
     }
 }

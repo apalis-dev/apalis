@@ -1,4 +1,7 @@
-use std::{sync::atomic::AtomicUsize, sync::atomic::Ordering};
+use std::sync::atomic::{
+    AtomicUsize,
+    Ordering::{self, Relaxed},
+};
 
 use crate::error::{WorkerError, WorkerStateError};
 
@@ -10,6 +13,7 @@ pub(super) enum InnerWorkerState {
     Running,
     Paused,
     Stopped,
+    Terminated,
 }
 
 impl TryFrom<usize> for InnerWorkerState {
@@ -21,6 +25,7 @@ impl TryFrom<usize> for InnerWorkerState {
             1 => Ok(Self::Running),
             2 => Ok(Self::Paused),
             3 => Ok(Self::Stopped),
+            4 => Ok(Self::Terminated),
             v => Err(WorkerError::StateError(WorkerStateError::InvalidState(
                 format!("{v} not a valid state"),
             ))),
@@ -35,11 +40,21 @@ pub(super) struct WorkerState {
 }
 
 impl WorkerState {
-    pub(super) fn load(&self, order: Ordering) -> InnerWorkerState {
+    pub(crate) fn load(&self, order: Ordering) -> InnerWorkerState {
         InnerWorkerState::try_from(self.inner.load(order)).expect("Invalid enum value")
     }
 
-    pub(super) fn store(&self, state: InnerWorkerState, order: Ordering) {
+    pub(crate) fn store(&self, state: InnerWorkerState, order: Ordering) {
         self.inner.store(state as usize, order);
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        match self.load(Relaxed) {
+            InnerWorkerState::Pending => "pending",
+            InnerWorkerState::Running => "running",
+            InnerWorkerState::Paused => "paused",
+            InnerWorkerState::Stopped => "stopped",
+            InnerWorkerState::Terminated => "dead",
+        }
     }
 }

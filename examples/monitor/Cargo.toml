@@ -8,17 +8,16 @@ repository.workspace = true
 
 [dependencies]
 anyhow = "1"
-apalis = { path = "../../apalis", features = ["opentelemetry"] }
+apalis = { path = "../../apalis", features = ["tracing", "opentelemetry"] }
 serde = "1"
 tokio = { version = "1", features = ["full"] }
-env_logger = "0.11"
-tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json"] }
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 email-service = { path = "../email-service" }
-futures = "0.3"
 apalis-file-storage = { path = "../../utils/apalis-file-storage" }
 
 
 [dependencies.tracing]
 default-features = false
 version = "0.1"
+
+

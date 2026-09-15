@@ -1,0 +1,16 @@
+[package]
+name = "task-context"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+repository.workspace = true
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+thiserror = "2.0.20"
+tokio = { version = "1", features = ["full"] }
+apalis = { path = "../../apalis", features = ["tracing"] }
+serde = "1"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+

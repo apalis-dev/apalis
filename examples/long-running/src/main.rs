@@ -1,9 +1,10 @@
 use anyhow::Result;
 use apalis::prelude::*;
-use futures::TryStreamExt;
+use futures::{FutureExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tracing::info;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct DataExportTask {
@@ -20,28 +21,29 @@ enum ExportResult {
 }
 
 async fn export_orders(user_id: i32, start: &str, end: &str) -> Result<Vec<String>> {
-    tokio::time::sleep(Duration::from_secs(90)).await;
+    tokio::time::sleep(Duration::from_secs(9)).await;
     Ok(vec![format!(
         "Order data for user {user_id} from {start} to {end}"
     )])
 }
 
 async fn generate_analytics(user_id: i32, start: &str, end: &str) -> Result<String> {
-    tokio::time::sleep(Duration::from_secs(120)).await;
+    tokio::time::sleep(Duration::from_secs(12)).await;
     Ok(format!(
         "Analytics for user {user_id} from {start} to {end}"
     ))
 }
 
 async fn export_user_data(user_id: i32) -> Result<String> {
-    tokio::time::sleep(Duration::from_secs(80)).await;
+    tokio::time::sleep(Duration::from_secs(8)).await;
     Ok(format!("User data export for {user_id}"))
 }
 
-async fn process_export(task: DataExportTask, runner: Runner) -> Result<String> {
-    let (ctx, receiver) = runner.channel::<Result<ExportResult>>();
-
-    tokio::spawn(ctx.execute({
+async fn process_export(
+    task: DataExportTask,
+    mut runner: TaskRunner<Result<ExportResult>>,
+) -> Result<String> {
+    runner.execute(tokio::spawn({
         let start = task.start_date.clone();
         let end = task.end_date.clone();
         async move {
@@ -50,7 +52,7 @@ async fn process_export(task: DataExportTask, runner: Runner) -> Result<String> 
         }
     }));
 
-    tokio::spawn(ctx.execute({
+    runner.execute(tokio::spawn({
         let start = task.start_date.clone();
         let end = task.end_date.clone();
         async move {
@@ -59,15 +61,14 @@ async fn process_export(task: DataExportTask, runner: Runner) -> Result<String> 
         }
     }));
 
-    tokio::spawn(ctx.execute({
+    runner.execute(tokio::spawn({
         async move {
             let user_data = export_user_data(task.user_id).await?;
             Ok(ExportResult::UserData(user_data))
         }
     }));
 
-    ctx.wait().await;
-    let results = receiver.try_collect::<Vec<_>>().await?;
+    let results = runner.try_collect::<Vec<_>>().await?;
 
     let mut orders = None;
     let mut analytics = None;
@@ -95,8 +96,8 @@ async fn produce_task(storage: &mut MemoryStorage<DataExportTask>) {
     storage
         .push(DataExportTask {
             user_id: 42,
-            start_date: "2024-01-01".to_string(),
-            end_date: "2024-12-31".to_string(),
+            start_date: "2024-01-01".to_owned(),
+            end_date: "2024-12-31".to_owned(),
         })
         .await
         .unwrap();
@@ -104,21 +105,35 @@ async fn produce_task(storage: &mut MemoryStorage<DataExportTask>) {
 
 #[tokio::main]
 async fn main() -> Result<(), BoxDynError> {
-    unsafe {
-        std::env::set_var("RUST_LOG", "debug");
-    }
-    tracing_subscriber::fmt::init();
+    use tracing_subscriber::EnvFilter;
+
+    let fmt_layer = tracing_subscriber::fmt::layer().with_target(false);
+    let filter_layer =
+        EnvFilter::try_from_default_env().or_else(|_| EnvFilter::try_new("debug"))?;
+    tracing_subscriber::registry()
+        .with(filter_layer)
+        .with(fmt_layer)
+        .init();
+
+    let cpu_n = std::thread::available_parallelism().unwrap().get();
+
     let mut backend = MemoryStorage::new();
     produce_task(&mut backend).await;
 
     WorkerBuilder::new("export-worker")
         .backend(backend)
         .enable_tracing()
-        .concurrency(1)
+        .concurrency(cpu_n)
         .long_running()
         .on_event(|_c, e| info!("{e}"))
         .build(process_export)
-        .run_until(tokio::signal::ctrl_c())
+        .run_with_ctx(move |mut ctx| {
+            tokio::signal::ctrl_c().map(move |_| {
+                ctx.stop().unwrap();
+                ctx.kill().unwrap();
+                Ok(())
+            })
+        })
         .await?;
     Ok(())
 }

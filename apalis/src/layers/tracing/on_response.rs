@@ -60,6 +60,7 @@ impl Default for DefaultOnResponse {
 
 impl DefaultOnResponse {
     /// Create a new `DefaultOnResponse`.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -75,6 +76,7 @@ impl DefaultOnResponse {
     ///
     /// [tracing events]: https://docs.rs/tracing/latest/tracing/#events
     /// [`DefaultMakeSpan::level`]: crate::layers::tracing::DefaultMakeSpan::level
+    #[must_use]
     pub fn level(mut self, level: Level) -> Self {
         self.level = level;
         self
@@ -83,6 +85,7 @@ impl DefaultOnResponse {
     /// Set the [`LatencyUnit`] latencies will be reported in.
     ///
     /// Defaults to [`LatencyUnit::Millis`].
+    #[must_use]
     pub fn latency_unit(mut self, latency_unit: LatencyUnit) -> Self {
         self.latency_unit = latency_unit;
         self

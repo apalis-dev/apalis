@@ -11,7 +11,7 @@ use std::{
     sync::{Arc, atomic::AtomicUsize},
 };
 
-use crate::{task::Task, task_fn::FromRequest};
+use crate::{task::Task, task::from_request::FromRequest};
 
 /// A wrapper to keep count of the attempts tried by a task
 #[derive(Debug, Clone)]
@@ -39,24 +39,23 @@ impl Attempt {
     /// Get the current value
     #[must_use]
     pub fn current(&self) -> usize {
-        self.0.load(std::sync::atomic::Ordering::Relaxed)
+        self.0.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    /// Increase the current value
+    /// Increase the current value and returns the new value
     #[must_use]
-    pub fn increment(&self) -> usize {
-        self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    pub(crate) fn increment(&self) -> usize {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
     }
 }
 
-impl<Args, Conn, Id> FromRequest<Task<Args, Conn, Id>> for Attempt
+impl<Args> FromRequest<Task<Args>> for Attempt
 where
     Args: Sync,
-    Id: Sync + Send,
 {
     type Error = Infallible;
-    async fn from_request(task: &Task<Args, Conn, Id>) -> Result<Self, Self::Error> {
-        Ok(task.ctx.attempt.clone())
+    async fn from_request(task: &Task<Args>) -> Result<Self, Self::Error> {
+        Ok(task.raw_attempt().clone())
     }
 }
 

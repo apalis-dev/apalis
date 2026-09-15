@@ -7,6 +7,7 @@ pub struct BincodeCodec;
 
 /// Errors that can occur during Bincode encoding/decoding
 #[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
 pub enum BincodeCodecError {
     /// Error during encoding
     #[error("Encoding error: {0}")]

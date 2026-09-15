@@ -1,6 +1,9 @@
 use std::{collections::HashMap, time::Duration};
 
-use apalis_core::{backend::Backend, task::task_id::TaskId};
+use apalis_core::{
+    backend::{Backend, WireFormatBackend},
+    task::task_id::TaskId,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::SteppedService;
@@ -9,14 +12,14 @@ use crate::SteppedService;
 #[derive(Debug, Default)]
 pub struct WorkflowRouter<B>
 where
-    B: Backend,
+    B: Backend + WireFormatBackend,
 {
-    pub(super) steps: HashMap<usize, SteppedService<B::Compact, B::Connection, B::Id>>,
+    pub(crate) steps: HashMap<usize, SteppedService<B::Compact>>,
 }
 
 impl<B> WorkflowRouter<B>
 where
-    B: Backend,
+    B: Backend + WireFormatBackend,
 {
     /// Create a new workflow router
     #[must_use]
@@ -27,16 +30,17 @@ where
     }
 }
 /// Result information for workflow steps
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-pub struct StepResult<Res, Id> {
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct StepResponse {
     /// Result produced by the step
-    pub result: Res,
+    pub result: serde_json::Value,
     /// Optional ID of the next task to execute
-    pub next_task_id: Option<TaskId<Id>>,
+    pub next_task_id: Option<TaskId>,
 }
 
 /// Enum representing the possible transitions in a workflow
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum GoTo<T = ()> {
     /// Proceed to the next step with the given value
     Next(T),

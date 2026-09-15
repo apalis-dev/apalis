@@ -3,6 +3,7 @@ use std::time::Duration;
 use apalis::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::info;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct SelfMonitoringJob {
@@ -10,7 +11,7 @@ struct SelfMonitoringJob {
 }
 
 async fn self_monitoring_task(task: SelfMonitoringJob, worker: WorkerContext) {
-    info!("task: {:?}, {:?}", task, worker);
+    info!("task: {:?}, {:?}", task, worker.name());
     if task.id == 99 {
         tokio::spawn(async move {
             loop {
@@ -34,10 +35,16 @@ async fn produce_jobs(storage: &mut MemoryStorage<SelfMonitoringJob>) {
 
 #[tokio::main]
 async fn main() -> Result<(), BoxDynError> {
-    unsafe {
-        std::env::set_var("RUST_LOG", "debug");
-    }
-    tracing_subscriber::fmt::init();
+    use tracing_subscriber::EnvFilter;
+
+    let fmt_layer = tracing_subscriber::fmt::layer().with_target(false);
+    let filter_layer =
+        EnvFilter::try_from_default_env().or_else(|_| EnvFilter::try_new("debug"))?;
+    tracing_subscriber::registry()
+        .with(filter_layer)
+        .with(fmt_layer)
+        .init();
+
     let mut backend = MemoryStorage::new();
     produce_jobs(&mut backend).await;
 

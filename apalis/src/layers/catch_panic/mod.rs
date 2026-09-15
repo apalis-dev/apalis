@@ -23,9 +23,9 @@
 //!     let worker = WorkerBuilder::new("rango-tango")
 //!         .backend(in_memory)
 //!         .catch_panic()
-//!         .on_event(|ctx, ev| {
+//!         .on_event(|worker, ev| {
 //!             if matches!(ev, Event::Error(_)) {
-//!                 ctx.stop().unwrap();
+//!                 worker.stop().unwrap();
 //!             }
 //!         })
 //!         .build(task);
@@ -63,9 +63,9 @@
 //!             println!("Caught panic: {:?}", e);
 //!             PanicError("Custom panic handler".to_string())
 //!         }))
-//!         .on_event(|ctx, ev| {
+//!         .on_event(|worker, ev| {
 //!             if matches!(ev, Event::Error(_)) {
-//!                 ctx.stop().unwrap();
+//!                 worker.stop().unwrap();
 //!             }
 //!         })
 //!         .build(task);
@@ -93,8 +93,9 @@ pub struct CatchPanicLayer<F, Err> {
     _marker: std::marker::PhantomData<Err>,
 }
 
-impl<Err> CatchPanicLayer<fn(Box<dyn Any + Send + 'static>) -> AbortError, Err> {
+impl<Err> CatchPanicLayer<fn(&Box<dyn Any + Send + 'static>) -> AbortError, Err> {
     /// Creates a new `CatchPanicLayer` with a default panic handler.
+    #[must_use]
     pub fn new() -> Self {
         CatchPanicLayer {
             on_panic: default_handler,
@@ -103,7 +104,7 @@ impl<Err> CatchPanicLayer<fn(Box<dyn Any + Send + 'static>) -> AbortError, Err> 
     }
 }
 
-impl<Err> Default for CatchPanicLayer<fn(Box<dyn Any + Send>) -> AbortError, Err> {
+impl<Err> Default for CatchPanicLayer<fn(&Box<dyn Any + Send>) -> AbortError, Err> {
     fn default() -> Self {
         Self::new()
     }
@@ -111,11 +112,12 @@ impl<Err> Default for CatchPanicLayer<fn(Box<dyn Any + Send>) -> AbortError, Err
 
 impl<F, Err> CatchPanicLayer<F, Err>
 where
-    F: FnMut(Box<dyn Any + Send>) -> Err + Clone,
+    F: FnMut(&Box<dyn Any + Send>) -> Err + Clone,
 {
     /// Creates a new `CatchPanicLayer` with a custom panic handler.
+    #[must_use]
     pub fn with_panic_handler(on_panic: F) -> Self {
-        CatchPanicLayer {
+        Self {
             on_panic,
             _marker: std::marker::PhantomData,
         }
@@ -124,7 +126,7 @@ where
 
 impl<S, F, Err> Layer<S> for CatchPanicLayer<F, Err>
 where
-    F: FnMut(Box<dyn Any + Send>) -> Err + Clone,
+    F: FnMut(&Box<dyn Any + Send>) -> Err + Clone,
 {
     type Service = CatchPanicService<S, F>;
 
@@ -143,10 +145,10 @@ pub struct CatchPanicService<S, F> {
     on_panic: F,
 }
 
-impl<S, Req, Res, Conn, F, PanicErr, Id> Service<Task<Req, Conn, Id>> for CatchPanicService<S, F>
+impl<S, Args, Res, F, PanicErr> Service<Task<Args>> for CatchPanicService<S, F>
 where
-    S: Service<Task<Req, Conn, Id>, Response = Res>,
-    F: FnMut(Box<dyn Any + Send>) -> PanicErr + Clone,
+    S: Service<Task<Args>, Response = Res>,
+    F: FnMut(&Box<dyn Any + Send>) -> PanicErr + Clone,
     S::Error: Into<BoxDynError>,
     PanicErr: Into<BoxDynError>,
 {
@@ -158,7 +160,7 @@ where
         self.service.poll_ready(cx).map_err(Into::into)
     }
 
-    fn call(&mut self, task: Task<Req, Conn, Id>) -> Self::Future {
+    fn call(&mut self, task: Task<Args>) -> Self::Future {
         match std::panic::catch_unwind(AssertUnwindSafe(|| self.service.call(task))) {
             Ok(future) => CatchPanicFuture {
                 kind: Kind::Future {
@@ -223,7 +225,7 @@ impl fmt::Display for PanicError {
 impl<Fut, Res, F, Err, PanicErr> Future for CatchPanicFuture<Fut, F, PanicErr>
 where
     Fut: Future<Output = Result<Res, Err>>,
-    F: FnMut(Box<dyn Any + Send>) -> PanicErr,
+    F: FnMut(&Box<dyn Any + Send>) -> PanicErr,
     Err: Into<BoxDynError>,
     PanicErr: Into<BoxDynError>,
 {
@@ -239,7 +241,7 @@ where
                     .take()
                     .expect("future polled after completion");
                 let panic_err = panic_err.take().expect("future polled after completion");
-                Poll::Ready(Err(panic_handler(panic_err).into()))
+                Poll::Ready(Err(panic_handler(&panic_err).into()))
             }
             KindProj::Future {
                 future,
@@ -251,20 +253,20 @@ where
                     let mut panic_handler = panic_handler
                         .take()
                         .expect("future polled after completion");
-                    Poll::Ready(Err(panic_handler(panic_err).into()))
+                    Poll::Ready(Err(panic_handler(&panic_err).into()))
                 }
             },
         }
     }
 }
 
-fn default_handler(e: Box<dyn Any + Send>) -> AbortError {
+fn default_handler(e: &Box<dyn Any + Send>) -> AbortError {
     let panic_info = if let Some(s) = e.downcast_ref::<&str>() {
         s.to_string()
     } else if let Some(s) = e.downcast_ref::<String>() {
         s.clone()
     } else {
-        "Unknown panic".to_string()
+        "Unknown panic".to_owned()
     };
     // apalis assumes service functions are pure
     // therefore a panic should ideally abort
@@ -281,7 +283,7 @@ mod tests {
     use apalis_core::{
         backend::{TaskSink, memory::MemoryStorage},
         error::BoxDynError,
-        task::{builder::TaskBuilder, task_id::RandomId},
+        task::builder::TaskBuilder,
         worker::{builder::WorkerBuilder, event::Event, ext::event_listener::EventListenerExt},
     };
     use std::task::{Context, Poll};
@@ -293,7 +295,7 @@ mod tests {
     #[derive(Clone)]
     struct TestService;
 
-    impl Service<Task<TestJob, (), RandomId>> for TestService {
+    impl Service<Task<TestJob>> for TestService {
         type Response = usize;
         type Error = AbortError;
         type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
@@ -302,7 +304,7 @@ mod tests {
             Poll::Ready(Ok(()))
         }
 
-        fn call(&mut self, _req: Task<TestJob, (), RandomId>) -> Self::Future {
+        fn call(&mut self, _req: Task<TestJob>) -> Self::Future {
             Box::pin(async { Ok(42) })
         }
     }
@@ -322,7 +324,7 @@ mod tests {
     async fn test_catch_panic_layer_panics() {
         struct PanicService;
 
-        impl Service<Task<TestJob, (), RandomId>> for PanicService {
+        impl Service<Task<TestJob>> for PanicService {
             type Response = usize;
             type Error = AbortError;
             type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
@@ -331,7 +333,7 @@ mod tests {
                 Poll::Ready(Ok(()))
             }
 
-            fn call(&mut self, _req: Task<TestJob, (), RandomId>) -> Self::Future {
+            fn call(&mut self, _req: Task<TestJob>) -> Self::Future {
                 Box::pin(async {
                     None::<()>.unwrap();
                     todo!()
@@ -367,10 +369,10 @@ mod tests {
         let worker = WorkerBuilder::new("rango-tango")
             .backend(in_memory)
             .catch_panic()
-            .on_event(|ctx, ev| {
-                println!("CTX {:?}, On Event = {ev:?}", ctx.name());
+            .on_event(|worker, ev| {
+                println!("CTX {:?}, On Event = {ev:?}", worker.name());
                 if matches!(ev, Event::Error(_)) {
-                    ctx.stop().unwrap();
+                    worker.stop().unwrap();
                 }
             })
             .build(task);
@@ -393,16 +395,19 @@ mod tests {
             .retry(
                 RetryPolicy::retries(1)
                     // Do not retry panics
-                    .retry_if(|e: &BoxDynError| e.downcast_ref::<PanicError>().is_none()),
+                    .retry_if(|e: &BoxDynError| {
+                        println!("{}", e);
+                        e.downcast_ref::<PanicError>().is_none()
+                    }),
             )
             .layer(CatchPanicLayer::with_panic_handler(|e| {
                 println!("Caught panic: {e:?}");
                 PanicError("Custom panic handler".to_string())
             }))
-            .on_event(|ctx, ev| {
-                println!("CTX {:?}, On Event = {ev:?}", ctx.name());
+            .on_event(|worker, ev| {
+                println!("CTX {:?}, On Event = {ev:?}", worker.name());
                 if matches!(ev, Event::Error(_)) {
-                    ctx.stop().unwrap();
+                    worker.stop().unwrap();
                 }
             })
             .build(task);

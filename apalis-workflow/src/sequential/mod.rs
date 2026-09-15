@@ -18,6 +18,7 @@ pub mod service;
 /// workflow definitions.
 pub mod workflow;
 
+mod backend;
 /// utilities for workflow steps.
 pub mod step;
 
@@ -26,6 +27,6 @@ pub use crate::sequential::context::{StepContext, WorkflowContext};
 pub use crate::sequential::delay::DelayFor;
 pub use crate::sequential::filter_map::FilterMap;
 pub use crate::sequential::fold::Fold;
-pub use crate::sequential::router::{GoTo, StepResult};
+pub use crate::sequential::router::{GoTo, StepResponse};
 pub use crate::sequential::step::{Layer, Stack, Step};
-pub use crate::sequential::workflow::Workflow;
+pub use crate::sequential::workflow::SteppedFlow;
