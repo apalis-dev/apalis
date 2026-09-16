@@ -145,7 +145,7 @@ use std::{
 
 use futures_util::{
     Future, FutureExt, StreamExt,
-    future::{BoxFuture, Shared},
+    future::{BoxFuture, Either, Shared, join_all, pending, select},
 };
 use tower_layer::Layer;
 use tower_service::Service;
@@ -398,7 +398,7 @@ impl Monitor {
             Task<<FB as BackendConfig>::Args>,
         >>::Response: Send + Sync + 'static,
     {
-        let shutdown = self.shutdown.clone();
+        let shutdown = Some(self.shutdown.clone());
         let handler = self.event_handler.clone();
 
         let (fut, worker) = {
@@ -412,7 +412,7 @@ impl Monitor {
                     }
                 }
             });
-            ctx.attach_shutdown(shutdown);
+            ctx.shutdown = shutdown;
             let c = ctx.clone();
             let fut = Self::run_worker(w).into();
             (Some(fut), c)
@@ -510,7 +510,19 @@ impl Monitor {
         workers: Vec<MonitoredWorker>,
         shutdown: Shutdown,
     ) -> Result<(), MonitorError> {
-        let results = futures_util::future::join_all(workers).await;
+        let contexts: Vec<WorkerContext> = workers.iter().map(|w| w.worker.clone()).collect();
+        // Setting the shutdown flag does not wake idle workers, and above 30 futures
+        // `join_all` only re-polls the ones whose waker fired, so wake them all explicitly.
+        let wake_on_shutdown = shutdown.clone().then(move |()| {
+            for ctx in &contexts {
+                ctx.wake();
+            }
+            pending::<()>()
+        });
+        let results = match select(join_all(workers), wake_on_shutdown.boxed()).await {
+            Either::Left((results, _)) => results,
+            Either::Right(((), _)) => unreachable!("pending never resolves"),
+        };
 
         shutdown.start_shutdown();
 
@@ -790,7 +802,7 @@ mod tests {
     /// Regression: a monitor with more than 30 idle workers must still shut down.
     ///
     /// `futures_util::future::join_all` polls every future it holds on each wake-up only
-    /// while there are 30 or fewer of them; above that it switches to `FuturesUnordered`,
+    /// while there are 30 or fewer of them; above that it switches to `FuturesOrdered`,
     /// which polls just the futures whose own waker was woken. Signalling shutdown only
     /// flips a shared flag, so unless every worker is woken explicitly the idle ones are
     /// never re-polled and never observe it.

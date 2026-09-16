@@ -132,17 +132,6 @@ impl WorkerContext {
         &self.name
     }
 
-    /// Attach a shutdown handle, registering this worker to be woken when it fires.
-    ///
-    /// Observing shutdown is not enough on its own: an idle worker is only re-polled when
-    /// its own waker fires, and the monitor holds more workers than
-    /// `futures_util::future::join_all` re-polls unconditionally. Handing the waker slot to
-    /// the handle is what guarantees every worker sees the flag.
-    pub(crate) fn attach_shutdown(&mut self, shutdown: Shutdown) {
-        shutdown.register_waker(&self.waker);
-        self.shutdown = Some(shutdown);
-    }
-
     /// Start running the worker
     pub fn start(&mut self) -> Result<(), WorkerError> {
         let current_state = self.state.load(Ordering::SeqCst);
