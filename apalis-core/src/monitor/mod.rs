@@ -145,7 +145,7 @@ use std::{
 
 use futures_util::{
     Future, FutureExt, StreamExt,
-    future::{BoxFuture, Either, Shared, join_all, pending, select},
+    future::{BoxFuture, Shared},
 };
 use tower_layer::Layer;
 use tower_service::Service;
@@ -461,7 +461,12 @@ impl Monitor {
         S: Send + Future<Output = std::io::Result<()>>,
     {
         let shutdown = self.shutdown.clone();
-        let shutdown_after = self.shutdown.shutdown_after(signal);
+        let ctx = self.context();
+        let shutdown_after = async move {
+            let res = signal.await;
+            let _ = ctx.shutdown();
+            res
+        };
         if let Some(terminator) = self.terminator {
             let _res = futures_util::future::select(
                 Self::run_all_workers(self.workers, shutdown).boxed(),
@@ -510,19 +515,13 @@ impl Monitor {
         workers: Vec<MonitoredWorker>,
         shutdown: Shutdown,
     ) -> Result<(), MonitorError> {
-        let contexts: Vec<WorkerContext> = workers.iter().map(|w| w.worker.clone()).collect();
-        // Setting the shutdown flag does not wake idle workers, and above 30 futures
-        // `join_all` only re-polls the ones whose waker fired, so wake them all explicitly.
-        let wake_on_shutdown = shutdown.clone().then(move |()| {
-            for ctx in &contexts {
-                ctx.wake();
-            }
-            pending::<()>()
-        });
-        let results = match select(join_all(workers), wake_on_shutdown.boxed()).await {
-            Either::Left((results, _)) => results,
-            Either::Right(((), _)) => unreachable!("pending never resolves"),
-        };
+        // `FuturesUnordered` only polls a worker whose waker fired, so every shutdown path
+        // must wake the workers explicitly; `MonitorContext::shutdown` does that.
+        let results: Vec<_> = workers
+            .into_iter()
+            .collect::<futures_util::stream::FuturesUnordered<_>>()
+            .collect()
+            .await;
 
         shutdown.start_shutdown();
 
@@ -799,15 +798,16 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    /// Regression: a monitor with more than 30 idle workers must still shut down.
+    /// Regression: shutting down a monitor of idle workers must wake every one of them.
     ///
-    /// `futures_util::future::join_all` polls every future it holds on each wake-up only
-    /// while there are 30 or fewer of them; above that it switches to `FuturesOrdered`,
-    /// which polls just the futures whose own waker was woken. Signalling shutdown only
+    /// The monitor polls a worker only when its waker fires, and signalling shutdown just
     /// flips a shared flag, so unless every worker is woken explicitly the idle ones are
-    /// never re-polled and never observe it.
+    /// never re-polled and never observe it. Historically this only showed above 30
+    /// workers, because `join_all` re-polled every future while it held 30 or fewer;
+    /// `FuturesUnordered` has no such fast path, so the count here is just the old
+    /// threshold kept for reference.
     #[tokio::test]
-    async fn shutdown_wakes_idle_workers_above_join_all_threshold() {
+    async fn shutdown_wakes_idle_workers() {
         use crate::backend::memory::MemoryStorage;
 
         const WORKERS: usize = 31;
