@@ -461,7 +461,12 @@ impl Monitor {
         S: Send + Future<Output = std::io::Result<()>>,
     {
         let shutdown = self.shutdown.clone();
-        let shutdown_after = self.shutdown.shutdown_after(signal);
+        let ctx = self.context();
+        let shutdown_after = async move {
+            let res = signal.await;
+            let _ = ctx.shutdown();
+            res
+        };
         if let Some(terminator) = self.terminator {
             let _res = futures_util::future::select(
                 Self::run_all_workers(self.workers, shutdown).boxed(),
@@ -510,7 +515,13 @@ impl Monitor {
         workers: Vec<MonitoredWorker>,
         shutdown: Shutdown,
     ) -> Result<(), MonitorError> {
-        let results = futures_util::future::join_all(workers).await;
+        // `FuturesUnordered` only polls a worker whose waker fired, so every shutdown path
+        // must wake the workers explicitly; `MonitorContext::shutdown` does that.
+        let results: Vec<_> = workers
+            .into_iter()
+            .collect::<futures_util::stream::FuturesUnordered<_>>()
+            .collect()
+            .await;
 
         shutdown.start_shutdown();
 
@@ -785,6 +796,98 @@ mod tests {
 
         let result = monitor.run().await;
         assert!(result.is_ok());
+    }
+
+    /// Regression: shutting down a monitor of idle workers must wake every one of them.
+    ///
+    /// The monitor polls a worker only when its waker fires, and signalling shutdown just
+    /// flips a shared flag, so unless every worker is woken explicitly the idle ones are
+    /// never re-polled and never observe it. Historically this only showed above 30
+    /// workers, because `join_all` re-polled every future while it held 30 or fewer;
+    /// `FuturesUnordered` has no such fast path, so the count here is just the old
+    /// threshold kept for reference.
+    #[tokio::test]
+    async fn shutdown_wakes_idle_workers() {
+        use crate::backend::memory::MemoryStorage;
+
+        const WORKERS: usize = 31;
+
+        let mut monitor = Monitor::new();
+        for index in 0..WORKERS {
+            monitor = monitor.register(move |_| {
+                WorkerBuilder::new(format!("idle-{index}"))
+                    // An empty `MemoryStorage` never yields a task, so the worker parks
+                    // exactly like a cron worker waiting for a distant tick.
+                    .backend(MemoryStorage::<u32>::new())
+                    .build(|_: u32| async {})
+            });
+        }
+
+        let ctx = monitor.context();
+        tokio::spawn(async move {
+            sleep(Duration::from_millis(100)).await;
+            ctx.shutdown().unwrap();
+        });
+
+        let result = tokio::time::timeout(Duration::from_secs(5), monitor.run()).await;
+
+        let Ok(exit) = result else {
+            panic!("monitor did not shut down {WORKERS} idle workers");
+        };
+        exit.unwrap();
+    }
+
+    /// Shutting down many idle workers must not cut short the one worker that is busy.
+    #[tokio::test]
+    async fn signal_shutdown_drains_active_work_with_many_idle_workers() {
+        use crate::backend::memory::MemoryStorage;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        const IDLE_WORKERS: usize = 40;
+
+        let mut busy_backend = VecDequeBackend::new();
+        busy_backend.push(1u32).await.unwrap();
+
+        let completed = Arc::new(AtomicBool::new(false));
+        let flag = completed.clone();
+
+        let mut monitor = Monitor::new().register(move |_| {
+            let flag = flag.clone();
+            WorkerBuilder::new("busy")
+                .backend(busy_backend.clone())
+                .build(move |_: u32| {
+                    let flag = flag.clone();
+                    async move {
+                        sleep(Duration::from_millis(300)).await;
+                        flag.store(true, Ordering::SeqCst);
+                    }
+                })
+        });
+
+        for index in 0..IDLE_WORKERS {
+            monitor = monitor.register(move |_| {
+                WorkerBuilder::new(format!("idle-{index}"))
+                    .backend(MemoryStorage::<u32>::new())
+                    .build(|_: u32| async {})
+            });
+        }
+
+        let signal = async {
+            sleep(Duration::from_millis(50)).await;
+            Ok(())
+        };
+
+        let result =
+            tokio::time::timeout(Duration::from_secs(5), monitor.run_with_signal(signal)).await;
+
+        let Ok(exit) = result else {
+            panic!("monitor did not shut down {IDLE_WORKERS} idle workers");
+        };
+        exit.unwrap();
+        assert!(
+            completed.load(Ordering::SeqCst),
+            "shutdown cut short the in-flight task"
+        );
     }
 
     fn assert_send_sync<T: Send + Sync>() {}

@@ -66,6 +66,10 @@ impl MonitorContext {
     /// for workers to finish.
     pub fn shutdown(&self) -> Result<(), MonitorError> {
         self.shutdown.start_shutdown();
+        // Setting the flag does not re-poll a parked worker; wake each one so it observes it.
+        for worker in &self.workers {
+            worker.wake();
+        }
         Ok(())
     }
 
