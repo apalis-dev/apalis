@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- deps(deps): bump sentry-tracing from 0.48.5 to 0.49.2 ([#782](https://github.com/apalis-dev/apalis/pull/782))
 - *bump*: to v1.0.0-rc.10 ([#775](https://github.com/apalis-dev/apalis/pull/775))
 - ci(deps): bump actions/cache from 4 to 6 ([#752](https://github.com/apalis-dev/apalis/pull/752))
 - **chore (api)!**: standardize execution context ([#751](https://github.com/apalis-dev/apalis/pull/751))
