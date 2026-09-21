@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- deps(deps): bump ratatui from 0.29.0 to 0.30.2 ([#779](https://github.com/apalis-dev/apalis/pull/779))
 - *bump*: to v1.0.0-rc.10 ([#775](https://github.com/apalis-dev/apalis/pull/775))
 - ci(deps): bump actions/cache from 4 to 6 ([#752](https://github.com/apalis-dev/apalis/pull/752))
 - **chore (api)!**: standardize execution context ([#751](https://github.com/apalis-dev/apalis/pull/751))
