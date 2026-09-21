@@ -15,7 +15,7 @@ rand = "0.10"
 apalis-file-storage = { path = "../../utils/apalis-file-storage" }
 
 ## TUI
-ratatui = "0.29"
+ratatui = "0.30"
 crossterm = "0.28"
 color-eyre = "0.6"
 
