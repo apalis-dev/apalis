@@ -146,6 +146,7 @@ use std::{
 use futures_util::{
     Future, FutureExt, StreamExt,
     future::{BoxFuture, Shared},
+    stream::FuturesUnordered,
 };
 use tower_layer::Layer;
 use tower_service::Service;
@@ -517,11 +518,7 @@ impl Monitor {
     ) -> Result<(), MonitorError> {
         // `FuturesUnordered` only polls a worker whose waker fired, so every shutdown path
         // must wake the workers explicitly; `MonitorContext::shutdown` does that.
-        let results: Vec<_> = workers
-            .into_iter()
-            .collect::<futures_util::stream::FuturesUnordered<_>>()
-            .collect()
-            .await;
+        let results: Vec<_> = FuturesUnordered::from_iter(workers).collect().await;
 
         shutdown.start_shutdown();
 
@@ -831,9 +828,7 @@ mod tests {
 
         let result = tokio::time::timeout(Duration::from_secs(5), monitor.run()).await;
 
-        let Ok(exit) = result else {
-            panic!("monitor did not shut down {WORKERS} idle workers");
-        };
+        let exit = result.expect("monitor did not shut down idle workers");
         exit.unwrap();
     }
 
@@ -880,9 +875,7 @@ mod tests {
         let result =
             tokio::time::timeout(Duration::from_secs(5), monitor.run_with_signal(signal)).await;
 
-        let Ok(exit) = result else {
-            panic!("monitor did not shut down {IDLE_WORKERS} idle workers");
-        };
+        let exit = result.expect("monitor did not shut down idle workers");
         exit.unwrap();
         assert!(
             completed.load(Ordering::SeqCst),
