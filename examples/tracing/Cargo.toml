@@ -13,7 +13,7 @@ tokio = { version = "1", features = ["full"] }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 email-service = { path = "../email-service" }
 futures = "0.3"
-opentelemetry = { version = "0.32.0", default-features = false, features = [
+opentelemetry = { version = "0.33.0", default-features = false, features = [
     "trace",
 ] }
 opentelemetry_sdk = { version = "0.32.1", default-features = false, features = [

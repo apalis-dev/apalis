@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- deps(deps): bump opentelemetry from 0.32.0 to 0.33.0 ([#785](https://github.com/apalis-dev/apalis/pull/785))
 - **fix(core)**: wake idle workers when monitor shutdown starts ([#777](https://github.com/apalis-dev/apalis/pull/777))
 - *bump*: to v1.0.0-rc.10 ([#775](https://github.com/apalis-dev/apalis/pull/775))
 - ci(deps): bump actions/cache from 4 to 6 ([#752](https://github.com/apalis-dev/apalis/pull/752))
