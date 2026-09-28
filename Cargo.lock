@@ -257,7 +257,7 @@ dependencies = [
  "futures-timer",
  "futures-util",
  "pin-project",
- "rand 0.10.2",
+ "rand 0.10.3",
  "serde",
  "thiserror",
  "tokio",
@@ -1892,7 +1892,7 @@ dependencies = [
  "color-eyre",
  "crossterm",
  "email-service",
- "rand 0.10.2",
+ "rand 0.10.3",
  "ratatui",
  "tokio",
 ]
@@ -2486,9 +2486,9 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.10.2"
+version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7f5fa3a058cd35567ef9bfa5e75732bee0f9e4c55fa90477bef2dfcdbc4be80"
+checksum = "65c9fb96cbc91e3478eaae79a69fcd3f1ae4ad052e471fe6732fff548984b4af"
 dependencies = [
  "chacha20",
  "getrandom 0.4.3",
@@ -3583,7 +3583,7 @@ version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "947dde63b6d514cc5e044edad4e0ca7261afd1099d16c83d942cb2b2f348689c"
 dependencies = [
- "rand 0.10.2",
+ "rand 0.10.3",
  "serde",
  "uuid",
  "web-time",
