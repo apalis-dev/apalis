@@ -738,7 +738,7 @@ where
     Args: Serialize + DeserializeOwned + 'static + Send + Sync + Unpin,
 {
     type ResultStream = BoxStream<'static, Result<TaskResult<O>, FileStorageError<A>>>;
-    fn wait_for(&self, task_ids: impl IntoIterator<Item = TaskId>) -> Self::ResultStream {
+    fn wait_for(&mut self, task_ids: impl IntoIterator<Item = TaskId>) -> Self::ResultStream {
         use futures_util::StreamExt;
         use std::{collections::HashSet, time::Duration};
 
@@ -771,7 +771,7 @@ where
                             let attempt = value
                                 .ctx
                                 .get("attempt")
-                                .map(|s| FromStr::from_str(s))
+                                .map(FromStr::from_str)
                                 .transpose()
                                 .unwrap_or_default()
                                 .unwrap_or_default();
@@ -807,7 +807,7 @@ where
     }
 
     async fn check_status(
-        &self,
+        &mut self,
         task_ids: impl IntoIterator<Item = TaskId> + Send,
     ) -> Result<Vec<TaskResult<O>>, Self::Error> {
         use apalis_core::task::status::Status;
@@ -825,7 +825,7 @@ where
                 let attempt = value
                     .ctx
                     .get("attempt")
-                    .map(|s| FromStr::from_str(s))
+                    .map(FromStr::from_str)
                     .transpose()
                     .unwrap_or_default()
                     .unwrap_or_default();

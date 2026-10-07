@@ -31,6 +31,12 @@ pub mod prelude {
     pub use crate::layers::retry::{
         BackoffRetryPolicy, FromTaskConfigPolicy, RetryIfPolicy, RetryPolicy,
     };
+    #[cfg(feature = "task-context")]
+    pub use apalis_core::task::context::{SubTaskFuture, TaskContext, WaitForExecutionFuture};
+
+    #[cfg(feature = "shared")]
+    pub use apalis_core::backend::ext::shared::Shared;
+
     pub use apalis_core::{
         backend::{
             Backend, Expose, FetchById, Filter, ListAllTasks, ListQueues, ListTasks, ListWorkers,
@@ -39,8 +45,7 @@ pub mod prelude {
             WaitForCompletion, ext::BackendExt, ext::PollNextArgsError,
         },
         backend::{
-            codec::*, custom::*, ext::pipe::*, ext::poll_strategy::*, ext::shared::Shared,
-            factory::*, memory::*,
+            codec::*, custom::*, ext::pipe::*, ext::poll_strategy::*, factory::*, memory::*,
         },
         error::*,
         layers::*,
@@ -52,7 +57,6 @@ pub mod prelude {
             ExecutionContext, Task,
             attempt::Attempt,
             builder::TaskBuilder,
-            context::{SubTaskFuture, TaskContext, WaitForExecutionFuture},
             data::{AddExtension, Data, MissingDataError},
             extensions::Extensions,
             from_request::FromRequest,

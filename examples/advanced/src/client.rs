@@ -31,8 +31,9 @@ impl EmailClient {
             "Sending email {email:?} using the reused client: {:?}",
             self.client
         );
+        #[allow(clippy::incompatible_msrv)]
         self.remaining_api_calls
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
                 value.checked_sub(1)
             })
             .map_err(|_| Error::ApiRateLimit)?;
@@ -45,8 +46,9 @@ impl EmailClient {
             "Sending email {email:?} using the reused client: {:?}",
             self.client
         );
+        #[allow(clippy::incompatible_msrv)]
         self.remaining_api_calls
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
                 value.checked_sub(2)
             })
             .map_err(|_| Error::ApiRateLimit)?;

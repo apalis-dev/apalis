@@ -80,8 +80,8 @@
 //!         Ok(Self(
 //!             metadata
 //!                 .get("request_id")
-//!                 .cloned()
-//!                 .unwrap_or_default(),
+//!                 .unwrap_or_default()
+//!                 .to_owned(),
 //!         ))
 //!     }
 //! }
@@ -147,6 +147,7 @@ use crate::{
 
 pub mod attempt;
 pub mod builder;
+#[cfg(feature = "task-context")]
 pub mod context;
 pub mod data;
 pub mod extensions;

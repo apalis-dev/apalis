@@ -90,11 +90,11 @@ async fn main() -> Result<(), BoxDynError> {
         .unwrap();
 
     let dag_flow = GraphFlow::new("user-etl-workflow");
-    let get_name = dag_flow.node(get_name);
-    let get_age = dag_flow.node(get_age);
-    let get_address = dag_flow.node(get_address);
+    let get_name = dag_flow.add_task(get_name);
+    let get_age = dag_flow.add_task(get_age);
+    let get_address = dag_flow.add_task(get_address);
     dag_flow
-        .node(collector)
+        .add_task(collector)
         .depends_on((&get_name, &get_age, &get_address)); // Order and types matters here
 
     dag_flow.validate()?; // Ensure Graph is valid

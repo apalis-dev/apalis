@@ -11,10 +11,21 @@ use futures_util::SinkExt;
 use crate::{
     backend::{codec::Codec, *},
     delegate_sink,
-    error::BoxDynError,
     task::Task,
-    worker::{call_all::CallAllError, context::WorkerContext},
+    worker::context::WorkerContext,
 };
+
+/// Error type that combines backend errors and service errors
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum DurableError<PollError, CodecError> {
+    /// Error originating from the the poll
+    #[error("PollNextError: {0}")]
+    PollNextError(PollError),
+    /// Error originating from the decoding of the task
+    #[error("Task decoding error: {0}")]
+    CodecError(CodecError),
+}
 
 /// Finalizes an intermediate backend configuration into a concrete backend.
 ///
@@ -93,12 +104,10 @@ impl<B, Compact, Args, Err> Backend for DurableBackend<B, Args>
 where
     B: Backend<Task = Task<Compact>> + WireFormatBackend,
     B::Codec: Codec<Args, Compact = Compact, Error = Err>,
-    Err: Into<BoxDynError>,
-    <B::Codec as Codec<Args>>::Error: Into<BoxDynError>,
-    B::Error: Into<BoxDynError>,
+    Err: std::error::Error + Sync + Send + 'static,
 {
     type Task = Task<Args>;
-    type Error = CallAllError<B::Error>;
+    type Error = DurableError<B::Error, Err>;
 
     fn poll_ready(
         &mut self,
@@ -107,7 +116,7 @@ where
     ) -> Poll<Result<(), Self::Error>> {
         self.backend
             .poll_ready(cx, worker)
-            .map_err(|e| CallAllError::PollError(e.into()))
+            .map_err(|e| DurableError::PollNextError(e))
     }
 
     fn poll_next(
@@ -120,12 +129,12 @@ where
                 let codec = self.codec();
 
                 let task = task
-                    .try_map_args(|s| codec.decode(&s).map_err(Into::into))
-                    .map_err(CallAllError::CodecError);
+                    .try_map_args(|s| codec.decode(&s))
+                    .map_err(DurableError::CodecError);
 
                 Some(task)
             }
-            Some(Err(e)) => Some(Err(CallAllError::PollError(e.into()))),
+            Some(Err(e)) => Some(Err(DurableError::PollNextError(e))),
             None => None,
         })
     }
@@ -137,7 +146,7 @@ where
     ) -> Poll<Result<(), Self::Error>> {
         self.backend
             .poll_close(cx, worker)
-            .map_err(|e| CallAllError::PollError(e.into()))
+            .map_err(|e| DurableError::PollNextError(e))
     }
 }
 

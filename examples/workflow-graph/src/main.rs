@@ -17,7 +17,7 @@ async fn get_address(user_id: u32) -> Result<usize, BoxDynError> {
 
 async fn collector(
     (name, age, address): (String, usize, usize),
-    wrk: WorkerContext, // Nodes are still apalis services and can inject deps
+    wrk: WorkerContext, // Nodes are still services and can inject deps
 ) -> Result<usize, BoxDynError> {
     let result = name.parse::<usize>()? + age + address;
     wrk.stop().unwrap();

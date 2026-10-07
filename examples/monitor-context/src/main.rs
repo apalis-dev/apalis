@@ -1,4 +1,5 @@
 #![allow(missing_docs)]
+use std::io::{self, Write};
 use std::time::Duration;
 
 use anyhow::Result;
@@ -8,11 +9,6 @@ use apalis_file_storage::JsonStorage;
 use email_service::Email;
 use rand::RngExt;
 use tokio::time::sleep;
-
-use crate::tui::run_tui;
-
-mod tui;
-mod view;
 
 async fn email_service(_: Email, task: TaskContext) -> Result<(), BoxDynError> {
     let range = rand::rng().random_range(1000..=20000);
@@ -95,11 +91,121 @@ async fn main() -> Result<()> {
             true
         })
         .shutdown_timeout(Duration::from_secs(5));
-    let context = monitor.context();
-    let res = tokio::task::spawn_blocking(|| run_tui(context));
-
-    tokio::spawn(res);
-    monitor.run().await?;
+    let ctx = monitor.context();
+    let _terminal = TerminalGuard::enter()?;
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            basic_tui(ctx.workers()).unwrap();
+        }
+    });
+    monitor.run_with_signal(tokio::signal::ctrl_c()).await?;
 
     Ok(())
+}
+
+fn format_duration(duration: Duration) -> String {
+    let secs = duration.as_secs();
+
+    let hours = secs / 3600;
+    let minutes = (secs % 3600) / 60;
+    let seconds = secs % 60;
+
+    if hours > 0 {
+        format!("{hours}h {minutes:02}m {seconds:02}s")
+    } else if minutes > 0 {
+        format!("{minutes}m {seconds:02}s")
+    } else {
+        format!("{seconds}s")
+    }
+}
+
+pub fn basic_tui(workers: &[WorkerContext]) -> io::Result<()> {
+    let mut out = io::stdout();
+
+    // Move to top-left and clear the entire terminal.
+    write!(out, "\x1b[H\x1b[2J")?;
+
+    writeln!(
+        out,
+        "╭─────────────────────────────────────────────────────────────────────────────╮"
+    )?;
+    writeln!(
+        out,
+        "│ Apalis Workers                                                               │"
+    )?;
+    writeln!(
+        out,
+        "├────┬────────────────────┬────────┬────────┬──────────┬──────────────────────┤"
+    )?;
+    writeln!(
+        out,
+        "│ #  │ Running            │ Tasks  │ Ready  │ Restarts │ Elapsed              │"
+    )?;
+    writeln!(
+        out,
+        "├────┼────────────────────┼────────┼────────┼──────────┼──────────────────────┤"
+    )?;
+
+    for (i, worker) in workers.iter().enumerate() {
+        writeln!(
+            out,
+            "│ {:<2} │ {:<18} │ {:>6} │ {:<6} │ {:>8} │ {:<20} │",
+            i,
+            worker.is_running(),
+            worker.task_count(),
+            if worker.is_ready() { "yes" } else { "no" },
+            worker.restarts(),
+            format_duration(worker.elapsed()),
+        )?;
+    }
+
+    writeln!(
+        out,
+        "╰────┴────────────────────┴────────┴────────┴──────────┴──────────────────────╯"
+    )?;
+
+    writeln!(out)?;
+    writeln!(out, "Services:")?;
+
+    for (i, worker) in workers.iter().enumerate() {
+        writeln!(out, "  [{i}] {}", worker.name())?;
+    }
+
+    out.flush()
+}
+
+struct TerminalGuard;
+
+impl TerminalGuard {
+    fn enter() -> io::Result<Self> {
+        let mut out = io::stdout();
+
+        // Alternate screen.
+        write!(out, "\x1b[?1049h")?;
+
+        // Hide cursor.
+        write!(out, "\x1b[?25l")?;
+
+        // Clear screen and position cursor.
+        write!(out, "\x1b[2J\x1b[H")?;
+
+        out.flush()?;
+
+        Ok(Self)
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        let mut out = io::stdout();
+
+        // Show cursor.
+        let _ = write!(out, "\x1b[?25h");
+
+        // Leave alternate screen.
+        let _ = write!(out, "\x1b[?1049l");
+
+        let _ = out.flush();
+    }
 }

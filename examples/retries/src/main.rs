@@ -54,7 +54,7 @@ async fn main() -> Result<()> {
 
     let mut backend = MemoryStorage::new();
     produce_jobs(&mut backend).await?;
-    tracing_subscriber::fmt::init();
+
     let backoff = ExponentialBackoffMaker::new(
         Duration::from_millis(1000),
         Duration::from_millis(5000),
@@ -70,7 +70,7 @@ async fn main() -> Result<()> {
                 .retry_if(|e: &BoxDynError| e.downcast_ref::<AbortError>().is_none()),
         )
         .enable_tracing()
-        .on_event(|ctx, _ev| println!("{:?}", ctx.get_service()))
+        .on_event(|ctx, _ev| println!("{:?}", ctx.name()))
         .build(send_email)
         .run()
         .await?;

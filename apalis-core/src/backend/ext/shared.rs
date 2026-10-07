@@ -280,6 +280,14 @@ where
     async fn vacuum(&mut self) -> Result<usize, Self::Error> {
         self.inner.backend.lock().await.vacuum().await
     }
+    async fn vacuum_before(&mut self, duration: Duration) -> Result<usize, Self::Error> {
+        self.inner
+            .backend
+            .lock()
+            .await
+            .vacuum_before(duration)
+            .await
+    }
 }
 impl<B> ResumeById for Shared<B>
 where
@@ -330,18 +338,18 @@ where
 {
     type ResultStream =
         futures_core::stream::BoxStream<'static, Result<TaskResult<Output>, Self::Error>>;
-    fn wait_for(&self, task_ids: impl IntoIterator<Item = TaskId>) -> Self::ResultStream {
+    fn wait_for(&mut self, task_ids: impl IntoIterator<Item = TaskId>) -> Self::ResultStream {
         let inner = self.inner.clone();
         let task_ids: Vec<_> = task_ids.into_iter().collect();
         futures_util::stream::once(async move {
-            let backend = inner.backend.lock().await;
+            let mut backend = inner.backend.lock().await;
             backend.wait_for(task_ids)
         })
         .flatten()
         .boxed()
     }
     async fn check_status(
-        &self,
+        &mut self,
         task_ids: impl IntoIterator<Item = TaskId> + Send,
     ) -> Result<Vec<TaskResult<Output>>, Self::Error> {
         self.inner.backend.lock().await.check_status(task_ids).await

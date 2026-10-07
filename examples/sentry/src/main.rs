@@ -109,11 +109,9 @@ async fn main() -> Result<()> {
         std::env::var("SENTRY_DSN").expect("Please set SENTRY_DSN environmental variable");
     let _guard = sentry::init((
         sentry_dsn,
-        sentry::ClientOptions {
-            release: sentry::release_name!(),
-            traces_sample_rate: 0.2,
-            ..Default::default()
-        },
+        sentry::ClientOptions::new()
+            .sample_rate(0.2)
+            .maybe_release(sentry::release_name!()),
     ));
     let fmt_layer = tracing_subscriber::fmt::layer().with_target(false);
     let filter_layer =

@@ -57,7 +57,6 @@ impl<Svc, B> Stream for WorkerStream<Svc, B>
 where
     Svc: Service<B::Task>,
     B: Backend + Unpin,
-    B::Error: Into<BoxDynError> + Send + 'static,
     Svc::Error: Into<BoxDynError> + Send + 'static,
     Svc::Response: Send + Sync + 'static,
 {
@@ -83,8 +82,9 @@ where
                             Err(CallAllError::ServiceError(e)) => {
                                 Ok(Event::Error(Arc::new(e.into())))
                             }
-                            Err(CallAllError::PollError(e)) => Err(WorkerError::PollError(e)),
-                            Err(CallAllError::CodecError(e)) => Err(WorkerError::CodecError(e)),
+                            Err(CallAllError::PollError(e)) => {
+                                Err(WorkerError::BackendError(e.into()))
+                            }
                         };
 
                         return Poll::Ready(Some(event));

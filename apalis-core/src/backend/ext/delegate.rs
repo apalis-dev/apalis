@@ -237,6 +237,13 @@ macro_rules! delegate_expose {
                 let $this = &*self;
                 $wrap_body
             }
+
+            async fn vacuum_before(&mut self, duration: Duration) -> Result<usize, Self::Error> {
+                let $result = self.$field.vacuum_before(duration).await;
+                #[allow(unused_variables)]
+                let $this = &*self;
+                $wrap_body
+            }
         }
 
         impl<$($lt,)* $($generic),+> ResumeById for $wrapper
@@ -290,7 +297,7 @@ macro_rules! delegate_expose {
             type ResultStream = futures_core::stream::BoxStream<'static, Result<TaskResult<Output>, Self::Error>>;
 
             fn wait_for(
-                &self,
+                &mut self,
                 task_ids: impl IntoIterator<Item = TaskId>,
             ) -> Self::ResultStream {
                 use futures_util::StreamExt;
@@ -301,7 +308,7 @@ macro_rules! delegate_expose {
             }
 
             async fn check_status(
-                &self,
+                &mut self,
                 task_ids: impl IntoIterator<Item = TaskId> + Send,
             ) -> Result<Vec<TaskResult<Output>>, Self::Error> {
                 let $result = self.$field.check_status(task_ids).await;

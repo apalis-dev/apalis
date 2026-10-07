@@ -53,9 +53,6 @@ where
         cx: &mut Context<'_>,
         worker: &WorkerContext,
     ) -> Poll<Result<(), Self::Error>> {
-        if self.waker.as_ref().is_none_or(|w| !w.will_wake(cx.waker())) {
-            self.waker = Some(cx.waker().clone());
-        }
         self.backend.poll_ready(cx, worker)
     }
 
@@ -64,6 +61,9 @@ where
         cx: &mut Context<'_>,
         worker: &WorkerContext,
     ) -> Poll<Option<Result<Self::Task, Self::Error>>> {
+        if self.waker.as_ref().is_none_or(|w| !w.will_wake(cx.waker())) {
+            self.waker = Some(cx.waker().clone());
+        }
         self.backend.poll_next(cx, worker)
     }
 
@@ -95,7 +95,7 @@ where
         self.get_mut().backend.poll_ready_unpin(cx)
     }
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.get_mut().poll_flush_unpin(cx)
+        self.get_mut().backend.poll_flush_unpin(cx)
     }
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.get_mut().backend.poll_close_unpin(cx)

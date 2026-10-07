@@ -7,7 +7,7 @@ repository.workspace = true
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-thiserror = "2.0.20"
+thiserror = "2.0.21"
 tokio = { version = "1", features = ["full"] }
 apalis = { path = "../../apalis", features = ["limit", "catch-panic", "tracing"] }
 serde = "1"

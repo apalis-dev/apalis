@@ -301,7 +301,7 @@ impl Metadata for FoldState {
     fn extract(map: &MetadataStore) -> Result<Self, Self::Error> {
         let value = map.get(FOLD_STATE_KEY).ok_or(FoldStateError::MissingKey)?;
 
-        match value.as_str() {
+        match value {
             "Collection" => Ok(Self::Collection),
             _ => Ok(Self::Init),
         }
