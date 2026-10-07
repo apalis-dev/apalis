@@ -206,12 +206,12 @@ where
 {
     type ResultStream = WaitForStream<Output>;
 
-    fn wait_for(&self, task_ids: impl IntoIterator<Item = TaskId>) -> Self::ResultStream {
+    fn wait_for(&mut self, task_ids: impl IntoIterator<Item = TaskId>) -> Self::ResultStream {
         WaitForStream::new(task_ids, Arc::clone(&self.store))
     }
 
     fn check_status(
-        &self,
+        &mut self,
         task_ids: impl IntoIterator<Item = TaskId> + Send,
     ) -> impl Future<Output = Result<Vec<TaskResult<Output>>, Self::Error>> + Send {
         let store = Arc::clone(&self.store);

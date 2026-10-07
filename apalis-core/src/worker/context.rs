@@ -52,17 +52,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use dashmap::DashSet;
+#[cfg(feature = "task-context")]
+use crate::task::context::{TaskContext, TaskStateError};
 
 use crate::{
     error::{WorkerError, WorkerStateError},
     monitor::shutdown::Shutdown,
     task::from_request::FromRequest,
-    task::{
-        ExecutionContext, Task,
-        context::{TaskContext, TaskStateError},
-        data::MissingDataError,
-    },
+    task::{ExecutionContext, Task, data::MissingDataError},
     worker::{
         event::{Event, EventListener, RawEventListener},
         lifecycle::TaskLifecycleError,
@@ -85,8 +82,13 @@ pub struct WorkerContext {
     pub(crate) shutdown: Option<Shutdown>,
     event_handler: EventListener,
     pub(super) is_ready: Arc<AtomicBool>,
-    service: &'static str,
-    tasks: Arc<DashSet<TaskContext>>,
+    service: Arc<String>,
+    #[cfg(feature = "task-context")]
+    tasks: Arc<dashmap::DashSet<TaskContext>>,
+
+    #[cfg(not(feature = "task-context"))]
+    tasks: Arc<AtomicUsize>,
+
     instant: Instant,
     restarts: Arc<AtomicUsize>,
 }
@@ -112,7 +114,7 @@ impl WorkerContext {
     pub fn new(name: &str) -> Self {
         Self {
             name: Arc::new(name.to_owned()),
-            service: "Unspecified",
+            service: "Unspecified".to_owned().into(),
             waker: Default::default(),
             state: Default::default(),
             shutdown: Default::default(),
@@ -151,7 +153,9 @@ impl WorkerContext {
         self.state
             .store(InnerWorkerState::Pending, Ordering::SeqCst);
         self.is_ready.store(false, Ordering::SeqCst);
-        self.cleanup();
+        #[cfg(feature = "task-context")]
+        self.cleanup()
+            .map_err(|e| WorkerError::StateError(WorkerStateError::InvalidState(e.to_string())))?;
         self.restarts.fetch_add(1, Ordering::SeqCst);
         info!("Worker {} restarted", self.name());
         self.wake();
@@ -214,10 +218,10 @@ impl WorkerContext {
     /// ```
     #[must_use]
     pub fn get_service(&self) -> &str {
-        self.service
+        self.service.as_ref()
     }
 
-    pub(super) fn bind_service<T>(&mut self) {
+    pub(crate) fn bind_service<T>(&mut self) {
         let service = std::any::type_name::<T>();
 
         const RULES: &[(&str, &str, &str)] = &[
@@ -281,7 +285,7 @@ impl WorkerContext {
             }
         }
 
-        self.service = service;
+        *Arc::make_mut(&mut self.service) = service.to_owned();
     }
 
     /// Checks whether the worker is running
@@ -319,7 +323,13 @@ impl WorkerContext {
     /// This include futures spawned via `worker.track`
     #[must_use]
     pub fn task_count(&self) -> usize {
-        self.tasks.len()
+        #[cfg(feature = "task-context")]
+        {
+            self.tasks.len()
+        }
+
+        #[cfg(not(feature = "task-context"))]
+        self.tasks.load(Ordering::SeqCst)
     }
 
     /// Checks whether the worker has pending tasks
@@ -396,16 +406,16 @@ impl WorkerContext {
     }
 
     /// Register the [`ExecutionContext`] to get the [`TaskContext`]
+    #[cfg(feature = "task-context")]
     pub(super) fn register_task(
         &self,
         ctx: &Arc<ExecutionContext>,
     ) -> Result<TaskContext, TaskLifecycleError> {
+        let tasks = &self.tasks;
         let task_id = ctx
             .task_id()
             .ok_or(TaskLifecycleError::MissingTaskId)?
             .to_string();
-
-        let tasks = &self.tasks;
 
         if tasks.contains(task_id.as_str()) {
             return Err(TaskLifecycleError::Duplicate);
@@ -416,9 +426,19 @@ impl WorkerContext {
         Ok(token)
     }
 
+    #[cfg(not(feature = "task-context"))]
+    pub(super) fn register_task(
+        &self,
+        _: &Arc<ExecutionContext>,
+    ) -> Result<(), TaskLifecycleError> {
+        self.tasks.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+
     /// Cancel a specific task, if it's tracked.
+    #[cfg(feature = "task-context")]
     pub fn cancel_task(&self, context: &TaskContext) -> Result<(), TaskStateError> {
-        if let Some(token) = self.tasks.get(context) {
+        if let Some(token) = &self.tasks.get(context) {
             token.cancel()
         } else {
             Err(TaskStateError::TaskNotFound)
@@ -426,38 +446,54 @@ impl WorkerContext {
     }
 
     /// Remove the token once the task completes, to avoid unbounded growth.
-    pub(super) fn remove_task(&self, ctx: &TaskContext) -> bool {
+    #[cfg(feature = "task-context")]
+    pub(super) fn remove_task(&self, ctx: &TaskContext) -> Result<(), TaskStateError> {
         let task_id = ctx.task_id();
-        self.tasks.remove(task_id).is_some()
+        self.tasks
+            .remove(task_id)
+            .ok_or(TaskStateError::TaskNotFound)?;
+        Ok(())
+    }
+
+    /// Remove the token once the task completes, to avoid unbounded growth.
+    #[cfg(not(feature = "task-context"))]
+    pub(super) fn remove_task(&self, _: &()) -> Result<(), WorkerError> {
+        self.tasks.fetch_sub(1, Ordering::SeqCst);
+        Ok(())
     }
 
     /// Extracts the [`TaskContext`] from the [`WorkerContext`]
+    #[cfg(feature = "task-context")]
     pub(crate) fn get_task_context(
         &self,
         ctx: &Arc<ExecutionContext>,
-    ) -> Result<TaskContext, MissingDataError> {
+    ) -> Result<TaskContext, TaskStateError> {
         self.get_task(ctx.task_id().unwrap().to_string().as_str())
     }
 
     /// Get the task context for a task attached to a worker
-    pub fn get_task(&self, task_id: &str) -> Result<TaskContext, MissingDataError> {
-        let tasks = &self.tasks;
-        Ok(tasks
+    #[cfg(feature = "task-context")]
+    pub fn get_task(&self, task_id: &str) -> Result<TaskContext, TaskStateError> {
+        Ok(self
+            .tasks
             .get(task_id)
-            .ok_or(MissingDataError::NotFound("TaskContext".to_owned()))?
+            .ok_or(TaskStateError::TaskNotFound)?
             .clone())
     }
 
     /// Remove any completed tasks
-    pub fn cleanup(&self) {
+    #[cfg(feature = "task-context")]
+    pub fn cleanup(&self) -> Result<(), TaskStateError> {
         let tasks = &self.tasks;
         tasks.retain(|token| !(token.is_completed() && token.is_empty()));
+        Ok(())
     }
 
     /// Get the context of each running task
-    #[must_use]
-    pub fn tasks(&self) -> Vec<TaskContext> {
-        self.tasks.iter().map(|s| s.clone()).collect()
+    #[cfg(feature = "task-context")]
+    pub fn tasks(&self) -> Result<Vec<TaskContext>, TaskStateError> {
+        let tasks = &self.tasks;
+        Ok(tasks.iter().map(|s| s.clone()).collect())
     }
 
     /// Returns the amount of time elapsed since this worker started.
@@ -483,8 +519,12 @@ impl WorkerContext {
                 "Worker is not shutting down".to_owned(),
             )));
         }
+        #[cfg(feature = "task-context")]
         if self.task_count() != 0 {
             self.tasks()
+                .map_err(|e| {
+                    WorkerError::StateError(WorkerStateError::InvalidState(e.to_string()))
+                })?
                 .into_iter()
                 .map(|a| a.cancel())
                 .collect::<Result<Vec<_>, _>>()

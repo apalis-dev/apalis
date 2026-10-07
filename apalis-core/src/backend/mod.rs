@@ -248,8 +248,15 @@ pub trait Reschedule: Backend {
 
 /// Allows cleaning up resources in the backend
 pub trait Vacuum: Backend {
-    /// Cleans up resources and returns the number of items vacuumed
+    /// Cleans up all resources and returns the number of tasks vacuumed
     fn vacuum(&mut self) -> impl Future<Output = Result<usize, Self::Error>> + Send;
+
+    /// Cleans up all resources committed before a specific duration
+    /// and returns the number of tasks vacuumed
+    fn vacuum_before(
+        &mut self,
+        duration: Duration,
+    ) -> impl Future<Output = Result<usize, Self::Error>> + Send;
 }
 
 /// Allows resuming a task by its ID

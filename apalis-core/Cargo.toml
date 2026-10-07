@@ -1,6 +1,6 @@
 [package]
 name = "apalis-core"
-version = "1.0.0-rc.10"
+version = "1.0.0-rc.11"
 authors = ["Njuguna Mureithi <mureithinjuguna@gmail.com>"]
 edition.workspace = true
 repository.workspace = true
@@ -29,13 +29,13 @@ futures-sink = { version = "0.3.34", default-features = false }
 tower-service = "0.3.3"
 tower-layer = "0.3.3"
 pin-project = "1"
-thiserror = "2.0.20"
+thiserror = "2.0.21"
 rand = { version = "0.10", features = ["std"] }
 futures-timer = { version = "3.0.4", optional = true }
 tracing = { version = "0.1.44", default-features = false, optional = true }
 ulid = { version = "3", optional = true, features = ["uuid"]}
-uuid = { version = "1.26.1", features = ["v4", "v5"], optional = true }
-dashmap = { version = "6.2.1", default-features = false }
+uuid = { version = "1.27.0", features = ["v4", "v5"], optional = true }
+dashmap = { version = "6.2.1", default-features = false, optional = true}
 
 
 [dependencies.document-features]
@@ -58,8 +58,10 @@ test-utils = []
 ulid = ["dep:ulid"]
 ## Enable uuid support for task ids
 uuid = ["dep:uuid"]
-# ## Enable the dashmap feature
-# dashmap = ["dep:dashmap"]
+## Enable the shared backend feature
+shared = ["dep:dashmap"]
+## Enable task tracking
+task-context = ["dep:dashmap"]
 
 [package.metadata.docs.rs]
 # defines the configuration attribute `docsrs`
@@ -68,7 +70,7 @@ all-features = true
 
 
 [dev-dependencies]
-tokio = { version = "1.53.1", features = [
+tokio = { version = "1.53.2", features = [
     "macros",
     "rt",
     "sync",

@@ -8,7 +8,7 @@ repository.workspace = true
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
-apalis = { path = "../../apalis", features = ["limit", "catch-panic", "retry"] }
+apalis = { path = "../../apalis", features = ["limit", "catch-panic", "retry", "shared"] }
 apalis-workflow = { path = "../../apalis-workflow" }
 apalis-codec = { path = "../../utils/apalis-codec" }
 serde = { version = "1", features = ["derive"] }

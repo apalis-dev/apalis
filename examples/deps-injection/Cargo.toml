@@ -8,7 +8,7 @@ repository.workspace = true
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
-apalis = { path = "../../apalis", features = ["tracing"] }
+apalis = { path = "../../apalis", features = ["tracing", "task-context"] }
 serde = { version = "1", features = ["derive"] }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 tower = "0.5"

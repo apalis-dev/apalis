@@ -139,7 +139,7 @@ impl SharedJsonStore {
             sender.map(|s| s.unwrap()).filter_map(move |(_, job)| {
                 let queue_config = queue_config.clone();
                 async move {
-                    let queue = job.ctx.get("queue").cloned().unwrap_or_default();
+                    let queue = job.ctx.get("queue").unwrap_or_default();
                     if queue == queue_config {
                         let args = Args::deserialize(&job.args).ok()?;
                         let task = TaskBuilder::new(args)

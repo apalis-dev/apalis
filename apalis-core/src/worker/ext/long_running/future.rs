@@ -7,6 +7,8 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use crate::error::BoxDynError;
+
+#[cfg(feature = "task-context")]
 use crate::task::context::TaskContext;
 
 /// A future that is tracked as a task by a [`TaskRunner`].
@@ -26,6 +28,7 @@ where
     #[cfg(feature = "sleep")]
     pub(super) timeout: Option<futures_timer::Delay>,
     pub(super) max_duration: Option<Duration>,
+    #[cfg(feature = "task-context")]
     pub(super) task: TaskContext,
 }
 
@@ -70,6 +73,7 @@ where
                 return Poll::Ready(Err(error));
             }
         }
+        #[cfg(feature = "task-context")]
         if this.task.is_cancelled() {
             return Poll::Ready(Err(LongRunningError::Cancelled));
         }

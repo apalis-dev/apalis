@@ -8,8 +8,7 @@ async fn main() -> Result<(), BoxDynError> {
     use tracing_subscriber::EnvFilter;
 
     let fmt_layer = tracing_subscriber::fmt::layer().with_target(false);
-    let filter_layer =
-        EnvFilter::try_from_default_env().or_else(|_| EnvFilter::try_new("debug"))?;
+    let filter_layer = EnvFilter::try_from_default_env().or_else(|_| EnvFilter::try_new("info"))?;
     tracing_subscriber::registry()
         .with(filter_layer)
         .with(fmt_layer)
@@ -49,7 +48,7 @@ async fn main() -> Result<(), BoxDynError> {
 
     // info!("Executing workflow:\n{}", graph);
 
-    WorkerBuilder::new("workflow-bench")
+    WorkerBuilder::new("workflow-dynamic")
         .backend(backend)
         .enable_tracing()
         .build(graph)

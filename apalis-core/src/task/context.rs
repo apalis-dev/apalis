@@ -59,8 +59,7 @@ use std::{
 };
 
 use crate::{
-    task::from_request::FromRequest,
-    task::{ExecutionContext, Task, data::MissingDataError},
+    task::{ExecutionContext, Task, from_request::FromRequest},
     worker::context::WorkerContext,
 };
 
@@ -304,9 +303,12 @@ impl Future for WaitForExecutionFuture {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if self.inner.is_executed() {
+            return Poll::Ready(());
+        }
+        self.inner.waker.register(cx.waker());
+        if self.inner.is_executed() {
             Poll::Ready(())
         } else {
-            self.inner.waker.register(cx.waker());
             Poll::Pending
         }
     }
@@ -369,9 +371,12 @@ impl Borrow<str> for TaskContext {
 }
 
 impl<Args: Sync> FromRequest<Task<Args>> for TaskContext {
-    type Error = MissingDataError;
+    type Error = TaskStateError;
     async fn from_request(task: &Task<Args>) -> Result<Self, Self::Error> {
-        let worker: &WorkerContext = task.data().get_checked()?;
+        let worker: &WorkerContext = task
+            .data()
+            .get_checked()
+            .map_err(|_| TaskStateError::TaskNotFound)?;
         let token = worker.get_task_context(&task.ctx)?;
         Ok(token)
     }

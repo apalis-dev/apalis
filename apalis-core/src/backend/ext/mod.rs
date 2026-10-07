@@ -32,7 +32,6 @@ use crate::{
             map_err::MapErr,
             pipe::Pipe,
             poll_strategy::{PollStrategy, PollWith, StreamStrategy},
-            shared::Shared,
             wake_on_push::WakeOnPush,
             with_codec::WithCodec,
         },
@@ -41,6 +40,9 @@ use crate::{
     task::Task,
     worker::context::WorkerContext,
 };
+
+#[cfg(feature = "shared")]
+use crate::backend::ext::shared::Shared;
 
 #[cfg(feature = "sleep")]
 use crate::backend::ext::poll_strategy::{BackoffConfig, BackoffStrategy, IntervalStrategy};
@@ -67,6 +69,7 @@ pub mod with_codec;
 pub mod lifecycle;
 
 /// A wrapper that makes a backend clonable
+#[cfg(feature = "shared")]
 pub mod shared;
 
 /// A wrapper that allows a backend to be used as a stream of tasks, without needing to know the concrete backend type at compile time.
@@ -259,6 +262,7 @@ pub trait BackendExt: Backend {
     }
 
     /// Create a cloneable handle to the inner backend where all handles are clone.
+    #[cfg(feature = "shared")]
     fn shared(self) -> Shared<Self>
     where
         Self: WireFormatBackend + Send,

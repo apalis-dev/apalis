@@ -364,10 +364,10 @@ impl Monitor {
     /// # async fn example() {
     /// let monitor = Monitor::new();
     /// monitor
-    /// .register(|_| {
+    /// .register(|restarts| {
     ///     WorkerBuilder::new("example-worker")
     ///         .backend(MemoryStorage::new())
-    ///         .build(|_: u32| async {})
+    ///         .build(|args: u32| async {})
     /// })
     /// .run()
     /// .await;
@@ -405,6 +405,7 @@ impl Monitor {
         let (fut, worker) = {
             let mut w = factory(0);
             let ctx = &mut w.context;
+            ctx.bind_service::<M::Service>();
             ctx.add_listener(move |ctx, ev| {
                 let handlers = handler.read();
                 if let Ok(handlers) = handlers {
@@ -439,6 +440,60 @@ impl Monitor {
             should_restart: self.should_restart.clone(),
         };
         self.workers.push(worker);
+        self
+    }
+
+    /// Registers N workers into the monitor registry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use apalis_core::monitor::Monitor;
+    /// # use apalis_core::backend::memory::MemoryStorage;
+    /// # use apalis_core::worker::builder::WorkerBuilder;
+    /// # async fn example() {
+    /// let monitor = Monitor::new();
+    /// monitor
+    /// .register_n(5, |index, restarts| {
+    ///     WorkerBuilder::new("example-worker")
+    ///         .backend(MemoryStorage::new())
+    ///         .build(|_: u32| async {})
+    /// })
+    /// .run()
+    /// .await;
+    /// # }
+    /// ```
+    pub fn register_n<Args, S, FB, M>(
+        mut self,
+        count: usize,
+        factory: impl Fn(usize, usize) -> Worker<Args, FB, S, M> + 'static + Send + Sync,
+    ) -> Self
+    where
+        FB: BackendConfig + Backend<Task = Task<FB::Args>> + Send + Unpin + 'static,
+        S: Service<Task<FB::Args>> + Send + 'static,
+        FB::Args: Send + 'static,
+        Args: Send + 'static,
+        FB::Error: Into<BoxDynError> + Send + 'static,
+        M: Layer<LifecycleService<S>> + 'static,
+        FB::Layer: Layer<<M as Layer<LifecycleService<S>>>::Service>,
+        <FB::Layer as Layer<<M as Layer<LifecycleService<S>>>::Service>>::Service:
+            Service<Task<FB::Args>>,
+        <FB::Layer as Layer<<M as Layer<LifecycleService<S>>>::Service>>::Service: Send + 'static,
+        <<FB::Layer as Layer<<M as Layer<LifecycleService<S>>>::Service>>::Service as Service<
+            Task<<FB as BackendConfig>::Args>,
+        >>::Future: Send,
+        <<FB::Layer as Layer<<M as Layer<LifecycleService<S>>>::Service>>::Service as Service<
+            Task<<FB as BackendConfig>::Args>,
+        >>::Error: Into<BoxDynError> + Send + Sync + 'static,
+        <<FB::Layer as Layer<<M as Layer<LifecycleService<S>>>::Service>>::Service as Service<
+            Task<<FB as BackendConfig>::Args>,
+        >>::Response: Send + Sync + 'static,
+    {
+        let factory = Arc::new(factory);
+        for index in 0..count {
+            let f = factory.clone();
+            self = self.register(move |id| f(index, id));
+        }
         self
     }
 

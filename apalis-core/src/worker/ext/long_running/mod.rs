@@ -67,11 +67,13 @@ use futures_util::{FutureExt, StreamExt, stream::FuturesUnordered};
 use tower_layer::{Layer, Stack};
 use tower_service::Service;
 
+#[cfg(feature = "task-context")]
+use crate::task::context::TaskContext;
+
 use crate::{
     backend::Backend,
     error::BoxDynError,
-    task::from_request::FromRequest,
-    task::{Task, context::TaskContext, data::MissingDataError},
+    task::{Task, from_request::FromRequest},
     worker::{
         builder::WorkerBuilder,
         ext::long_running::future::{LongRunningError, LongRunningFuture},
@@ -112,6 +114,7 @@ impl LongRunningConfig {
 #[must_use = "A runner must collect its results and use them"]
 #[derive(Debug)]
 pub struct TaskRunner<Res> {
+    #[cfg(feature = "task-context")]
     task: TaskContext,
     config: LongRunningConfig,
     results: FuturesUnordered<BoxFuture<'static, Result<Res, LongRunningError>>>,
@@ -126,6 +129,7 @@ impl<T: Send + 'static> TaskRunner<T> {
     {
         let fut = LongRunningFuture {
             future,
+            #[cfg(feature = "task-context")]
             task: self.task.clone(),
             #[cfg(feature = "sleep")]
             timeout: self.config.max_duration.map(futures_timer::Delay::new),
@@ -152,15 +156,19 @@ impl<T> Stream for TaskRunner<T> {
 }
 
 impl<Args: Sync, Res> FromRequest<Task<Args>> for TaskRunner<Res> {
-    type Error = MissingDataError;
+    type Error = LongRunningError;
     async fn from_request(task: &Task<Args>) -> Result<Self, Self::Error> {
         let config = task
             .data()
             .get_checked::<LongRunningConfig>()
             .cloned()
             .expect("LongRunningConfig should be present in ExecutionContext");
-        let task: TaskContext = TaskContext::from_request(task).await?;
+        #[cfg(feature = "task-context")]
+        let task: TaskContext = TaskContext::from_request(task)
+            .await
+            .map_err(|e| LongRunningError::Execution(e.into()))?;
         Ok(Self {
+            #[cfg(feature = "task-context")]
             task,
             config,
             results: FuturesUnordered::default(),
@@ -296,11 +304,11 @@ mod tests {
             worker: WorkerContext,
         ) -> Result<u32, BoxDynError> {
             handle.execute(tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                tokio::time::sleep(Duration::from_secs(10)).await;
                 task * 2
             }));
             handle.execute(tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                tokio::time::sleep(Duration::from_secs(10)).await;
                 task * 5
             }));
 

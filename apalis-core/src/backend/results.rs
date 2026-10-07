@@ -47,16 +47,16 @@ pub trait WaitForCompletion<Output>: Backend {
     type ResultStream: Stream<Item = Result<TaskResult<Output>, Self::Error>> + Send + 'static;
 
     /// Wait for multiple tasks to complete, yielding results as they become available
-    fn wait_for(&self, task_ids: impl IntoIterator<Item = TaskId>) -> Self::ResultStream;
+    fn wait_for(&mut self, task_ids: impl IntoIterator<Item = TaskId>) -> Self::ResultStream;
 
     /// Wait for a single task to complete, yielding its result
-    fn wait_for_single(&self, task_id: TaskId) -> Self::ResultStream {
+    fn wait_for_single(&mut self, task_id: TaskId) -> Self::ResultStream {
         self.wait_for(std::iter::once(task_id))
     }
 
     /// Check current status of tasks without waiting
     fn check_status(
-        &self,
+        &mut self,
         task_ids: impl IntoIterator<Item = TaskId> + Send,
     ) -> impl Future<Output = Result<Vec<TaskResult<Output>>, Self::Error>> + Send;
 }

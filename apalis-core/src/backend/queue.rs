@@ -102,7 +102,7 @@ impl Metadata for Queue {
     fn extract(store: &MetadataStore) -> Result<Self, Self::Error> {
         store
             .get("queue")
-            .map(|s| Self::from(s.as_str()))
+            .map(Self::from)
             .ok_or(QueueError::NotFound)
     }
 

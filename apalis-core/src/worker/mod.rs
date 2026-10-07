@@ -410,12 +410,10 @@ mod tests {
         time::Duration,
     };
 
-    use futures_channel::mpsc::SendError;
-    use futures_core::future::BoxFuture;
-
+    use super::*;
     use crate::{
         backend::{TaskSink, memory::MemoryStorage},
-        task::{ExecutionContext, context::TaskContext},
+        task::ExecutionContext,
         worker::{
             builder::WorkerBuilder,
             ext::{
@@ -426,8 +424,11 @@ mod tests {
             },
         },
     };
+    use futures_channel::mpsc::SendError;
+    use futures_core::future::BoxFuture;
 
-    use super::*;
+    #[cfg(feature = "task-context")]
+    use crate::task::context::TaskContext;
 
     const ITEMS: u32 = 100;
 
@@ -452,8 +453,9 @@ mod tests {
             task: u32,
             worker: WorkerContext,
             count: Data<Count>,
-            ctx: TaskContext,
+            #[cfg(feature = "task-context")] ctx: TaskContext,
         ) -> Result<(), BoxDynError> {
+            #[cfg(feature = "task-context")]
             tokio::spawn(ctx.run_until_executed(async {
                 tokio::time::sleep(Duration::from_secs(3)).await;
                 // Because the task stops after 2 seconds
@@ -465,6 +467,8 @@ mod tests {
                 worker.stop().unwrap();
                 return Err("Worker stopped!")?;
             }
+
+            #[cfg(feature = "task-context")]
 
             println!("Elapsed: {:?}", ctx.elapsed());
             Ok(())

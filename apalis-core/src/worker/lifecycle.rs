@@ -22,11 +22,13 @@ use crate::{
     task::{
         Task,
         attempt::Attempt,
-        context::{TaskContext, TaskStateError},
         status::{AtomicStatus, Status},
     },
     worker::context::WorkerContext,
 };
+
+#[cfg(feature = "task-context")]
+use crate::task::context::{TaskContext, TaskStateError};
 
 /// A layer that tracks the lifecycle of tasks processed by a worker.
 ///
@@ -95,6 +97,7 @@ where
     fn call(&mut self, task: Task<Args>) -> Self::Future {
         let attempt = task.raw_attempt().clone();
         let status = task.raw_status().clone();
+        #[allow(unused, clippy::let_unit_value)]
         let task_ctx = self
             .worker
             .register_task(task.ctx())
@@ -103,7 +106,10 @@ where
         LifecycleFuture {
             fut: self.service.call(task),
             worker: self.worker.clone(),
+            #[cfg(feature = "task-context")]
             task_ctx,
+            #[cfg(not(feature = "task-context"))]
+            task_ctx: (),
             record_attempt: Some(attempt),
             task_status: status,
         }
@@ -119,7 +125,10 @@ where
 pub struct LifecycleFuture<Fut> {
     #[pin]
     fut: Fut,
+    #[cfg(feature = "task-context")]
     task_ctx: TaskContext,
+    #[cfg(not(feature = "task-context"))]
+    task_ctx: (),
     worker: WorkerContext,
     record_attempt: Option<Attempt>,
     task_status: AtomicStatus,
@@ -146,6 +155,7 @@ pub enum TaskLifecycleError {
     #[error("task already has a token")]
     Duplicate,
 
+    #[cfg(feature = "task-context")]
     /// The task exited after it was manually canceled.
     ///
     /// Contains the [`TaskContext`] associated with the task at the time it
@@ -153,6 +163,7 @@ pub enum TaskLifecycleError {
     #[error("task exited after manually being canceled")]
     Exit(TaskContext),
 
+    #[cfg(feature = "task-context")]
     /// The task is in an invalid state for the requested lifecycle operation.
     ///
     /// Contains the underlying [`TaskStateError`] describing the invalid
@@ -171,14 +182,17 @@ where
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
         if let Some(attempt) = this.record_attempt.take() {
-            let _ = attempt.increment();
+            let current = attempt.increment();
             this.task_status.store(Status::Running);
+            trace!("task started with prev attempts: {}", current);
         }
-        let task_context = this.task_ctx;
-        if task_context.is_cancelled() {
+
+        #[cfg(feature = "task-context")]
+        if this.task_ctx.is_cancelled() {
+            trace!("task.cancelled");
             this.task_status.store(Status::Killed);
             return Poll::Ready(Err(Box::new(AbortError::new(TaskLifecycleError::Exit(
-                task_context.clone(),
+                this.task_ctx.clone(),
             )))));
         }
 
@@ -198,7 +212,8 @@ where
                     },
                 };
 
-                if let Err(e) = task_context.complete() {
+                #[cfg(feature = "task-context")]
+                if let Err(e) = this.task_ctx.complete() {
                     this.task_status.store(Status::Killed);
                     return Poll::Ready(Err(e.into()));
                 }
@@ -213,7 +228,7 @@ where
 impl<Fut> PinnedDrop for LifecycleFuture<Fut> {
     fn drop(self: Pin<&mut Self>) {
         let this = self.project();
-        if !this.worker.remove_task(this.task_ctx) {
+        if this.worker.remove_task(this.task_ctx).is_err() {
             warn!("Dropped a task without removing it from the worker's context");
         }
         if this.worker.task_count() == 0 {

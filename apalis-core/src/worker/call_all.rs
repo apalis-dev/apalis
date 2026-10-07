@@ -43,9 +43,9 @@ impl<Svc, B> Stream for CallAllUnordered<Svc, B>
 where
     Svc: Service<B::Task>,
     B: Backend + Unpin,
-    B::Error: Into<BoxDynError> + Send + 'static,
+    B::Error: Sync + Send + 'static,
 {
-    type Item = Result<Option<Svc::Response>, CallAllError<Svc::Error>>;
+    type Item = Result<Option<Svc::Response>, CallAllError<B::Error, Svc::Error>>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.project().inner.poll_next(cx)
@@ -55,16 +55,13 @@ where
 /// Error type that combines backend errors and service errors
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum CallAllError<ServiceError> {
+pub enum CallAllError<PollError, ServiceError> {
     /// Error originating from `Backend::poll_ready` or `Backend::poll`
-    #[error("Backend error: {0}")]
-    PollError(BoxDynError),
+    #[error("Backend Poll error: {0}")]
+    PollError(PollError),
     /// Error originating from the service
     #[error("Service error: {0}")]
     ServiceError(ServiceError),
-    /// Error originating from the decoding of the task
-    #[error("Task decoding error: {0}")]
-    CodecError(BoxDynError),
 }
 
 impl<F: Future> Drive<F> for FuturesUnordered<F> {
@@ -145,7 +142,7 @@ where
     Q: Drive<Svc::Future>,
     B::Error: Into<BoxDynError> + Send + 'static,
 {
-    type Item = Result<Option<Svc::Response>, CallAllError<Svc::Error>>;
+    type Item = Result<Option<Svc::Response>, CallAllError<B::Error, Svc::Error>>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
@@ -169,9 +166,7 @@ where
                 }
                 return match this.backend.as_mut().get_mut().poll_close(cx, this.worker) {
                     Poll::Pending => Poll::Pending,
-                    Poll::Ready(Err(e)) => {
-                        Poll::Ready(Some(Err(CallAllError::PollError(e.into()))))
-                    }
+                    Poll::Ready(Err(e)) => Poll::Ready(Some(Err(CallAllError::PollError(e)))),
                     Poll::Ready(Ok(())) => Poll::Ready(None),
                 };
             }
@@ -186,7 +181,7 @@ where
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(Err(e)) => {
                     *this.eof = true;
-                    return Poll::Ready(Some(Err(CallAllError::PollError(e.into()))));
+                    return Poll::Ready(Some(Err(CallAllError::PollError(e))));
                 }
                 Poll::Ready(Ok(())) => {}
             }
@@ -206,7 +201,7 @@ where
                         *this.curr_req = Some(next_req);
                     }
                     Some(Err(e)) => {
-                        return Poll::Ready(Some(Err(CallAllError::PollError(e.into()))));
+                        return Poll::Ready(Some(Err(CallAllError::PollError(e))));
                     }
                     None => {
                         *this.eof = true;

@@ -37,7 +37,7 @@
 //! be found or when the requested operation fails. Task cancellation may
 //! return a boxed error containing the underlying worker or task error.
 use crate::{
-    error::{BoxDynError, WorkerError, WorkerStateError},
+    error::{WorkerError, WorkerStateError},
     monitor::{MonitorError, shutdown::Shutdown},
     worker::context::WorkerContext,
 };
@@ -124,7 +124,12 @@ impl MonitorContext {
     }
 
     /// Attempt to cancel a task
-    pub fn cancel_task(&self, worker: &str, task_id: &str) -> Result<(), BoxDynError> {
+    #[cfg(feature = "task-context")]
+    pub fn cancel_task(
+        &self,
+        worker: &str,
+        task_id: &str,
+    ) -> Result<(), crate::error::BoxDynError> {
         let worker = self.get_worker(worker)?;
         let context = worker.get_task(task_id)?;
         worker.cancel_task(&context)?;

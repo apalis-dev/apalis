@@ -89,8 +89,8 @@ async fn main() -> Result<()> {
                 .enable_tracing()
                 .build(email_service)
         })
-        .register(move |_restarts| {
-            WorkerBuilder::new("tasty-pear")
+        .register_n(5, move |index, _restarts| {
+            WorkerBuilder::new(format!("tasty-pear-{index}"))
                 .backend(pear_backend.clone())
                 .layer(TraceLayer::new().make_span_with(ContextualTaskSpan::new()))
                 .build(email_service)
