@@ -7,7 +7,7 @@ use futures_sink::Sink;
 use futures_util::SinkExt;
 use futures_util::TryStreamExt;
 
-use crate::{backend::*, worker::context::WorkerContext};
+use crate::{backend::*, task::Task, worker::context::WorkerContext};
 
 /// A `Backend` wrapper that runs a callback `F` on each error yielded by the poll stream.
 #[derive(Debug, Clone)]

@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- *bump*: to v1.0.0-rc.12 ([#791](https://github.com/apalis-dev/apalis/pull/791))
 - *bump*: to v1.0.0-rc.11 ([#790](https://github.com/apalis-dev/apalis/pull/790))
 - **fix(core)**: wake idle workers when monitor shutdown starts ([#777](https://github.com/apalis-dev/apalis/pull/777))
 - *bump*: to v1.0.0-rc.10 ([#775](https://github.com/apalis-dev/apalis/pull/775))

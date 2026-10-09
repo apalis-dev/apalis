@@ -1,6 +1,6 @@
 [package]
 name = "apalis-core"
-version = "1.0.0-rc.11"
+version = "1.0.0-rc.12"
 authors = ["Njuguna Mureithi <mureithinjuguna@gmail.com>"]
 edition.workspace = true
 repository.workspace = true
