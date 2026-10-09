@@ -215,7 +215,7 @@ impl<Args, B, M> WorkerBuilder<Args, B, M> {
     where
         W: IntoWorkerService<B, Svc, Backend = NB>,
         B: Backend + BackendConfig,
-        NB: Backend + BackendConfig + Send + Unpin + 'static,
+        NB: Backend + BackendConfig + Send + Unpin,
         Svc: Service<NB::Task>,
         Args: Send + 'static,
     {

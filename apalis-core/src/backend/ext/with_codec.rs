@@ -9,7 +9,7 @@ use std::{
 use futures_sink::Sink;
 use futures_util::SinkExt;
 
-use crate::{backend::*, worker::context::WorkerContext};
+use crate::{backend::*, task::Task, worker::context::WorkerContext};
 
 /// A `Backend` wrapper that swaps out the serialization codec entirely (JSON,
 /// MessagePack, Protobuf, ...) without touching storage logic.
@@ -94,9 +94,9 @@ delegate_config!(WithCodec<B, NewCodec>, backend);
 delegate_expose!(
     impl<B, C> for WithCodec<B, C>
     where {
-        B: Send + Sync + Backend,
+        B: Send + Sync + Backend + BackendConfig + WireFormatBackend,
         C: Send + Sync + 'static,
-
+        C: Codec<B::Args, Compact = B::Compact> + Send + 'static,
     }
     => backend
 );
