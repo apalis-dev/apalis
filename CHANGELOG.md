@@ -5,6 +5,7 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 
 - ci(deps): bump actions/checkout from 6 to 7 ([#753](https://github.com/apalis-dev/apalis/pull/753))
+- ci(deps): bump actions/checkout from 6 to 7 ([#753](https://github.com/apalis-dev/apalis/pull/753))
 - *bump*: to v1.0.0-rc.11 ([#790](https://github.com/apalis-dev/apalis/pull/790))
 - **fix(core)**: wake idle workers when monitor shutdown starts ([#777](https://github.com/apalis-dev/apalis/pull/777))
 - *bump*: to v1.0.0-rc.10 ([#775](https://github.com/apalis-dev/apalis/pull/775))
