@@ -14,6 +14,7 @@ use crate::{
         ext::poll_strategy::{PollMetrics, PollStrategy},
         *,
     },
+    task::Task,
     worker::context::WorkerContext,
 };
 

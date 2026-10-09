@@ -1,6 +1,6 @@
 [package]
 name = "apalis"
-version = "1.0.0-rc.11"
+version = "1.0.0-rc.12"
 authors = ["Geoffrey Mureithi <mureithinjuguna@gmail.com>"]
 description = "Simple, extensible and multithreaded background task processing for Rust"
 edition.workspace = true
@@ -78,7 +78,7 @@ full = [
 docsrs = ["document-features"]
 
 [dependencies.apalis-core]
-version = "1.0.0-rc.11"
+version = "1.0.0-rc.12"
 default-features = false
 path = "../apalis-core"
 
@@ -110,7 +110,7 @@ version = "0.1.44"
 optional = true
 
 [dev-dependencies]
-apalis-core = { path = "../apalis-core", version = "1.0.0-rc.11" }
+apalis-core = { path = "../apalis-core", version = "1.0.0-rc.12" }
 serde = "1"
 tokio = { version = "1", features = ["full"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = [

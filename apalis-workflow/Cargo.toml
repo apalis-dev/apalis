@@ -1,6 +1,6 @@
 [package]
 name = "apalis-workflow"
-version = "0.1.0-rc.11"
+version = "0.1.0-rc.12"
 edition.workspace = true
 repository.workspace = true
 authors = ["Njuguna Mureithi <mureithinjuguna@gmail.com>"]
@@ -18,12 +18,12 @@ petgraph = { version = "0.8.3", features = ["serde-1"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 tower = { version = "0.5", features = ["util"], default-features = false }
-apalis-core = { path = "../apalis-core", version = "1.0.0-rc.11", default-features = false, features = [
+apalis-core = { path = "../apalis-core", version = "1.0.0-rc.12", default-features = false, features = [
     "sleep",
     "serde",
     "shared"
 ] }
-apalis-codec = { path = "../utils/apalis-codec", version = "0.1.0-rc.11" }
+apalis-codec = { path = "../utils/apalis-codec", version = "0.1.0-rc.12" }
 futures-util = { version = "0.3.34", features = [
     "sink",
     "async-await",

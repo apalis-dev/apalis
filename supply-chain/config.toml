@@ -66,15 +66,15 @@ version = "1.0.104"
 criteria = "safe-to-deploy"
 
 [[exemptions.apalis]]
-version = "1.0.0-rc.11"
+version = "1.0.0-rc.12"
 criteria = "safe-to-deploy"
 
 [[exemptions.apalis-core]]
-version = "1.0.0-rc.11"
+version = "1.0.0-rc.12"
 criteria = "safe-to-deploy"
 
 [[exemptions.apalis-workflow]]
-version = "0.1.0-rc.11"
+version = "0.1.0-rc.12"
 criteria = "safe-to-deploy"
 
 [[exemptions.atomic-waker]]
@@ -694,15 +694,15 @@ version = "0.9.117"
 criteria = "safe-to-deploy"
 
 [[exemptions.opentelemetry]]
-version = "0.33.0"
+version = "0.33.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.opentelemetry-prometheus]]
-version = "0.33.0"
+version = "0.33.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.opentelemetry_sdk]]
-version = "0.33.0"
+version = "0.33.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.os_info]]
@@ -1090,7 +1090,7 @@ version = "0.26.6"
 criteria = "safe-to-deploy"
 
 [[exemptions.tokio-util]]
-version = "0.7.19"
+version = "0.7.20"
 criteria = "safe-to-deploy"
 
 [[exemptions.tower]]
@@ -1334,11 +1334,11 @@ version = "0.8.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.zerocopy]]
-version = "0.8.61"
+version = "0.8.62"
 criteria = "safe-to-deploy"
 
 [[exemptions.zerocopy-derive]]
-version = "0.8.61"
+version = "0.8.62"
 criteria = "safe-to-deploy"
 
 [[exemptions.zerofrom]]

@@ -182,7 +182,7 @@ impl<Args, B, Svc, M> Worker<Args, B, Svc, M> {
 
 impl<Args, S, M, FB> Worker<Args, FB, S, M>
 where
-    FB: BackendConfig + Backend<Task = Task<FB::Args>> + Send + Unpin + 'static,
+    FB: BackendConfig + Backend<Task = Task<FB::Args>> + Send + Unpin,
     S: Service<Task<FB::Args>> + Send + 'static,
     FB::Args: Send + 'static,
     Args: Send + 'static,

@@ -7,7 +7,7 @@ use futures_sink::Sink;
 use futures_util::SinkExt;
 use futures_util::TryStreamExt;
 
-use crate::{backend::*, worker::context::WorkerContext};
+use crate::{backend::*, task::Task, worker::context::WorkerContext};
 
 /// A `Backend` wrapper that maps the backend's error type `Self::Error` into `E2`.
 #[derive(Debug, Clone)]
