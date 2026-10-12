@@ -317,5 +317,100 @@ macro_rules! delegate_expose {
                 $wrap_body
             }
         }
+
+        impl<$($lt,)* $($generic),+> ListQueues for $wrapper
+        where
+            B: ListQueues + Send + Sync,
+            $($bound)+
+        {
+            async fn list_queues(
+                &self,
+            ) -> Result<Vec<QueueInfo>, Self::Error> {
+                let $result = self.$field.list_queues().await;
+                 #[allow(unused_variables)]
+                let $this = &*self;
+                $wrap_body
+            }
+        }
+
+        impl<$($lt,)* $($generic),+> ListWorkers for $wrapper
+        where
+            B: ListWorkers + Send + Sync,
+            $($bound)+
+        {
+            async fn list_workers(
+                &self,
+            ) -> Result<Vec<RunningWorker>, Self::Error> {
+                let $result = self.$field.list_workers().await;
+                #[allow(unused_variables)]
+                let $this = &*self;
+                $wrap_body
+            }
+
+            async fn list_all_workers(
+                &self,
+            ) -> Result<Vec<RunningWorker>, Self::Error> {
+                let $result = self.$field.list_all_workers().await;
+                #[allow(unused_variables)]
+                let $this = &*self;
+                $wrap_body
+            }
+        }
+
+        impl<$($lt,)* $($generic),+> ListTasks for $wrapper
+        where
+            B: ListTasks + Send + Sync,
+            $($bound)+
+        {
+            async fn list_tasks(
+                &self,
+                filter: &Filter,
+            ) -> Result<Vec<Task<Self::Compact>>, Self::Error> {
+                let $result = self.$field.list_tasks(filter).await;
+                #[allow(unused_variables)]
+                let $this = &*self;
+                $wrap_body
+            }
+        }
+
+        impl<$($lt,)* $($generic),+> ListAllTasks for $wrapper
+        where
+            B: ListAllTasks + Send + Sync,
+            $($bound)+
+        {
+            async fn list_all_tasks(
+                &self,
+                filter: &Filter,
+            ) -> Result<Vec<Task<Self::Compact>>, Self::Error> {
+                let $result = self.$field.list_all_tasks(filter).await;
+                #[allow(unused_variables)]
+                let $this = &*self;
+                $wrap_body
+            }
+        }
+
+        impl<$($lt,)* $($generic),+> Metrics for $wrapper
+        where
+            B: Metrics + Send + Sync,
+            $($bound)+
+        {
+            async fn global(
+                &self,
+            ) -> Result<Vec<Statistic>, Self::Error> {
+                let $result = self.$field.global().await;
+                #[allow(unused_variables)]
+                let $this = &*self;
+                $wrap_body
+            }
+
+            async fn fetch_by_queue(
+                &self,
+            ) -> Result<Vec<Statistic>, Self::Error> {
+                let $result = self.$field.fetch_by_queue().await;
+                #[allow(unused_variables)]
+                let $this = &*self;
+                $wrap_body
+            }
+        }
     };
 }

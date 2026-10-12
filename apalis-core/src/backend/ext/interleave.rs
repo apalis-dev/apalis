@@ -7,7 +7,7 @@ use futures_core::Stream;
 use futures_sink::Sink;
 use futures_util::SinkExt;
 
-use crate::{backend::*, worker::context::WorkerContext};
+use crate::{backend::*, task::Task, worker::context::WorkerContext};
 
 /// A `Backend` wrapper that interleaves tasks from an external/shared `Stream`
 /// with tasks produced by the wrapped backend.

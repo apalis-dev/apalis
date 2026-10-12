@@ -5,7 +5,7 @@ use std::task::{Context, Poll};
 
 use tracing::Span;
 
-use crate::{backend::*, worker::context::WorkerContext};
+use crate::{backend::*, task::Task, worker::context::WorkerContext};
 
 /// Instruments the inner [Backend] with the provided `Span`, returning an
 /// `Instrumented` wrapper.

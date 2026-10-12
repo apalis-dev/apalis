@@ -38,6 +38,7 @@ async fn send_email(
     ctx: TaskContext,
 ) -> Result<(), Error> {
     let address = email.to.clone();
+    let c = ctx.clone();
 
     // Fast path: avoid the expensive validation request when the address
     // is already known to be valid.
@@ -67,6 +68,8 @@ async fn send_email(
         .instrument(Span::current()),
     );
 
+    c.cancel().unwrap();
+
     Ok(())
 }
 
@@ -89,7 +92,7 @@ async fn main() -> Result<(), BoxDynError> {
     produce_jobs(&mut backend).await;
 
     WorkerBuilder::new("email-sender")
-        .backend(backend)
+        .backend(&mut backend)
         // Spawn each tasks future via tokio::spawn
         .parallelize(tokio::spawn)
         // Process several emails concurrently.

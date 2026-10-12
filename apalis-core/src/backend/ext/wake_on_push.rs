@@ -6,7 +6,7 @@ use std::{
 use futures_sink::Sink;
 use futures_util::SinkExt;
 
-use crate::{backend::*, worker::context::WorkerContext};
+use crate::{backend::*, task::Task, worker::context::WorkerContext};
 
 /// A backend wrapper that wakes the worker when a task is pushed.
 ///

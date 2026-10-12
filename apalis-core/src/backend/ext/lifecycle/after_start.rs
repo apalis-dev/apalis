@@ -17,6 +17,7 @@ use crate::{
         future::BoxSyncFuture,
         *,
     },
+    task::Task,
     worker::context::WorkerContext,
 };
 

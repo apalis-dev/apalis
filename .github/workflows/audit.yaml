@@ -1,21 +1,20 @@
 name: Security audit
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: "0 0 * * *"
   push:
     branches: [main, develop]
-    paths: 
-      - '**/Cargo.toml'
-      - '**/Cargo.lock'
-      - '**/deny.toml'
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "**/deny.toml"
 
   pull_request:
-    paths: 
-      - '**/Cargo.toml'
-      - '**/Cargo.lock'
-      - '**/deny.toml'
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "**/deny.toml"
   workflow_call:
-    
 
 jobs:
   cargo-audit:
@@ -29,30 +28,36 @@ jobs:
           key: cargo-audit-${{ runner.os }}
       - run: cargo install cargo-audit --locked --force
       - run: cargo audit --ignore RUSTSEC-2024-0436 #(used in ratatui)
-          
+
   cargo-vet:
     runs-on: ubuntu-latest
     env:
       CARGO_VET_VERSION: 0.10.1
     steps:
-    - uses: actions/checkout@master
-    - name: Install Rust
-      run: rustup update stable && rustup default stable
-    - uses: actions/cache@v6
-      with:
-        path: ${{ runner.tool_cache }}/cargo-vet
-        key: cargo-vet-bin-${{ env.CARGO_VET_VERSION }}
-    - name: Add the tool cache directory to the search path
-      run: echo "${{ runner.tool_cache }}/cargo-vet/bin" >> $GITHUB_PATH
-    - name: Ensure that the tool cache is populated with the cargo-vet binary
-      run: cargo install --root ${{ runner.tool_cache }}/cargo-vet --version ${{ env.CARGO_VET_VERSION }} cargo-vet
-    - name: Generate Lockfile
-      run: cargo generate-lockfile
-    - name: Invoke cargo-vet
-      run: cargo vet --locked
+      - uses: actions/checkout@master
+      - name: Install Rust
+        run: rustup update stable && rustup default stable
+      - uses: actions/cache@v6
+        with:
+          path: ${{ runner.tool_cache }}/cargo-vet
+          key: cargo-vet-bin-${{ env.CARGO_VET_VERSION }}
+      - name: Add the tool cache directory to the search path
+        run: echo "${{ runner.tool_cache }}/cargo-vet/bin" >> $GITHUB_PATH
+      - name: Ensure that the tool cache is populated with the cargo-vet binary
+        run: cargo install --root ${{ runner.tool_cache }}/cargo-vet --version ${{ env.CARGO_VET_VERSION }} cargo-vet
+      - name: Generate Lockfile
+        run: cargo generate-lockfile
+      - name: Invoke cargo-vet
+        run: cargo vet --locked
 
   cargo-deny:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
-    - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: actions/checkout@master
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/cargo-deny
+          key: cargo-deny-${{ runner.os }}
+      - run: cargo install cargo-deny --locked
+      - run: cargo deny check
