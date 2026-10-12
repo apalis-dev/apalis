@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ## [1.0.0](https://github.com/apalis-dev/apalis/releases/tag/v1.0.0)
 
+- *bump*: to v1.0.0 ([#792](https://github.com/apalis-dev/apalis/pull/792))
+
 ### Upgrading to v1.0
 
 Migrating from 0.7.x to 1.0.0 Start with the renames, then check the sections that match what you use.
