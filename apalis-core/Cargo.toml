@@ -1,6 +1,6 @@
 [package]
 name = "apalis-core"
-version = "1.0.0-rc.12"
+version = "1.0.0"
 authors = ["Njuguna Mureithi <mureithinjuguna@gmail.com>"]
 edition.workspace = true
 repository.workspace = true
@@ -34,7 +34,7 @@ rand = { version = "0.10", features = ["std"] }
 futures-timer = { version = "3.0.4", optional = true }
 tracing = { version = "0.1.44", default-features = false, optional = true }
 ulid = { version = "3", optional = true, features = ["uuid"]}
-uuid = { version = "1.27.0", features = ["v4", "v5"], optional = true }
+uuid = { version = "1.28.0", features = ["v4", "v5"], optional = true }
 dashmap = { version = "6.2.1", default-features = false, optional = true}
 
 

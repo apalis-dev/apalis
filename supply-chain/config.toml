@@ -18,7 +18,7 @@ version = "0.5.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.actix-http]]
-version = "3.18.12"
+version = "3.18.13"
 criteria = "safe-to-deploy"
 
 [[exemptions.actix-router]]
@@ -66,11 +66,11 @@ version = "1.0.104"
 criteria = "safe-to-deploy"
 
 [[exemptions.apalis]]
-version = "1.0.0-rc.12"
+version = "1.0.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.apalis-core]]
-version = "1.0.0-rc.12"
+version = "1.0.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.apalis-workflow]]
@@ -154,7 +154,7 @@ version = "1.5.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.cc]]
-version = "1.6.0"
+version = "1.8.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.cfg-if]]
@@ -486,7 +486,7 @@ version = "1.2.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.impl-more]]
-version = "0.3.8"
+version = "0.3.10"
 criteria = "safe-to-deploy"
 
 [[exemptions.indexmap]]
@@ -970,7 +970,7 @@ version = "1.0.229"
 criteria = "safe-to-deploy"
 
 [[exemptions.serde_json]]
-version = "1.0.151"
+version = "1.0.154"
 criteria = "safe-to-deploy"
 
 [[exemptions.serde_path_to_error]]
@@ -1010,7 +1010,7 @@ version = "0.4.12"
 criteria = "safe-to-deploy"
 
 [[exemptions.smallvec]]
-version = "1.16.2"
+version = "1.16.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.socket2]]
@@ -1030,7 +1030,7 @@ version = "2.0.119"
 criteria = "safe-to-deploy"
 
 [[exemptions.syn]]
-version = "3.0.6"
+version = "3.0.8"
 criteria = "safe-to-deploy"
 
 [[exemptions.sync_wrapper]]
@@ -1150,7 +1150,7 @@ version = "0.1.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.unicode-ident]]
-version = "1.0.26"
+version = "1.0.27"
 criteria = "safe-to-deploy"
 
 [[exemptions.unicode-segmentation]]
@@ -1190,7 +1190,7 @@ version = "1.0.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.uuid]]
-version = "1.27.0"
+version = "1.28.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.valuable]]
