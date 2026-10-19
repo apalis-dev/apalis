@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- deps(deps): bump tokio from 1.53.2 to 1.53.3 ([#795](https://github.com/apalis-dev/apalis/pull/795))
 ## [1.0.0](https://github.com/apalis-dev/apalis/releases/tag/v1.0.0)
 
 - *bump*: to v1.0.0 ([#792](https://github.com/apalis-dev/apalis/pull/792))
