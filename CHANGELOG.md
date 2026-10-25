@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- fix(core): drain Shared sink buffers before flush and close ([#798](https://github.com/apalis-dev/apalis/pull/798))
 - refactor(core): simplify tracing macros ([#796](https://github.com/apalis-dev/apalis/pull/796))
 
 ## [1.0.0](https://github.com/apalis-dev/apalis/releases/tag/v1.0.0)

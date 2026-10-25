@@ -70,6 +70,22 @@ where
 }
 
 impl<B: WireFormatBackend> Shared<B> {
+    fn poll_drain_buffer(
+        backend: &mut B,
+        sink: &mut VecDeque<Task<B::Compact>>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), B::Error>>
+    where
+        B: Sink<Task<B::Compact>> + Unpin,
+    {
+        while !sink.is_empty() {
+            ready!(backend.poll_ready_unpin(cx))?;
+            let item = sink.pop_front().unwrap();
+            backend.start_send_unpin(item)?;
+        }
+        Poll::Ready(Ok(()))
+    }
+
     fn register_waker(inner: &Inner<B>, key: usize, cx: &Context<'_>) {
         let res = &inner.wakers;
         res.insert(key, cx.waker().clone());
@@ -190,20 +206,20 @@ where
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let this = self.get_mut();
         let mut guard = ready!(this.inner.backend.lock().poll_unpin(cx));
-        while !this.sink.is_empty() {
-            ready!(guard.poll_ready_unpin(cx))?;
-            let item = this.sink.pop_front().unwrap();
-            guard.start_send_unpin(item)?;
-        }
+        ready!(Self::poll_drain_buffer(&mut guard, &mut this.sink, cx))?;
 
         guard.poll_ready_unpin(cx)
     }
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        let mut guard = ready!(self.inner.backend.lock().poll_unpin(cx));
+        let this = self.get_mut();
+        let mut guard = ready!(this.inner.backend.lock().poll_unpin(cx));
+        ready!(Self::poll_drain_buffer(&mut guard, &mut this.sink, cx))?;
         guard.poll_flush_unpin(cx)
     }
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        let mut guard = ready!(self.inner.backend.lock().poll_unpin(cx));
+        let this = self.get_mut();
+        let mut guard = ready!(this.inner.backend.lock().poll_unpin(cx));
+        ready!(Self::poll_drain_buffer(&mut guard, &mut this.sink, cx))?;
         guard.poll_close_unpin(cx)
     }
 }
