@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- ci(deps): bump actions/checkout from 6 to 7 ([#753](https://github.com/apalis-dev/apalis/pull/753))
 - fix(core): drain Shared sink buffers before flush and close ([#798](https://github.com/apalis-dev/apalis/pull/798))
 - refactor(core): simplify tracing macros ([#796](https://github.com/apalis-dev/apalis/pull/796))
 
