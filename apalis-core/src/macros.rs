@@ -1,71 +1,51 @@
-#[cfg(feature = "tracing")]
 #[allow(unused_macros)]
 macro_rules! debug {
     ($($tt:tt)*) => {
-        tracing::debug!($($tt)*)
-    }
-}
-
-#[cfg(feature = "tracing")]
-#[allow(unused_macros)]
-macro_rules! trace {
-    ($($tt:tt)*) => {
-        tracing::trace!($($tt)*)
-    }
-}
-
-#[cfg(feature = "tracing")]
-#[allow(unused_macros)]
-macro_rules! info {
-    ($($tt:tt)*) => {
-        tracing::info!($($tt)*)
-    }
-}
-
-#[cfg(feature = "tracing")]
-#[allow(unused_macros)]
-macro_rules! error {
-    ($($tt:tt)*) => {
-        tracing::error!($($tt)*)
+        {
+            #[cfg(feature = "tracing")]
+            tracing::debug!($($tt)*);
+        }
     };
 }
 
-#[cfg(feature = "tracing")]
+#[allow(unused_macros)]
+macro_rules! trace {
+    ($($tt:tt)*) => {
+        {
+            #[cfg(feature = "tracing")]
+            tracing::trace!($($tt)*);
+        }
+    };
+}
+
+#[allow(unused_macros)]
+macro_rules! info {
+    ($($tt:tt)*) => {
+        {
+            #[cfg(feature = "tracing")]
+            tracing::info!($($tt)*);
+        }
+    };
+}
+
 #[allow(unused_macros)]
 macro_rules! warn {
     ($($tt:tt)*) => {
-        tracing::warn!($($tt)*)
-    }
+        {
+            #[cfg(feature = "tracing")]
+            tracing::warn!($($tt)*);
+        }
+    };
 }
 
-#[cfg(not(feature = "tracing"))]
-#[allow(unused_macros)]
-macro_rules! debug {
-    ($($tt:tt)*) => {};
-}
-
-#[cfg(not(feature = "tracing"))]
-#[allow(unused_macros)]
-macro_rules! trace {
-    ($($tt:tt)*) => {};
-}
-
-#[cfg(not(feature = "tracing"))]
-#[allow(unused_macros)]
-macro_rules! info {
-    ($($tt:tt)*) => {};
-}
-
-#[cfg(not(feature = "tracing"))]
 #[allow(unused_macros)]
 macro_rules! error {
-    ($($tt:tt)*) => {};
-}
-
-#[cfg(not(feature = "tracing"))]
-#[allow(unused_macros)]
-macro_rules! warn {
-    ($($tt:tt)*) => {};
+    ($($tt:tt)*) => {
+        {
+            #[cfg(feature = "tracing")]
+            tracing::error!($($tt)*);
+        }
+    };
 }
 
 /// Macro to generate feature tables for backend documentation with standardized assert functions

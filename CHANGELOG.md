@@ -5,10 +5,67 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 
 - ci(deps): bump actions/checkout from 6 to 7 ([#753](https://github.com/apalis-dev/apalis/pull/753))
-- *bump*: to v1.0.0-rc.12 ([#791](https://github.com/apalis-dev/apalis/pull/791))
-- *bump*: to v1.0.0-rc.11 ([#790](https://github.com/apalis-dev/apalis/pull/790))
+- fix(core): drain Shared sink buffers before flush and close ([#798](https://github.com/apalis-dev/apalis/pull/798))
+- refactor(core): simplify tracing macros ([#796](https://github.com/apalis-dev/apalis/pull/796))
+
+## [1.0.0](https://github.com/apalis-dev/apalis/releases/tag/v1.0.0)
+
+- *bump*: to v1.0.0 ([#792](https://github.com/apalis-dev/apalis/pull/792))
+
+### Upgrading to v1.0
+
+Migrating from 0.7.x to 1.0.0 Start with the renames, then check the sections that match what you use.
+
+#### Renames
+
+| Before                    | After                   | PR     |
+| ------------------------- | ----------------------- | ------ |
+| `service_fn`              | `taskfn`                | [#586] |
+| `WorkerContext::id()`     | `WorkerContext::name()` | [#586] |
+| `Pipe::pipe_to_storage`   | `PipeExt::pipe_to`      | [#586] |
+| `Parts<Ctx, Id>`          | `ExecutionContext`      | [#751] |
+| `Task<Args, Ctx, IdType>` | `Task<Args>`            | [#751] |
+
+#### Worker and Monitor
+
+**`Backend` is now the second input to `WorkerBuilder`** ([#586], [#755])
+
+`Backend` now uses Rust's default poll-based mechanism and is standardized (see also [#772]: `BackendConfig` and `WireFormatBackend`).
+
+```rust
+// Before
+WorkerBuilder::new("tasty-banana")
+    .backend(sqlite)
+    .build(service_fn(task));
+
+// After
+WorkerBuilder::new("tasty-banana")
+    .backend(sqlite)
+    // default middleware: .layer / .data
+    .build(task_fn);
+```
+
+**`Monitor` factories receive the worker run count** ([#586])
+
+```rust
+// Before
+Monitor::new().register(WorkerBuilder::new("tasty-banana") /* ... */)
+
+// After
+Monitor::new().register(|runs: usize| WorkerBuilder::new("tasty-banana") /* ... */)
+```
+
+#### Tasks and metadata
+
+- Metadata is now a key-value store ([#747]).
+- Queue input removed from exposed endpoints ([#741]).
+
+#### PR breakdown
+
+- _bump_: to v1.0.0-rc.12 ([#791](https://github.com/apalis-dev/apalis/pull/791))
+- _bump_: to v1.0.0-rc.11 ([#790](https://github.com/apalis-dev/apalis/pull/790))
 - **fix(core)**: wake idle workers when monitor shutdown starts ([#777](https://github.com/apalis-dev/apalis/pull/777))
-- *bump*: to v1.0.0-rc.10 ([#775](https://github.com/apalis-dev/apalis/pull/775))
+- _bump_: to v1.0.0-rc.10 ([#775](https://github.com/apalis-dev/apalis/pull/775))
 - ci(deps): bump actions/cache from 4 to 6 ([#752](https://github.com/apalis-dev/apalis/pull/752))
 - **chore (api)!**: standardize execution context ([#751](https://github.com/apalis-dev/apalis/pull/751))
 - **chore**: bump opentelemetry_sdk ([#750](https://github.com/apalis-dev/apalis/pull/750))

@@ -32,12 +32,12 @@
 
 ## Features
 
-- **Simple, predictable task handling** - [Task handlers](https://docs.rs/apalis-core/1.0.0-rc.12/apalis_core/task/task_fn/index.html) are just async functions, with a macro-free API
+- **Simple, predictable task handling** - [Task handlers](https://docs.rs/apalis-core/1.0.0/apalis_core/task/task_fn/index.html) are just async functions, with a macro-free API
 - **Robust task execution** - Built-in retries, rate limiting, timeouts, idempotency, and error handling
 - **Multiple storage backends** - Redis, PostgreSQL, SQLite, and in-memory storage
 - **Advanced task management** - Prioritization, scheduling, metadata, and result tracking
 - **Scalable by design** - Distributed backends with configurable concurrency and multi-threaded execution
-- **Lightweight and lazy** - Like a `Future`, workers do nothing until polled or woken — no busy-waiting
+- **Lightweight and lazy** - Like a `Future`, workers do nothing until polled or woken: no busy-waiting
 - **Familiar dependency injection** - Similar to popular frameworks like [`actix`] and [`axum`]
 - **Runtime agnostic** - Works with tokio, async-std, and other async runtimes
 - **Production ready** - Built-in monitoring, metrics, graceful shutdown, and comprehensive error reporting
@@ -46,18 +46,49 @@
 
 ## Crate ecosystem
 
-| Source             | Crate                                                                                                                         | Examples                                                                                                                                                                             |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apalis-cron`      | <a href="https://docs.rs/apalis-cron"><img src="https://img.shields.io/crates/v/apalis-cron?style=flat-square"></a>           | <a href="https://github.com/apalis-dev/apalis-amqp/tree/main/examples/basic.rs"><img src="https://img.shields.io/badge/-basic-black?style=flat-square&logo=github"/></a>    |
-| `apalis-redis`     | <a href="https://docs.rs/apalis-redis"><img src="https://img.shields.io/crates/v/apalis-redis?style=flat-square"></a>         | <a href="https://github.com/apalis-dev/apalis-redis"><img src="https://img.shields.io/badge/-basic-black?style=flat-square&logo=redis"/></a>                                |
-| `apalis-sqlite`    | <a href="https://docs.rs/apalis-sqlite"><img src="https://img.shields.io/crates/v/apalis-sqlite?style=flat-square"></a>       | <a href="https://github.com/apalis-dev/apalis-sqlite"><img src="https://img.shields.io/badge/-basic-black?style=flat-square&logo=sqlite"/></a>                             |
-| `apalis-postgres`  | <a href="https://docs.rs/apalis-postgres"><img src="https://img.shields.io/crates/v/apalis-postgres?style=flat-square"></a>   | <a href="https://github.com/apalis-dev/apalis-postgres"><img src="https://img.shields.io/badge/-basic-black?style=flat-square&logo=postgresql"/></a>                       |
-| `apalis-mysql`     | <a href="https://docs.rs/apalis-mysql"><img src="https://img.shields.io/crates/v/apalis-mysql?style=flat-square"></a>         | <a href="https://github.com/apalis-dev/apalis-mysql"><img src="https://img.shields.io/badge/-basic-black?style=flat-square&logo=mysql"/></a>                                |
-| `apalis-amqp`      | <a href="https://docs.rs/apalis-amqp"><img src="https://img.shields.io/crates/v/apalis-amqp?style=flat-square"></a>           | <a href="https://github.com/apalis-dev/apalis-amqp/tree/main/examples/basic.rs"><img src="https://img.shields.io/badge/-basic-black?style=flat-square&logo=github"/></a> |
-| `apalis-core`      | <a href="https://docs.rs/apalis-core"><img src="https://img.shields.io/crates/v/apalis-core?style=flat-square"></a>           |                                                                                                                                                                                     |
-| `apalis-workflow`  | <a href="https://docs.rs/apalis-workflow"><img src="https://img.shields.io/crates/v/apalis-workflow?style=flat-square"></a>   |                                                                                                                                                                                     |
-| `apalis-board`     | <a href="https://docs.rs/apalis-board"><img src="https://img.shields.io/crates/v/apalis-board?style=flat-square"></a>         |                                                                                                                                                                                     |
-| `apalis-board-api` | <a href="https://docs.rs/apalis-board-api"><img src="https://img.shields.io/crates/v/apalis-board-api?style=flat-square"></a> | <a href="https://github.com/apalis-dev/apalis-board/tree/main/examples/axum-email-service"><img src="https://img.shields.io/badge/axum-blue?style=flat-square&logo=github"/></a> <a href="https://github.com/apalis-dev/apalis-board/tree/main/examples/actix-ntfy-service"><img src="https://img.shields.io/badge/actix-red?style=flat-square&logo=github"/></a> |
+## Message queues
+
+| Crate                                                                                                                                                            | Examples                                                                                                                                               | Features       |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------- |
+| [`apalis-amqp`](https://docs.rs/apalis-amqp) [![Crates.io](https://img.shields.io/crates/v/apalis-amqp?style=flat-square)](https://crates.io/crates/apalis-amqp) | [![basic](https://img.shields.io/badge/basic-black?style=flat-square&logo=github)](https://github.com/apalis-dev/apalis-amqp/tree/main/examples)       | 🔁 📅 🔒 📡 👷 |
+| [`apalis-nats`](https://docs.rs/apalis-nats) [![Crates.io](https://img.shields.io/crates/v/apalis-nats?style=flat-square)](https://crates.io/crates/apalis-nats) | [![examples](https://img.shields.io/badge/examples-black?style=flat-square&logo=github)](https://github.com/apalis-dev/apalis-nats/tree/main/examples) | 🔁 📅 🔒 📡 👷 |
+| [`apalis-rsmq`](https://docs.rs/apalis-rsmq) [![Crates.io](https://img.shields.io/crates/v/apalis-rsmq?style=flat-square)](https://crates.io/crates/apalis-rsmq) | [![examples](https://img.shields.io/badge/examples-black?style=flat-square&logo=github)](https://github.com/apalis-dev/apalis-rsmq/tree/main/examples) | 🔁 📅 🔒 📡 👷 |
+
+## Persistence backends
+
+| Crate                                                                                                                                                                            | Examples                                                                                                                                | Features          |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| [`apalis-redis`](https://docs.rs/apalis-redis) [![Crates.io](https://img.shields.io/crates/v/apalis-redis?style=flat-square)](https://crates.io/crates/apalis-redis)             | [![basic](https://img.shields.io/badge/basic-black?style=flat-square&logo=redis)](https://github.com/apalis-dev/apalis-redis)           | 🔁 📅 🔒 📡 👷 ⏯️ |
+| [`apalis-sqlite`](https://docs.rs/apalis-sqlite) [![Crates.io](https://img.shields.io/crates/v/apalis-sqlite?style=flat-square)](https://crates.io/crates/apalis-sqlite)         | [![basic](https://img.shields.io/badge/basic-black?style=flat-square&logo=sqlite)](https://github.com/apalis-dev/apalis-sqlite)         | 🔁 📅 🔒 📡 👷 ⏯️ |
+| [`apalis-postgres`](https://docs.rs/apalis-postgres) [![Crates.io](https://img.shields.io/crates/v/apalis-postgres?style=flat-square)](https://crates.io/crates/apalis-postgres) | [![basic](https://img.shields.io/badge/basic-black?style=flat-square&logo=postgresql)](https://github.com/apalis-dev/apalis-postgres)   | 🔁 📅 🔒 📡 👷 ⏯️ |
+| [`apalis-mysql`](https://docs.rs/apalis-mysql) [![Crates.io](https://img.shields.io/crates/v/apalis-mysql?style=flat-square)](https://crates.io/crates/apalis-mysql)             | [![basic](https://img.shields.io/badge/basic-black?style=flat-square&logo=mysql)](https://github.com/apalis-dev/apalis-mysql)           | 🔁 📅 🔒 📡 👷 ⏯️ |
+| [`apalis-pgmq`](https://docs.rs/apalis-pgmq) [![Crates.io](https://img.shields.io/crates/v/apalis-pgmq?style=flat-square)](https://crates.io/crates/apalis-pgmq)                 | [![examples](https://img.shields.io/badge/examples-black?style=flat-square&logo=postgresql)](https://github.com/apalis-dev/apalis-pgmq) | 🔁 📅 🔒 📡 👷 ⏯️ |
+
+## Scheduling
+
+| Crate                                                                                                                                                            | Examples                                                                                                                            | Features |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| [`apalis-cron`](https://docs.rs/apalis-cron) [![Crates.io](https://img.shields.io/crates/v/apalis-cron?style=flat-square)](https://crates.io/crates/apalis-cron) | [![examples](https://img.shields.io/badge/examples-black?style=flat-square&logo=github)](https://github.com/apalis-dev/apalis-cron) | 🔁 📅    |
+
+## Core & tooling
+
+| Crate                                                  | Examples                                                                                                                                                                                                                                                                                                                             | Features       |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------- |
+| [`apalis`](https://docs.rs/apalis)                     | [![examples](https://img.shields.io/badge/examples-black?style=flat-square&logo=github)](https://github.com/apalis-dev/apalis/tree/main/examples)                                                                                                                                                                                    | 🔁 📅 🔒 📡 👷 |
+| [`apalis-core`](https://docs.rs/apalis-core)           | :                                                                                                                                                                                                                                                                                                                                    | 🔁 📅          |
+| [`apalis-workflow`](https://docs.rs/apalis-workflow)   | [![repository](https://img.shields.io/badge/repository-black?style=flat-square&logo=github)](https://github.com/apalis-dev/apalis)                                                                                                                                                                                                   | 🔁 📅 🔒       |
+| [`apalis-board`](https://docs.rs/apalis-board)         | [![examples](https://img.shields.io/badge/examples-black?style=flat-square&logo=github)](https://github.com/apalis-dev/apalis-board)                                                                                                                                                                                                 | 🔁 📅 🔒 📡 👷 |
+| [`apalis-board-api`](https://docs.rs/apalis-board-api) | [![axum](https://img.shields.io/badge/axum-blue?style=flat-square&logo=github)](https://github.com/apalis-dev/apalis-board/tree/main/examples/axum-email-service) [![actix](https://img.shields.io/badge/actix-red?style=flat-square&logo=github)](https://github.com/apalis-dev/apalis-board/tree/main/examples/actix-ntfy-service) | 🔁 📅 🔒 📡 👷 |
+
+### Feature legend
+
+- 🔁 **Retries**: automatically retry failed tasks.
+- 📅 **Scheduling**: delayed or scheduled execution.
+- 🔒 **Unique jobs**: deduplication or idempotency.
+- ⏯️ **Resumable jobs**: resume interrupted jobs or workflows.
+- 🔐 **Task leases**: time-limited task ownership, visibility timeouts, or orphan recovery.
+- 📡 **Pubsub / realtime**: event-driven notifications or realtime updates.
+- 👷 **Worker management**: worker discovery, monitoring, lifecycle, or management APIs.
 
 ## Getting Started
 
@@ -65,8 +96,8 @@ To get started, just add to Cargo.toml
 
 ```toml
 [dependencies]
-apalis = { version = "1.0.0-rc.12" }
-# apalis-redis = { version = "1.0.0-rc.12" } # Use redis/sqlite/postgres etc
+apalis = { version = "1.0.0" }
+# apalis-redis = { version = "1.0.0" } # Use redis/sqlite/postgres etc
 ```
 
 ## Usage
