@@ -52,8 +52,8 @@ pub enum GraphFlowError {
     #[error("Unexpected response type during fan-in")]
     UnexpectedResponseType,
 
-    /// An error indicating a mismatch in the number of inputs during fan-in.
-    #[error("Input count mismatch: expected {expected} inputs for fan-in, got {actual}")]
+    /// An error indicating a mismatch in tuple or fan-in input counts.
+    #[error("Input count mismatch: expected {expected} inputs, got {actual}")]
     InputCountMismatch {
         /// The expected number of inputs.
         expected: usize,

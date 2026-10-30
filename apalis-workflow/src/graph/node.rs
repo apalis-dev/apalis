@@ -14,6 +14,7 @@ use crate::graph::decode::GraphCodec;
 
 /// A service that wraps another service to handle encoding and decoding
 /// of task inputs and outputs using the backend's codec.
+/// Input decoding errors are returned without calling the inner service.
 pub struct GraphNodeService<S, B, Input>
 where
     S: Service<Task<Input>>,
@@ -73,7 +74,8 @@ where
         + Send
         + Sync
         + Clone,
-    Input: GraphCodec<B, Error = CdcErr> + DeserializeOwned,
+    Input: GraphCodec<B> + DeserializeOwned,
+    <Input as GraphCodec<B>>::Error: Into<BoxDynError>,
     CdcErr: Into<BoxDynError> + Send + 'static,
     S::Future: Send + 'static,
     S::Response: Serialize,
@@ -99,7 +101,7 @@ where
         let req = req.try_map_args(|args| match args {
             NodeInput::Single(args) => match Input::decode(&args, &codec) {
                 Ok(decoded) => Ok(decoded),
-                Err(e) => Err(CdcErr::into(e)),
+                Err(e) => Err(e.into()),
             },
             NodeInput::FanIn(fan_in) => {
                 let value = serde_json::Value::Array(fan_in);
