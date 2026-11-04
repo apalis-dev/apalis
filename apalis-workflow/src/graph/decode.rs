@@ -1,14 +1,28 @@
-use apalis_core::backend::{Backend, WireFormatBackend, codec::Codec};
+use apalis_core::{
+    backend::{Backend, WireFormatBackend, codec::Codec},
+    error::BoxDynError,
+};
+
+use crate::graph::error::GraphFlowError;
 
 /// An entry trait that handles the values of a fan-in/fanout entry
 pub trait GraphCodec<B: WireFormatBackend>: Sized {
-    /// The codec error
+    /// The error returned when encoding or decoding a graph input.
+    ///
+    /// Tuples with two to twelve elements use [`GraphFlowError`]. Their codec
+    /// errors must implement `Into<BoxDynError>` and are retained as sources of
+    /// [`GraphFlowError::Codec`]. Other built-in implementations use the codec's
+    /// error type directly.
     type Error;
 
     /// Encode the input into a Compact
     fn encode(self, codec: &B::Codec) -> Result<B::Compact, Self::Error>;
 
     /// Decode the previous input
+    ///
+    /// Tuples with two to twelve elements return
+    /// [`GraphFlowError::InputCountMismatch`] if the decoded list has the wrong
+    /// length, before decoding any elements.
     fn decode(response: &B::Compact, codec: &B::Codec) -> Result<Self, Self::Error>;
 }
 
@@ -57,47 +71,51 @@ macro_rules! impl_entry_for_tuple {
         }
     };
 
-    // For 2+ types, use the first type's error
+    // For 2+ types, report both input count mismatches and codec errors.
     ($T1:ident, $($T:ident),+) => {
         impl<B, Err, $T1, $($T),+> GraphCodec<B> for ($T1, $($T),+)
         where
             B: Backend + WireFormatBackend,
             B::Codec: Codec<$T1, Compact = B::Compact, Error = Err> + Codec<Vec<B::Compact>, Compact = B::Compact, Error = Err>,
             $(B::Codec: Codec<$T, Compact = B::Compact, Error = Err>,)+
+            Err: Into<BoxDynError>,
             // Ensure all errors are the same type as T1's error
             $(
                 <B::Codec as Codec<$T>>::Error: Into<<B::Codec as Codec<$T1>>::Error>,
             )+
         {
-            type Error = <B::Codec as Codec<$T1>>::Error;
+            type Error = GraphFlowError;
 
             fn encode(self, codec: &B::Codec) -> Result<B::Compact, Self::Error> {
                 #[allow(non_snake_case)]
                 let ($T1, $($T),+) = self;
 
-                let mut result = vec![B::Codec::encode(codec, &$T1)?];
+                let mut result = vec![B::Codec::encode(codec, &$T1).map_err(|e: Err| GraphFlowError::Codec(e.into()))?];
                 $(
-                    result.push(B::Codec::encode(codec, &$T).map_err(Into::into)?);
+                    result.push(B::Codec::encode(codec, &$T).map_err(|e: Err| GraphFlowError::Codec(e.into()))?);
                 )+
-                let compact = B::Codec::encode(codec, &result)?;
+                let compact = B::Codec::encode(codec, &result).map_err(|e: Err| GraphFlowError::Codec(e.into()))?;
                 Ok(compact)
             }
 
-            fn decode(response: &B::Compact, codec: &B::Codec) -> Result<Self, Err> {
-                let decoded: Vec<B::Compact> = B::Codec::decode(codec, response)?;
+            fn decode(response: &B::Compact, codec: &B::Codec) -> Result<Self, Self::Error> {
+                let decoded: Vec<B::Compact> = B::Codec::decode(codec, response).map_err(|e: Err| GraphFlowError::Codec(e.into()))?;
                 // Count the number of types in the tuple
                 let expected_len = 1 $(+ {let _ = stringify!($T); 1})+;
                 if decoded.len() != expected_len {
-                    panic!("Expected {} elements, got {}", expected_len, decoded.len());
+                    return Err(GraphFlowError::InputCountMismatch {
+                        expected: expected_len,
+                        actual: decoded.len(),
+                    });
                 }
 
                 let mut iter = decoded.into_iter();
 
                 #[allow(non_snake_case)]
-                let $T1 = B::Codec::decode(codec, &iter.next().unwrap())?;
+                let $T1 = B::Codec::decode(codec, &iter.next().unwrap()).map_err(|e: Err| GraphFlowError::Codec(e.into()))?;
                 $(
                     #[allow(non_snake_case)]
-                    let $T = B::Codec::decode(codec, &iter.next().unwrap()).map_err(Into::into)?;
+                    let $T = B::Codec::decode(codec, &iter.next().unwrap()).map_err(|e: Err| GraphFlowError::Codec(e.into()))?;
                 )+
 
                 Ok(($T1, $($T),+))
