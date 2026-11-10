@@ -139,7 +139,7 @@
 use std::{
     fmt::{self, Debug, Formatter},
     pin::Pin,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
     task::{Context, Poll},
 };
 
@@ -526,33 +526,26 @@ impl Monitor {
             res
         };
         if let Some(terminator) = self.terminator {
-            // The signal's error is recorded before the terminator starts, so it is
-            // reported whichever side of the race below finishes first.
-            let signal_error: Arc<Mutex<Option<std::io::Error>>> = Arc::new(Mutex::new(None));
-            let record = signal_error.clone();
-            let signal_then_terminate = async move {
-                if let Err(e) = shutdown_after.await {
-                    *record.lock().unwrap_or_else(|p| p.into_inner()) = Some(e);
-                }
-                terminator.await;
-            };
-            let workers = match futures_util::future::select(
-                Self::run_all_workers(self.workers, shutdown).boxed(),
-                signal_then_terminate.boxed(),
-            )
-            .await
-            {
-                Either::Left((result, _)) => result,
-                // The terminator fired with workers still running: a forced exit, not an error.
-                Either::Right(((), _)) => Ok(()),
-            };
+            let workers = Self::run_all_workers(self.workers, shutdown).boxed();
+            let (workers, signal_error) =
+                match futures_util::future::select(workers, shutdown_after.boxed()).await {
+                    // The workers finished before any signal arrived.
+                    Either::Left((result, _)) => (result, None),
+                    Either::Right((signal_result, workers)) => {
+                        // The signal has triggered shutdown; now wait for the workers or the timeout.
+                        let workers = match futures_util::future::select(workers, terminator).await
+                        {
+                            Either::Left((result, _)) => result,
+                            // The terminator fired with workers still running: a forced exit,
+                            // not an error.
+                            Either::Right(((), _)) => Ok(()),
+                        };
+                        (workers, signal_result.err())
+                    }
+                };
             // Same precedence as the branch without a terminator: signal, then workers.
-            if let Some(e) = signal_error
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .take()
-            {
-                return Err(MonitorError::ShutdownSignal(e));
+            if let Some(error) = signal_error {
+                return Err(MonitorError::ShutdownSignal(error));
             }
             workers?;
         } else {
@@ -1015,6 +1008,33 @@ mod tests {
             matches!(exit, Err(MonitorError::ShutdownSignal(_))),
             "expected the signal error, got {exit:?}"
         );
+    }
+
+    /// With a shutdown timeout set, a worker still busy when the timeout fires is a
+    /// forced exit: `run_with_signal` returns `Ok` rather than waiting on it.
+    #[tokio::test]
+    async fn run_with_signal_forces_exit_when_the_timeout_fires_with_work_in_flight() {
+        let mut backend = VecDequeBackend::new();
+        backend.push(1u32).await.unwrap();
+
+        let monitor = Monitor::new()
+            .shutdown_timeout(Duration::from_millis(200))
+            .register(move |_| {
+                WorkerBuilder::new("stuck")
+                    .backend(backend.clone())
+                    .build(|_: u32| std::future::pending::<()>())
+            });
+
+        // Late enough that the worker has picked up its task before shutdown starts.
+        let signal = async {
+            sleep(Duration::from_millis(100)).await;
+            Ok(())
+        };
+        let result =
+            tokio::time::timeout(Duration::from_secs(5), monitor.run_with_signal(signal)).await;
+
+        let exit = result.expect("monitor waited on a stuck worker past its shutdown timeout");
+        assert!(exit.is_ok(), "expected a forced exit, got {exit:?}");
     }
 
     fn assert_send_sync<T: Send + Sync>() {}
