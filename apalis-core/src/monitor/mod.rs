@@ -535,28 +535,23 @@ impl Monitor {
             let workers = Self::run_all_workers(self.workers, shutdown).boxed();
             let (workers, signal_error) =
                 match futures_util::future::select(workers, shutdown_after.boxed()).await {
-                    // The workers finished before any signal arrived.
                     Either::Left((result, _)) => (result, None),
                     Either::Right((signal_result, workers)) => {
-                        // The signal has triggered shutdown; now wait for the workers or the timeout.
                         let workers = match futures_util::future::select(workers, terminator).await
                         {
                             Either::Left((result, _)) => result,
-                            // The terminator fired with workers still running: a forced exit,
-                            // not an error.
                             Either::Right(((), _)) => Ok(()),
                         };
                         (workers, signal_result.err())
                     }
                 };
-            // Same precedence as the branch without a terminator: signal, then workers.
             if let Some(error) = signal_error {
                 return Err(MonitorError::ShutdownSignal(error));
             }
             workers?;
         } else {
             let runner = self.run();
-            let res = futures_util::join!(shutdown_after, runner); // If no terminator is provided, we wait for both the shutdown call and all workers to complete
+            let res = futures_util::join!(shutdown_after, runner);
             match res {
                 (Ok(_), Ok(_)) => {
                     // All good

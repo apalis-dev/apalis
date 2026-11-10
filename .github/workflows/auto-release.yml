@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "0 0 * * 6" # Sat 00:00 UTC
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. 1.2.0). Leave empty for the automatic minor bump."
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -49,20 +54,47 @@ jobs:
         if: steps.check.outputs.has_changes == 'true'
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install cargo-edit
+      - name: Install cargo-edit and cargo-vet
         if: steps.check.outputs.has_changes == 'true'
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-edit
+          tool: cargo-edit,cargo-vet
 
       - name: Bump workspace version
         if: steps.check.outputs.has_changes == 'true'
         id: bump
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          cargo set-version --workspace --bump minor
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="${INPUT_VERSION#v}"   # accept "v1.2.0" or "1.2.0"
+
+            if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+              echo "::error::'$INPUT_VERSION' is not a valid semver version."
+              exit 1
+            fi
+
+            cargo set-version --workspace "$VERSION"
+          else
+            cargo set-version --workspace --bump minor
+          fi
+
           NEW_VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
+
+          # Fail early if the tag exists (covers manual and automatic versions)
+          if git ls-remote --exit-code --tags origin "refs/tags/v${NEW_VERSION}" >/dev/null 2>&1; then
+            echo "::error::Tag v${NEW_VERSION} already exists."
+            exit 1
+          fi
+
           echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=v${NEW_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Update cargo vet exemptions
+        if: steps.check.outputs.has_changes == 'true'
+        run: |
+          cargo vet regenerate exemptions
+          cargo vet regenerate imports
 
       - name: Stamp CHANGELOG
         if: steps.check.outputs.has_changes == 'true'
@@ -87,11 +119,28 @@ jobs:
         if: steps.check.outputs.has_changes == 'true'
         env:
           TAG: ${{ steps.bump.outputs.tag }}
+          VERSION: ${{ steps.bump.outputs.version }}
           GH_TOKEN: ${{ secrets.AUTO_RELEASE_TOKEN }}
         run: |
           BRANCH="release/${TAG}"
+          BODY="${RUNNER_TEMP}/pr-body.md"
+
+          # This version's section from the stamped changelog
+          awk -v v="$VERSION" '
+            index($0, "## [" v "]") == 1 { found=1; next }
+            /^## / && found { exit }
+            found { print }
+          ' CHANGELOG.md > "$BODY"
+
+          if [ ! -s "$BODY" ]; then
+            echo "Automated Release." > "$BODY"
+          fi
+
           git switch -c "$BRANCH"
           git add -A Cargo.toml Cargo.lock CHANGELOG.md
+          if [ -d supply-chain ]; then
+            git add -A supply-chain/
+          fi
           git add -u -- '*Cargo.toml'
           git commit -m "bump: to ${TAG}"
           git push origin "$BRANCH"
@@ -100,7 +149,7 @@ jobs:
             --base main \
             --head "$BRANCH" \
             --title "bump: to ${TAG}" \
-            --body "Automated weekly release."
+            --body-file "$BODY"
 
           gh pr merge "$BRANCH" --auto --squash
 
@@ -147,3 +196,52 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "$TAG" -m "$TAG" "$SHA"
           git push origin "$TAG"
+
+      - name: Create GitHub release
+        env:
+          TAG: ${{ needs.release-branch.outputs.tag }}
+          SHA: ${{ steps.wait.outputs.sha }}
+          GH_TOKEN: ${{ secrets.AUTO_RELEASE_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          VERSION="${TAG#v}"
+          NOTES="${RUNNER_TEMP}/notes.md"
+          GENERATED="${RUNNER_TEMP}/generated.md"
+
+          # Pre-release versions (e.g. 2.0.0-rc.1) contain a "-"
+          FLAGS=()
+          if [[ "$VERSION" == *-* ]]; then
+            FLAGS+=(--prerelease --latest=false)
+          fi
+
+          # 1. This version's section from the changelog at the merged commit
+          git show "${SHA}:CHANGELOG.md" | awk -v v="$VERSION" '
+            index($0, "## [" v "]") == 1 { found=1; next }
+            /^## / && found { exit }
+            found { print }
+          ' > "$NOTES"
+
+          # 2. GitHub's generated notes (the tag exists now, so this works)
+          gh api "repos/${GH_REPO}/releases/generate-notes" \
+            -f tag_name="$TAG" --jq .body > "$GENERATED" || : > "$GENERATED"
+
+          # 3. Append "New Contributors" and "Full Changelog" from the generated notes
+          if [ -s "$NOTES" ]; then
+            if grep -q '^## New Contributors' "$GENERATED"; then
+              {
+                echo
+                awk '
+                  /^## New Contributors/ { f=1 }
+                  /^\*\*Full Changelog\*\*/ { f=0 }
+                  f
+                ' "$GENERATED"
+              } >> "$NOTES"
+            fi
+            grep '^\*\*Full Changelog\*\*' "$GENERATED" >> "$NOTES" || true
+
+            gh release create "$TAG" --verify-tag --title "$TAG" \
+              --notes-file "$NOTES" "${FLAGS[@]}"
+          else
+            gh release create "$TAG" --verify-tag --title "$TAG" \
+              --generate-notes "${FLAGS[@]}"
+          fi
