@@ -1,2 +1,14 @@
 
 # cargo-vet imports lock
+
+[[unpublished.apalis]]
+version = "1.1.1"
+audited_as = "1.1.0"
+
+[[unpublished.apalis-core]]
+version = "1.1.1"
+audited_as = "1.1.0"
+
+[[unpublished.apalis-workflow]]
+version = "1.1.1"
+audited_as = "1.1.0"

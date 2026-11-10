@@ -1,6 +1,6 @@
 [package]
 name = "deps-injection"
-version = "1.1.0"
+version = "1.1.1"
 license = "MIT"
 publish = false
 edition.workspace = true
