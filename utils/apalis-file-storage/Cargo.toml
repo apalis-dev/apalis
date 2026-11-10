@@ -41,5 +41,5 @@ thiserror = "2"
 fd-lock = "4.0.4"
 
 [dev-dependencies]
-tokio = { version = "1.53.2", features = ["full"] }
+tokio = { version = "1.54.1", features = ["full"] }
 apalis-workflow = { path = "../../apalis-workflow" }

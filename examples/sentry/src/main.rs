@@ -2,6 +2,7 @@ use sentry_tower::NewSentryLayer;
 use std::error::Error;
 use std::fmt;
 use std::time::Duration;
+use tracing::level_filters::LevelFilter;
 
 use tracing_subscriber::prelude::*;
 
@@ -114,12 +115,13 @@ async fn main() -> Result<()> {
             .maybe_release(sentry::release_name!()),
     ));
     let fmt_layer = tracing_subscriber::fmt::layer().with_target(false);
+    let log_layer = sentry_tracing::LogLayer::new().with_filter(LevelFilter::INFO);
     let filter_layer =
         EnvFilter::try_from_default_env().or_else(|_| EnvFilter::try_new("debug"))?;
     tracing_subscriber::registry()
         .with(filter_layer)
         .with(fmt_layer)
-        .with(sentry_tracing::layer())
+        .with(log_layer)
         .init();
     let mut storage: MemoryStorage<Email> = MemoryStorage::new();
     let backend = MemoryStorage::new();
