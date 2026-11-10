@@ -31,7 +31,7 @@ jobs:
         run: |
           FORMATTED_TITLE="$(echo "$PR_TITLE" | sed -E 's/^([a-zA-Z0-9_-]+(\([^)]*\))?):/*\1*:/')"
           CHANGELOG_ENTRY="- ${FORMATTED_TITLE} ([#${PR_NUMBER}](https://github.com/${REPO}/pull/${PR_NUMBER}))"
-          PR_PATTERN="(#${PR_NUMBER})"
+          PR_PATTERN="/pull/${PR_NUMBER})"
 
           if grep -qF "$PR_PATTERN" CHANGELOG.md; then
             # Entry exists: replace it with the current title
