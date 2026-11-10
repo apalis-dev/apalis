@@ -283,6 +283,12 @@ impl Future for MonitoredWorker {
                                     error,
                                 }));
                             }
+                            // Yield before building the restarted worker. Looping straight back
+                            // would let a worker that fails as soon as it starts restart in a
+                            // tight loop inside this one `poll`, starving every other future on
+                            // the task and spending a restart budget in microseconds.
+                            cx.waker().wake_by_ref();
+                            return Poll::Pending;
                         }
                         _ => {
                             return Poll::Ready(Err(MonitoredWorkerError {
@@ -566,7 +572,7 @@ impl Monitor {
     ///
     /// # Errors
     ///
-    /// If the monitor fails to run gracefully, an `std::io::Error` will be returned.
+    /// If the monitor fails to run gracefully, a `MonitorError` will be returned.
     ///
     /// # Remarks
     ///
@@ -1035,6 +1041,62 @@ mod tests {
 
         let exit = result.expect("monitor waited on a stuck worker past its shutdown timeout");
         assert!(exit.is_ok(), "expected a forced exit, got {exit:?}");
+    }
+
+    /// A restart must hand control back to the executor instead of re-polling the
+    /// restarted worker inside the same `poll`.
+    #[tokio::test(flavor = "current_thread")]
+    async fn restart_yields_to_other_tasks() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+        const RESTART_BUDGET: usize = 200;
+
+        let mut backend = VecDequeBackend::new();
+        for i in 0..(RESTART_BUDGET as u32 * 2) {
+            backend.push(i).await.unwrap();
+        }
+
+        // Set by another task on this single-threaded runtime. It can only run if
+        // the monitor yields between restarts.
+        let other_task_ran = Arc::new(AtomicBool::new(false));
+        let restarts_when_stopped = Arc::new(AtomicUsize::new(0));
+
+        let ran = other_task_ran.clone();
+        tokio::spawn(async move {
+            ran.store(true, Ordering::SeqCst);
+        });
+
+        let ran = other_task_ran.clone();
+        let stopped_at = restarts_when_stopped.clone();
+        let monitor = Monitor::new()
+            .register(move |_| {
+                WorkerBuilder::new("fails-at-once")
+                    .backend(backend.clone())
+                    .build(|r: u32| async move {
+                        if r < u32::MAX {
+                            panic!("task failed");
+                        }
+                    })
+            })
+            .should_restart(move |worker, _| {
+                let keep_going = !ran.load(Ordering::SeqCst) && worker.restarts() < RESTART_BUDGET;
+                if !keep_going {
+                    stopped_at.store(worker.restarts(), Ordering::SeqCst);
+                }
+                keep_going
+            });
+
+        let result = monitor.run().await;
+
+        assert!(matches!(result, Err(MonitorError::ExitError(_))));
+        assert!(
+            other_task_ran.load(Ordering::SeqCst),
+            "the monitor never yielded between restarts"
+        );
+        assert!(
+            restarts_when_stopped.load(Ordering::SeqCst) < RESTART_BUDGET,
+            "the restart budget was spent before any other task ran"
+        );
     }
 
     fn assert_send_sync<T: Send + Sync>() {}

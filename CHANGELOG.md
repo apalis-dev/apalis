@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 
 - fix(core): `Monitor::run_with_signal` reports worker and signal errors when a shutdown timeout is set ([#804](https://github.com/apalis-dev/apalis/issues/804))
+
+## [1.1.0](https://github.com/apalis-dev/apalis/releases/tag/v1.1.0)
+
+- *ci(deps)*: bump actions/checkout from 4 to 7 ([#753](https://github.com/apalis-dev/apalis/pull/753))
+- fix(core): yield to the executor after a monitored worker restarts instead of re-polling it in a loop ([#805](https://github.com/apalis-dev/apalis/issues/805))
 - fix(workflow)!: return errors for invalid graph tuple input counts ([#799](https://github.com/apalis-dev/apalis/issues/799)). For 2–12 element tuples, both `GraphCodec::encode` and `decode` now return `GraphFlowError`; codec errors must implement `Into<BoxDynError>` and remain available through the error source chain. Successful encodings are unchanged.
 - fix(core): drain Shared sink buffers before flush and close ([#798](https://github.com/apalis-dev/apalis/pull/798))
 - refactor(core): simplify tracing macros ([#796](https://github.com/apalis-dev/apalis/pull/796))
