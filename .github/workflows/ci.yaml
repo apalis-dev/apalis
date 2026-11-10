@@ -4,11 +4,13 @@ on:
     paths:
       - "**/Cargo.toml"
       - "**/*.rs"
+      - ".github/workflows/*"
   pull_request:
     paths:
       - "**/Cargo.lock"
       - "**/Cargo.toml"
       - "**/*.rs"
+      - ".github/workflows/*"
   workflow_call:
 
 name: Check and Test
