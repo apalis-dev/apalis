@@ -166,7 +166,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "advanced-example"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "apalis",
  "email-service",
@@ -203,7 +203,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "apalis"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "apalis-core",
  "apalis-file-storage",
@@ -230,7 +230,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-codec"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "apalis-core",
  "bincode",
@@ -242,7 +242,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-core"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "dashmap",
  "document-features",
@@ -266,7 +266,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-file-storage"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "apalis-codec",
  "apalis-core",
@@ -285,7 +285,7 @@ dependencies = [
 
 [[package]]
 name = "apalis-workflow"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "apalis-codec",
  "apalis-core",
@@ -438,7 +438,7 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "basic"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "apalis",
  "serde",
@@ -511,7 +511,7 @@ dependencies = [
 
 [[package]]
 name = "catch-panic"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "apalis",
@@ -623,7 +623,7 @@ checksum = "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
 
 [[package]]
 name = "dag-workflow"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "apalis",
  "apalis-codec",
@@ -661,7 +661,7 @@ dependencies = [
 
 [[package]]
 name = "deps-injection"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "apalis",
  "serde",
@@ -748,7 +748,7 @@ checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
 name = "dynamic-workers"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "apalis",
@@ -765,7 +765,7 @@ dependencies = [
 
 [[package]]
 name = "dynamic-workflow"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "apalis",
  "apalis-codec",
@@ -779,7 +779,7 @@ dependencies = [
 
 [[package]]
 name = "email-service"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "apalis",
  "email_address",
@@ -1091,7 +1091,7 @@ checksum = "1033caf0b349c518623b5396bfb2cf0bddf44f0306d543a250e5743297aafd10"
 
 [[package]]
 name = "graceful-shutdown"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "apalis",
  "apalis-core",
@@ -1542,7 +1542,7 @@ checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
 name = "long-running"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "apalis",
@@ -1666,7 +1666,7 @@ dependencies = [
 
 [[package]]
 name = "monitor"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "apalis",
@@ -1680,7 +1680,7 @@ dependencies = [
 
 [[package]]
 name = "monitor-context"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "apalis",
@@ -1982,7 +1982,7 @@ dependencies = [
 
 [[package]]
 name = "opentelemetry-example"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "apalis",
@@ -2182,7 +2182,7 @@ dependencies = [
 
 [[package]]
 name = "prometheus-example"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "apalis",
@@ -2390,7 +2390,7 @@ dependencies = [
 
 [[package]]
 name = "retries-example"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "apalis",
@@ -2656,7 +2656,7 @@ dependencies = [
 
 [[package]]
 name = "sentry-example"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "apalis",
@@ -2871,7 +2871,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "stepped-workflow"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "apalis",
  "apalis-codec",
@@ -2933,7 +2933,7 @@ dependencies = [
 
 [[package]]
 name = "task-context"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "apalis",
  "serde",
@@ -3171,7 +3171,7 @@ dependencies = [
 
 [[package]]
 name = "tracing-example"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "apalis",
@@ -3289,7 +3289,7 @@ checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "unique-jobs-example"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "apalis",
@@ -3302,7 +3302,7 @@ dependencies = [
 
 [[package]]
 name = "unmonitored-worker"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "apalis",
  "serde",
@@ -3712,7 +3712,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "worker-context"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "apalis",
  "serde",
