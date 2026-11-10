@@ -2,21 +2,21 @@ name: Update Changelog
 
 on:
   pull_request:
-    types: [opened, edited]
+    types: [opened, reopened, edited]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   update-changelog:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@master
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
+          token: ${{ secrets.CHANGELOG_TOKEN }}
 
       - name: Setup git
         run: |
@@ -24,67 +24,60 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Update CHANGELOG
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
         run: |
-          PR_TITLE="${{ github.event.pull_request.title }}"
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-          REPO="${{ github.repository }}"
-          EVENT="${{ github.event.action }}"
-
-          FORMATTED_TITLE="$(echo "$PR_TITLE" | sed -E 's/^([a-zA-Z0-9_-]+):/*\1*:/')"
+          FORMATTED_TITLE="$(echo "$PR_TITLE" | sed -E 's/^([a-zA-Z0-9_-]+(\([^)]*\))?):/*\1*:/')"
           CHANGELOG_ENTRY="- ${FORMATTED_TITLE} ([#${PR_NUMBER}](https://github.com/${REPO}/pull/${PR_NUMBER}))"
-
-          # Pattern to match an existing entry for this PR number (anywhere in the file)
           PR_PATTERN="(#${PR_NUMBER})"
 
-          if [ "$EVENT" = "opened" ]; then
-            # On open: only insert if no entry for this PR number already exists
-            if grep -qF "$PR_PATTERN" CHANGELOG.md; then
-              echo "Changelog entry for #${PR_NUMBER} already exists, skipping."
-            else
-              awk -v entry="$CHANGELOG_ENTRY" '
-                /^## \[Unreleased\]$/ {
-                  print
-                  print ""
-                  print entry
-                  skip_blank=1
-                  next
-                }
-                skip_blank && /^$/ { skip_blank=0; next }
-                { skip_blank=0; print }
-              ' CHANGELOG.md > CHANGELOG.md.tmp
-              mv CHANGELOG.md.tmp CHANGELOG.md
-            fi
-
-          elif [ "$EVENT" = "edited" ]; then
-            # On edit: replace the existing entry, or insert if it doesn't exist yet
-            if grep -qF "$PR_PATTERN" CHANGELOG.md; then
-              # Replace the specific line that references this PR number
-              awk -v entry="$CHANGELOG_ENTRY" -v pattern="$PR_PATTERN" '
-                index($0, pattern) { print entry; next }
-                { print }
-              ' CHANGELOG.md > CHANGELOG.md.tmp
-              mv CHANGELOG.md.tmp CHANGELOG.md
-            else
-              echo "No existing entry for #${PR_NUMBER}, inserting under [Unreleased]."
-              awk -v entry="$CHANGELOG_ENTRY" '
-                /^## \[Unreleased\]$/ {
-                  print
-                  print ""
-                  print entry
-                  skip_blank=1
-                  next
-                }
-                skip_blank && /^$/ { skip_blank=0; next }
-                { skip_blank=0; print }
-              ' CHANGELOG.md > CHANGELOG.md.tmp
-              mv CHANGELOG.md.tmp CHANGELOG.md
-            fi
+          if grep -qF "$PR_PATTERN" CHANGELOG.md; then
+            # Entry exists: replace it with the current title
+            awk -v entry="$CHANGELOG_ENTRY" -v pattern="$PR_PATTERN" '
+              index($0, pattern) { print entry; next }
+              { print }
+            ' CHANGELOG.md > CHANGELOG.md.tmp
+          else
+            # No entry yet: insert under [Unreleased]
+            awk -v entry="$CHANGELOG_ENTRY" '
+              /^## \[Unreleased\]$/ {
+                print
+                print ""
+                print entry
+                skip_blank=1
+                next
+              }
+              skip_blank && /^$/ { skip_blank=0; next }
+              { skip_blank=0; print }
+            ' CHANGELOG.md > CHANGELOG.md.tmp
           fi
+          mv CHANGELOG.md.tmp CHANGELOG.md
 
-      - name: Commit CHANGELOG changes
+      - name: Commit and push
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           git add CHANGELOG.md
-          git commit -m "docs: update CHANGELOG for PR #${{ github.event.pull_request.number }}" || echo "No changes to commit"
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "docs: update CHANGELOG for PR #${PR_NUMBER}"
+          git push origin "HEAD:${HEAD_REF}"
 
-      - name: Push commits
-        run: git push origin HEAD:${{ github.event.pull_request.head.ref }}
+  automerge:
+    needs: update-changelog
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Enable auto-merge
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.AUTO_MERGE_TOKEN }}

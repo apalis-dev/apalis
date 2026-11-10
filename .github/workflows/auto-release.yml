@@ -1,0 +1,149 @@
+name: Weekly Release
+
+on:
+  schedule:
+    - cron: "0 0 * * 6" # Sat 00:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weekly-release
+  cancel-in-progress: false
+
+jobs:
+  release-branch:
+    runs-on: ubuntu-latest
+    outputs:
+      has_changes: ${{ steps.check.outputs.has_changes }}
+      tag: ${{ steps.bump.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.AUTO_RELEASE_TOKEN }}
+
+      - name: Setup git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Check for unreleased changes
+        id: check
+        run: |
+          if awk '
+            /^## \[Unreleased\]$/ { in_section=1; next }
+            /^## / && in_section { exit }
+            in_section && NF { found=1 }
+            END { exit !found }
+          ' CHANGELOG.md; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "Nothing under [Unreleased], skipping release."
+          fi
+
+      - name: Install Rust toolchain
+        if: steps.check.outputs.has_changes == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-edit
+        if: steps.check.outputs.has_changes == 'true'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-edit
+
+      - name: Bump workspace version
+        if: steps.check.outputs.has_changes == 'true'
+        id: bump
+        run: |
+          cargo set-version --workspace --bump minor
+          NEW_VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
+          echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${NEW_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Stamp CHANGELOG
+        if: steps.check.outputs.has_changes == 'true'
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+          TAG: ${{ steps.bump.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          HEADING="## [${VERSION}](https://github.com/${REPO}/releases/tag/${TAG})"
+          awk -v heading="$HEADING" '
+            /^## \[Unreleased\]$/ {
+              print
+              print ""
+              print heading
+              next
+            }
+            { print }
+          ' CHANGELOG.md > CHANGELOG.md.tmp
+          mv CHANGELOG.md.tmp CHANGELOG.md
+
+      - name: Push branch, open PR, enable auto-merge
+        if: steps.check.outputs.has_changes == 'true'
+        env:
+          TAG: ${{ steps.bump.outputs.tag }}
+          GH_TOKEN: ${{ secrets.AUTO_RELEASE_TOKEN }}
+        run: |
+          BRANCH="release/${TAG}"
+          git switch -c "$BRANCH"
+          git add -A Cargo.toml Cargo.lock CHANGELOG.md
+          git add -u -- '*Cargo.toml'
+          git commit -m "bump: to ${TAG}"
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "bump: to ${TAG}" \
+            --body "Automated weekly release."
+
+          gh pr merge "$BRANCH" --auto --squash
+
+  tag:
+    needs: release-branch
+    if: needs.release-branch.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Wait for PR to pass and auto-merge
+        id: wait
+        env:
+          BRANCH: release/${{ needs.release-branch.outputs.tag }}
+          GH_TOKEN: ${{ secrets.AUTO_RELEASE_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          while true; do
+            STATE="$(gh pr view "$BRANCH" --json state --jq .state)"
+            case "$STATE" in
+              MERGED)
+                SHA="$(gh pr view "$BRANCH" --json mergeCommit --jq .mergeCommit.oid)"
+                echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+                exit 0 ;;
+              CLOSED)
+                echo "::error::Release PR was closed without merging."
+                exit 1 ;;
+            esac
+            sleep 30
+          done
+
+      - name: Switch to main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.AUTO_RELEASE_TOKEN }}
+
+      - name: Create tag
+        env:
+          TAG: ${{ needs.release-branch.outputs.tag }}
+          SHA: ${{ steps.wait.outputs.sha }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "$TAG" "$SHA"
+          git push origin "$TAG"

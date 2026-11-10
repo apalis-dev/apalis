@@ -42,5 +42,5 @@ dashmap = "6.2.1"
 tracing = { version = "0.1.44", default-features = false, optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread", "sync"] }
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "sync"] }
 apalis-file-storage = { path = "../utils/apalis-file-storage" }
