@@ -166,7 +166,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "advanced-example"
-version = "1.2.0"
+version = "1.1.0"
 dependencies = [
  "apalis",
  "email-service",
