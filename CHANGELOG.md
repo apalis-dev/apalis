@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
-- fix(cd): allow releases descriptions to be handled correctly ([#812](https://github.com/apalis-dev/apalis/pull/812))
+- fix(cd): allow release descriptions to be handled correctly ([#812](https://github.com/apalis-dev/apalis/pull/812))
 - fix(core): `Monitor::run_with_signal` reports worker and signal errors when a shutdown timeout is set ([#806](https://github.com/apalis-dev/apalis/pull/806))
 
 ## [1.1.0](https://github.com/apalis-dev/apalis/releases/tag/v1.1.0)
