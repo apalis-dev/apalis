@@ -145,7 +145,7 @@ use std::{
 
 use futures_util::{
     Future, FutureExt, StreamExt,
-    future::{BoxFuture, Shared},
+    future::{BoxFuture, Either, Shared},
     stream::FuturesUnordered,
 };
 use tower_layer::Layer;
@@ -511,7 +511,9 @@ impl Monitor {
     ///
     /// # Errors
     ///
-    /// If the monitor fails to shutdown gracefully, an `std::io::Error` will be returned.
+    /// Returns [`MonitorError::ShutdownSignal`] if `signal` resolves to an error, otherwise
+    /// [`MonitorError::ExitError`] if any worker exited with an error. Both are reported
+    /// whether or not a shutdown timeout is set.
     ///
     /// # Remarks
     ///
@@ -530,16 +532,28 @@ impl Monitor {
             res
         };
         if let Some(terminator) = self.terminator {
-            let _res = futures_util::future::select(
-                Self::run_all_workers(self.workers, shutdown).boxed(),
-                async {
-                    let res = shutdown_after.await;
-                    terminator.await;
-                    res.map_err(MonitorError::ShutdownSignal)
-                }
-                .boxed(),
-            )
-            .await;
+            let workers = Self::run_all_workers(self.workers, shutdown).boxed();
+            let (workers, signal_error) =
+                match futures_util::future::select(workers, shutdown_after.boxed()).await {
+                    // The workers finished before any signal arrived.
+                    Either::Left((result, _)) => (result, None),
+                    Either::Right((signal_result, workers)) => {
+                        // The signal has triggered shutdown; now wait for the workers or the timeout.
+                        let workers = match futures_util::future::select(workers, terminator).await
+                        {
+                            Either::Left((result, _)) => result,
+                            // The terminator fired with workers still running: a forced exit,
+                            // not an error.
+                            Either::Right(((), _)) => Ok(()),
+                        };
+                        (workers, signal_result.err())
+                    }
+                };
+            // Same precedence as the branch without a terminator: signal, then workers.
+            if let Some(error) = signal_error {
+                return Err(MonitorError::ShutdownSignal(error));
+            }
+            workers?;
         } else {
             let runner = self.run();
             let res = futures_util::join!(shutdown_after, runner); // If no terminator is provided, we wait for both the shutdown call and all workers to complete
@@ -558,7 +572,7 @@ impl Monitor {
     ///
     /// # Errors
     ///
-    /// If the monitor fails to run gracefully, an `std::io::Error` will be returned.
+    /// If the monitor fails to run gracefully, a `MonitorError` will be returned.
     ///
     /// # Remarks
     ///
@@ -942,6 +956,91 @@ mod tests {
             completed.load(Ordering::SeqCst),
             "shutdown cut short the in-flight task"
         );
+    }
+
+    /// With a shutdown timeout set, a worker that exits with an error must still
+    /// surface that error from `run_with_signal`.
+    #[tokio::test]
+    async fn run_with_signal_reports_worker_errors_with_a_timeout() {
+        let mut backend = VecDequeBackend::new();
+        backend.push(1u32).await.unwrap();
+
+        let monitor = Monitor::new()
+            .shutdown_timeout(Duration::from_secs(5))
+            .register(move |_| {
+                WorkerBuilder::new("failing")
+                    .backend(backend.clone())
+                    .build(|r: u32| async move {
+                        if r == 1 {
+                            panic!("task failed");
+                        }
+                    })
+            });
+
+        // A signal that never arrives: the workers must end the run on their own.
+        let signal = std::future::pending::<io::Result<()>>();
+        let result =
+            tokio::time::timeout(Duration::from_secs(5), monitor.run_with_signal(signal)).await;
+
+        let exit = result.expect("monitor did not return after its only worker failed");
+        assert!(
+            matches!(exit, Err(MonitorError::ExitError(_))),
+            "expected the worker error, got {exit:?}"
+        );
+    }
+
+    /// With a shutdown timeout set, a failing shutdown signal must be reported.
+    #[tokio::test]
+    async fn run_with_signal_reports_signal_errors_with_a_timeout() {
+        use crate::backend::memory::MemoryStorage;
+
+        let monitor = Monitor::new()
+            .shutdown_timeout(Duration::from_secs(5))
+            .register(|_| {
+                WorkerBuilder::new("idle")
+                    .backend(MemoryStorage::<u32>::new())
+                    .build(|_: u32| async {})
+            });
+
+        let signal = async {
+            sleep(Duration::from_millis(50)).await;
+            Err(io::Error::other("signal handler failed"))
+        };
+        let result =
+            tokio::time::timeout(Duration::from_secs(5), monitor.run_with_signal(signal)).await;
+
+        let exit = result.expect("monitor did not shut down after the signal");
+        assert!(
+            matches!(exit, Err(MonitorError::ShutdownSignal(_))),
+            "expected the signal error, got {exit:?}"
+        );
+    }
+
+    /// With a shutdown timeout set, a worker still busy when the timeout fires is a
+    /// forced exit: `run_with_signal` returns `Ok` rather than waiting on it.
+    #[tokio::test]
+    async fn run_with_signal_forces_exit_when_the_timeout_fires_with_work_in_flight() {
+        let mut backend = VecDequeBackend::new();
+        backend.push(1u32).await.unwrap();
+
+        let monitor = Monitor::new()
+            .shutdown_timeout(Duration::from_millis(200))
+            .register(move |_| {
+                WorkerBuilder::new("stuck")
+                    .backend(backend.clone())
+                    .build(|_: u32| std::future::pending::<()>())
+            });
+
+        // Late enough that the worker has picked up its task before shutdown starts.
+        let signal = async {
+            sleep(Duration::from_millis(100)).await;
+            Ok(())
+        };
+        let result =
+            tokio::time::timeout(Duration::from_secs(5), monitor.run_with_signal(signal)).await;
+
+        let exit = result.expect("monitor waited on a stuck worker past its shutdown timeout");
+        assert!(exit.is_ok(), "expected a forced exit, got {exit:?}");
     }
 
     /// A restart must hand control back to the executor instead of re-polling the

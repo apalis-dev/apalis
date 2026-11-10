@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- fix(core): `Monitor::run_with_signal` reports worker and signal errors when a shutdown timeout is set ([#804](https://github.com/apalis-dev/apalis/issues/804))
+
 ## [1.1.0](https://github.com/apalis-dev/apalis/releases/tag/v1.1.0)
 
 - *ci(deps)*: bump actions/checkout from 4 to 7 ([#753](https://github.com/apalis-dev/apalis/pull/753))
