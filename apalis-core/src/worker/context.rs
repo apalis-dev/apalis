@@ -457,6 +457,7 @@ impl WorkerContext {
 
     /// Remove the token once the task completes, to avoid unbounded growth.
     #[cfg(not(feature = "task-context"))]
+    #[allow(clippy::trivially_copy_pass_by_ref)]
     pub(super) fn remove_task(&self, _: &()) -> Result<(), WorkerError> {
         self.tasks.fetch_sub(1, Ordering::SeqCst);
         Ok(())

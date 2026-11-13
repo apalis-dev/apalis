@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+// TODO: @geofmureithi: Remove the deprecated error types and their usage in the future. The `DeferredError` type is no longer necessary, and the `RetryAfterError` can be handled differently to indicate that a task should be retried later.
 use std::{
     error::Error as StdError,
     marker::PhantomData,
@@ -28,7 +30,7 @@ impl AbortError {
 /// Execution should be retried after a specific duration
 /// This increases the attempts
 #[derive(Error, Debug)]
-#[error("RetryError: {source}")]
+#[error("RetryAfterError: {source}, duration: {duration:?}")]
 pub struct RetryAfterError {
     #[source]
     source: BoxDynError,
@@ -52,6 +54,11 @@ impl RetryAfterError {
 }
 
 /// Execution should be deferred, will be retried instantly
+#[deprecated(
+    since = "1.1.1",
+    note = "This error type is deprecated and will be removed in a future release. Returning a `BoxDynError` or a custom error directly is now the preferred way to indicate that a task should be retried."
+)]
+#[allow(deprecated)]
 #[derive(Error, Debug)]
 #[error("DeferredError: {source}")]
 pub struct DeferredError {
@@ -59,6 +66,7 @@ pub struct DeferredError {
     source: BoxDynError,
 }
 
+#[allow(deprecated)]
 impl DeferredError {
     /// Compose a new Deferred error
     pub fn new<E: Into<BoxDynError>>(source: E) -> Self {

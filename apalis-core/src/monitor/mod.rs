@@ -469,6 +469,7 @@ impl Monitor {
     /// .await;
     /// # }
     /// ```
+    #[must_use]
     pub fn register_n<Args, S, FB, M>(
         mut self,
         count: usize,

@@ -16,9 +16,8 @@ sentry-tracing = { version = "0.49.5", features = ["logs"] }
 tokio = { version = "1", features = ["full"] }
 email-service = { path = "../email-service" }
 
-
 [dependencies.tracing]
 default-features = false
 version = "0.1"
 
-
+[lints]

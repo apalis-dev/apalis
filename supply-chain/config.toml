@@ -138,7 +138,7 @@ version = "0.6.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.bumpalo]]
-version = "3.20.3"
+version = "3.20.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.byteorder]]
@@ -154,7 +154,7 @@ version = "1.6.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.cc]]
-version = "1.11.1"
+version = "1.11.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.cfg-if]]
@@ -258,7 +258,7 @@ version = "1.0.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.errno]]
-version = "0.3.14"
+version = "0.3.15"
 criteria = "safe-to-deploy"
 
 [[exemptions.evmap]]
@@ -586,7 +586,7 @@ version = "0.9.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.mio]]
-version = "1.2.4"
+version = "1.2.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.multiversion_no_op]]
@@ -874,11 +874,11 @@ version = "0.8.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.rustls-pki-types]]
-version = "1.15.1"
+version = "1.16.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.rustls-webpki]]
-version = "0.103.16"
+version = "0.103.17"
 criteria = "safe-to-deploy"
 
 [[exemptions.rustversion]]
@@ -1170,7 +1170,7 @@ version = "0.0.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.ureq]]
-version = "3.5.1"
+version = "3.5.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.ureq-proto]]
@@ -1250,7 +1250,7 @@ version = "1.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.webpki-root-certs]]
-version = "1.0.11"
+version = "1.0.12"
 criteria = "safe-to-deploy"
 
 [[exemptions.winapi]]

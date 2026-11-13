@@ -8,10 +8,14 @@ repository.workspace = true
 
 [dependencies]
 anyhow = "1"
-apalis = { path = "../../apalis", features = ["opentelemetry", "limit", "task-context"] }
+apalis = { path = "../../apalis", features = [
+    "opentelemetry",
+    "limit",
+    "task-context",
+] }
 tokio = { version = "1", features = ["full"] }
 email-service = { path = "../email-service" }
 rand = "0.10"
 apalis-file-storage = { path = "../../utils/apalis-file-storage" }
 
-
+[lints]

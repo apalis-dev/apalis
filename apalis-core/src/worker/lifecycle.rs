@@ -18,7 +18,7 @@ use tower_layer::Layer;
 use tower_service::Service;
 
 use crate::{
-    error::{AbortError, BoxDynError, DeferredError, RetryAfterError},
+    error::{AbortError, BoxDynError},
     task::{
         Task,
         attempt::Attempt,
@@ -203,11 +203,11 @@ where
                     Ok(_) => Status::Done,
                     Err(ref e) => match e {
                         e if e.downcast_ref::<AbortError>().is_some() => Status::Killed,
-                        e if (e.downcast_ref::<RetryAfterError>().is_some()
-                            || e.downcast_ref::<DeferredError>().is_some()) =>
-                        {
-                            Status::Pending
-                        }
+                        // TODO: @geofmureithi: We should consider adding a `Retry` status to indicate that the task should be retried later, rather than marking it as failed.
+                        // This would allow for more nuanced handling of transient errors.
+                        // Regardless a backend should move the task to a retry queue or similar mechanism if it wants to retry it later.
+                        //
+                        // e if e.downcast_ref::<RetryAfterError>().is_some() => Status::Retry,
                         _ => Status::Failed,
                     },
                 };
