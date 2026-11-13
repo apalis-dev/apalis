@@ -24,7 +24,7 @@ jobs:
       has_changes: ${{ steps.check.outputs.has_changes }}
       tag: ${{ steps.bump.outputs.tag }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           ref: main
           fetch-depth: 0
@@ -181,7 +181,7 @@ jobs:
           done
 
       - name: Switch to main
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           ref: main
           fetch-depth: 0
