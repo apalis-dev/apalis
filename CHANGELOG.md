@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- *ci(deps)*: bump actions/checkout from 6.1.0 to 7.0.1 ([#815](https://github.com/apalis-dev/apalis/pull/815))
 - chore: update clippy fixes for rust v1.100.x ([#816](https://github.com/apalis-dev/apalis/pull/816))
 
 ## [1.1.1](https://github.com/apalis-dev/apalis/releases/tag/v1.1.1)
