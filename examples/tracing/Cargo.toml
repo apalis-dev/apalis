@@ -27,4 +27,4 @@ default-features = false
 version = "0.1"
 features = ["attributes"]
 
-
+[lints]

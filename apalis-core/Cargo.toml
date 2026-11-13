@@ -33,9 +33,9 @@ thiserror = "2.0.21"
 rand = { version = "0.10", features = ["std"] }
 futures-timer = { version = "3.0.4", optional = true }
 tracing = { version = "0.1.44", default-features = false, optional = true }
-ulid = { version = "3", optional = true, features = ["uuid"]}
+ulid = { version = "3", optional = true, features = ["uuid"] }
 uuid = { version = "1.29.2", features = ["v4", "v5"], optional = true }
-dashmap = { version = "6.2.1", default-features = false, optional = true}
+dashmap = { version = "6.2.1", default-features = false, optional = true }
 
 
 [dependencies.document-features]
@@ -79,4 +79,5 @@ tokio = { version = "1.54.1", features = [
 ] }
 tower = { version = "0.5", features = ["full"] }
 
-
+[lints]
+workspace = true

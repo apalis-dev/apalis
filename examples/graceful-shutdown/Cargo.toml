@@ -20,4 +20,6 @@ tower = "0.5"
 default-features = false
 version = "0.1"
 
+[lints]
+
 

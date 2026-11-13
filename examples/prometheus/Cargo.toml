@@ -19,5 +19,4 @@ metrics-exporter-prometheus = "0.18.3"
 email-service = { path = "../email-service" }
 apalis-file-storage = { path = "../../utils/apalis-file-storage" }
 
-
-
+[lints]

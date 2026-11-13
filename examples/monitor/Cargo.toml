@@ -20,4 +20,6 @@ apalis-file-storage = { path = "../../utils/apalis-file-storage" }
 default-features = false
 version = "0.1"
 
+[lints]
+
 

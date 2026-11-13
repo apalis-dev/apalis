@@ -13,4 +13,4 @@ apalis = { path = "../../apalis", features = ["tracing", "task-context"] }
 serde = "1"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
-
+[lints]

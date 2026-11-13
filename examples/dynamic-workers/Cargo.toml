@@ -39,4 +39,3 @@ name = "from-config"
 path = "src/from_config.rs"
 
 [lints]
-rust.missing_docs = "allow"

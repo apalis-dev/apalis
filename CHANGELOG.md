@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- chore: update clippy fixes for rust v1.100.x ([#816](https://github.com/apalis-dev/apalis/pull/816))
+
 ## [1.1.1](https://github.com/apalis-dev/apalis/releases/tag/v1.1.1)
 
 - fix(cd): allow release descriptions to be handled correctly ([#812](https://github.com/apalis-dev/apalis/pull/812))

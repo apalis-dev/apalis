@@ -91,13 +91,7 @@ async fn main() -> Result<()> {
         // Define when a worker should restart
         .should_restart(|wrk, err| {
             let runs = wrk.restarts();
-            if wrk.name() == "tasty-pear"
-                && err.to_string().contains("Recoverable Error")
-                && runs < 5
-            {
-                return true;
-            }
-            false
+            wrk.name() == "tasty-pear" && err.to_string().contains("Recoverable Error") && runs < 5
         })
         // Graceful shutdown will wait 5s before forcing an exit if workers have not stopped
         .shutdown_timeout(Duration::from_secs(5))

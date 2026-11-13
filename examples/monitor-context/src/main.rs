@@ -82,13 +82,9 @@ async fn main() -> Result<()> {
         })
         .should_restart(|wrk, err| {
             let runs = wrk.restarts();
-            if wrk.name() == "tasty-pear"
+            !(wrk.name() == "tasty-pear"
                 && err.to_string().contains("Recoverable Error")
-                && runs < 5
-            {
-                return false;
-            }
-            true
+                && runs < 5)
         })
         .shutdown_timeout(Duration::from_secs(5));
     let ctx = monitor.context();

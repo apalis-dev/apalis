@@ -31,7 +31,7 @@ tracing = ["dep:tracing", "apalis-core/tracing"]
 ## Support for Sentry exception and performance monitoring
 sentry = ["dep:sentry-core", "dep:ulid", "dep:uuid", "apalis-core/uuid"]
 ## Support Prometheus metrics
-prometheus = ["dep:metrics", "dep:metrics-exporter-prometheus"]
+prometheus = ["dep:metrics"]
 ## Support OpenTelemetry metrics
 opentelemetry = [
   "dep:opentelemetry",
@@ -72,7 +72,7 @@ full = [
   "filter",
   "catch-panic",
   "config",
-  "task-context"
+  "task-context",
 ]
 
 docsrs = ["document-features"]
@@ -90,7 +90,6 @@ optional = true
 tower = { version = "0.5.3", features = ["util"], default-features = false }
 sentry-core = { version = "0.49.5", optional = true, default-features = false }
 metrics = { version = "0.24.6", optional = true, default-features = false }
-metrics-exporter-prometheus = { version = "0.18.3", optional = true, default-features = false }
 opentelemetry = { version = "0.33.1", optional = true, default-features = false, features = [
   "metrics",
 ] }
@@ -131,3 +130,6 @@ apalis-file-storage = { path = "../utils/apalis-file-storage" } # For README
 # defines the configuration attribute `docsrs`
 rustdoc-args = ["--cfg", "docsrs"]
 all-features = true
+
+[lints]
+workspace = true
