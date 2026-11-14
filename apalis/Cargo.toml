@@ -1,6 +1,6 @@
 [package]
 name = "apalis"
-version = "1.1.1"
+version = "1.2.0"
 authors = ["Geoffrey Mureithi <mureithinjuguna@gmail.com>"]
 description = "Simple, extensible and multithreaded background task processing for Rust"
 edition.workspace = true
@@ -78,7 +78,7 @@ full = [
 docsrs = ["document-features"]
 
 [dependencies.apalis-core]
-version = "1.1.1"
+version = "1.2.0"
 default-features = false
 path = "../apalis-core"
 
@@ -109,7 +109,7 @@ version = "0.1.44"
 optional = true
 
 [dev-dependencies]
-apalis-core = { path = "../apalis-core", version = "1.1.1" }
+apalis-core = { path = "../apalis-core", version = "1.2.0" }
 serde = "1"
 tokio = { version = "1", features = ["full"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = [
@@ -123,7 +123,7 @@ opentelemetry_sdk = { version = "0.33.1", default-features = false, features = [
 ] }
 tracing-opentelemetry = { version = "0.34.0", default-features = false }
 futures = "0.3"
-apalis-workflow = { path = "../apalis-workflow", version = "1.1.1" } # For README
+apalis-workflow = { path = "../apalis-workflow", version = "1.2.0" } # For README
 apalis-file-storage = { path = "../utils/apalis-file-storage" } # For README
 
 [package.metadata.docs.rs]
