@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- *deps(deps)*: bump uuid from 1.29.2 to 1.29.3 ([#819](https://github.com/apalis-dev/apalis/pull/819))
 ## [1.2.0](https://github.com/apalis-dev/apalis/releases/tag/v1.2.0)
 
 - *ci(deps)*: bump actions/checkout from 6.1.0 to 7.0.1 ([#815](https://github.com/apalis-dev/apalis/pull/815))
