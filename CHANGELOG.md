@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- *deps(deps)*: bump email_address from 0.2.9 to 0.2.10 ([#821](https://github.com/apalis-dev/apalis/pull/821))
 ## [1.2.0](https://github.com/apalis-dev/apalis/releases/tag/v1.2.0)
 
 - *ci(deps)*: bump actions/checkout from 6.1.0 to 7.0.1 ([#815](https://github.com/apalis-dev/apalis/pull/815))
