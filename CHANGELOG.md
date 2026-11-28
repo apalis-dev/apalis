@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- *ci(deps)*: bump sentry, uuid, rand and anyhow ([#828](https://github.com/apalis-dev/apalis/pull/828))
+
 ## [1.2.0](https://github.com/apalis-dev/apalis/releases/tag/v1.2.0)
 
 - *ci(deps)*: bump actions/checkout from 6.1.0 to 7.0.1 ([#815](https://github.com/apalis-dev/apalis/pull/815))

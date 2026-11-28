@@ -10,9 +10,9 @@ anyhow = "1"
 apalis = { path = "../../apalis", features = ["sentry"] }
 serde = "1"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-sentry = "0.49.5"
-sentry-tower = "0.49.5"
-sentry-tracing = { version = "0.49.5", features = ["logs"] }
+sentry = "0.49.6"
+sentry-tower = "0.49.6"
+sentry-tracing = { version = "0.49.6", features = ["logs"] }
 tokio = { version = "1", features = ["full"] }
 email-service = { path = "../email-service" }
 
