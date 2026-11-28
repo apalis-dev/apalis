@@ -30,7 +30,7 @@ use tower::Service;
 use crate::GraphFlow;
 use crate::NodeService;
 use crate::graph::NodeInput;
-use crate::graph::context::GraphFlowContext;
+use crate::graph::context::{GraphFlowContext, GraphFlowContextError};
 use crate::graph::error::{GraphFlowError, GraphServiceError};
 use crate::graph::response::GraphNodeResponse;
 
@@ -208,7 +208,15 @@ where
         req.inject_data(codec); // Inject codec
 
         async move {
-            let ctx = req.extract::<Meta<GraphFlowContext>>().await;
+            // Only a missing current node means this is an entry task. Any other
+            // error means the task carries graph metadata that could not be read,
+            // so report it instead of restarting the task as a new entry.
+            let ctx = match req.extract::<Meta<GraphFlowContext>>().await {
+                Err(e) if !matches!(e, GraphFlowContextError::MissingCurrentNode) => {
+                    return Err(GraphFlowError::MetadataError(e));
+                }
+                ctx => ctx,
+            };
             let ((compact, response), context) = if let Ok(Meta(context)) = ctx {
                 #[cfg(feature = "tracing")]
                 tracing::debug!(
