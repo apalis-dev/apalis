@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     num::ParseIntError,
+    str::ParseBoolError,
 };
 
 use apalis_core::{
@@ -118,6 +119,10 @@ pub enum GraphFlowContextError {
     #[error("could not parse task id: {0}")]
     ParseTaskId(BoxDynError),
 
+    /// Could not parse the initial flag
+    #[error("could not parse {DAG_FLOW_IS_INITIAL_KEY}")]
+    ParseIsInitial(#[from] ParseBoolError),
+
     /// Duplicate entry
     #[error("Duplicate entry: {0}")]
     DuplicateEntry(#[from] MetadataError),
@@ -183,8 +188,7 @@ impl Metadata for GraphFlowContext {
         let is_initial = map
             .get(DAG_FLOW_IS_INITIAL_KEY)
             .map(|v| v.parse::<bool>())
-            .transpose()
-            .unwrap_or(None)
+            .transpose()?
             .unwrap_or(true);
 
         let root_task_id = map
@@ -243,12 +247,57 @@ impl Metadata for GraphFlowContext {
             self.current_position.to_string(),
         )?;
 
-        map.insert(DAG_FLOW_IS_INITIAL_KEY, self.is_initial.to_string())
-            .expect("A value already exists");
+        map.insert(DAG_FLOW_IS_INITIAL_KEY, self.is_initial.to_string())?;
 
         if let Some(root_task_id) = &self.root_task_id {
             map.insert(DAG_FLOW_ROOT_TASK_ID_KEY, root_task_id.to_string())?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inject_returns_error_for_duplicate_is_initial_key() {
+        let mut store = MetadataStore::new();
+        store.insert(DAG_FLOW_IS_INITIAL_KEY, "true").unwrap();
+
+        let result = GraphFlowContext::new(None).inject(&mut store);
+
+        assert!(matches!(
+            result,
+            Err(GraphFlowContextError::DuplicateEntry(
+                MetadataError::DuplicateKey(ref key)
+            )) if key == DAG_FLOW_IS_INITIAL_KEY
+        ));
+    }
+
+    #[test]
+    fn extract_returns_error_for_malformed_is_initial_key() {
+        let mut store = MetadataStore::new();
+        store.insert(DAG_FLOW_CURRENT_NODE_KEY, "0").unwrap();
+        store.insert(DAG_FLOW_CURRENT_POSITION_KEY, "0").unwrap();
+        store.insert(DAG_FLOW_IS_INITIAL_KEY, "trueish").unwrap();
+
+        let result = GraphFlowContext::extract(&store);
+
+        assert!(matches!(
+            result,
+            Err(GraphFlowContextError::ParseIsInitial(_))
+        ));
+    }
+
+    #[test]
+    fn extract_defaults_is_initial_to_true_when_absent() {
+        let mut store = MetadataStore::new();
+        store.insert(DAG_FLOW_CURRENT_NODE_KEY, "0").unwrap();
+        store.insert(DAG_FLOW_CURRENT_POSITION_KEY, "0").unwrap();
+
+        let context = GraphFlowContext::extract(&store).unwrap();
+
+        assert!(context.is_initial);
     }
 }
