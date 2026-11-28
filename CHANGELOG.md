@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- fix(workflow): a graph task whose metadata cannot be read now reports the real `GraphFlowContextError` instead of restarting as an entry task and failing with `DuplicateEntry` ([#830](https://github.com/apalis-dev/apalis/pull/830))
+
 ## [1.3.0](https://github.com/apalis-dev/apalis/releases/tag/v1.3.0)
 
 - *ci(deps)*: bump sentry, uuid, rand and anyhow ([#828](https://github.com/apalis-dev/apalis/pull/828))
