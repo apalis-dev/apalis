@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.3.0](https://github.com/apalis-dev/apalis/releases/tag/v1.3.0)
+
 - *ci(deps)*: bump sentry, uuid, rand and anyhow ([#828](https://github.com/apalis-dev/apalis/pull/828))
 - fix(workflow): `GraphFlowContext` reports duplicate and malformed `is_initial` metadata instead of panicking or falling back to `true` ([#826](https://github.com/apalis-dev/apalis/issues/826))
 
